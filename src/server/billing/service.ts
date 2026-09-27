@@ -5,7 +5,7 @@ import { appUrl } from "@/server/auth";
 import { getDb } from "@/server/db";
 import { plans, subscriptions, users, type BillingPeriod, type Subscription, type Tier } from "@/server/db/schema";
 import { trackEvent } from "@/server/analytics";
-import { billingMode, PERIOD_DAYS } from "./config";
+import { billingMode, PERIOD_DAYS, stripePriceEnv } from "./config";
 
 const ENTITLED_STATUSES = ["active", "trialing", "past_due"] as const;
 
@@ -64,12 +64,13 @@ export async function startCheckout(user: { id: string; email: string }, tier: T
   if (billingMode() === "mock") {
     return { url: `/billing/mock-checkout?tier=${tier}&period=${period}` };
   }
-  if (!plan.providerPriceId) throw new Error(`No Stripe price configured for ${tier}/${period}`);
+  const priceId = plan.providerPriceId ?? process.env[stripePriceEnv(tier, period)];
+  if (!priceId) throw new Error(`No Stripe price configured for ${tier}/${period} (set ${stripePriceEnv(tier, period)})`);
   const stripe = await getStripe();
   const existing = await getEntitledSubscription(user.id);
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
-    line_items: [{ price: plan.providerPriceId, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
     customer: existing?.providerCustomerId ?? undefined,
     customer_email: existing?.providerCustomerId ? undefined : user.email,
     client_reference_id: user.id,
