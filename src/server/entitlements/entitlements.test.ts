@@ -1,0 +1,218 @@
+import { describe, expect, it } from "vitest";
+import type { Signal, SignalOutcome, SignalTarget } from "@/server/db/schema";
+import { presentSignalDetail, presentSourceStats } from "@/server/presenters";
+import { computeSourceStatistics } from "@/server/statistics/compute";
+import { ANONYMOUS, buildAccess, can, gate, historyCutoff, lowestTierWith, requireFeature } from "./access";
+import { DEFAULT_TIER_CONFIG, type TierConfig } from "./config";
+
+const config = DEFAULT_TIER_CONFIG;
+const silver = buildAccess("silver", config);
+const gold = buildAccess("gold", config);
+const platinum = buildAccess("platinum", config);
+
+const now = new Date("2026-02-01T12:00:00Z");
+const signal: Signal = {
+  id: "sig1",
+  sourceId: "src1",
+  originEventId: "ev1",
+  instrument: "XAUUSD",
+  direction: "LONG",
+  entryType: "ZONE",
+  signalType: "pullback",
+  entryMin: 3399,
+  entryMax: 3400,
+  stopLoss: 3395,
+  status: "WON",
+  signalTime: now,
+  expiryTime: null,
+  closedAt: now,
+  sourceConfidenceText: null,
+  parserConfidence: 1,
+  version: 1,
+  createdAt: now,
+  updatedAt: now,
+};
+const targets: SignalTarget[] = [{ id: "t1", signalId: "sig1", targetIndex: 1, price: 3405, hitAt: now, status: "HIT" }];
+const outcome: SignalOutcome = {
+  id: "o1",
+  signalId: "sig1",
+  calcVersion: "outcome-v1",
+  signalVersion: 1,
+  kind: "computed",
+  isCurrent: true,
+  classification: "WON",
+  entered: true,
+  entryTime: now,
+  entryPrice: 3400,
+  exitTime: now,
+  exitReason: "TARGETS",
+  stopHitAt: null,
+  rResult: 1,
+  mfe: 5,
+  mae: 2,
+  mfeR: 1,
+  maeR: 0.4,
+  bestPrice: 3405,
+  worstPrice: 3398,
+  durationMinutes: 30,
+  ambiguous: false,
+  detailJson: { timeline: [{ t: 1, type: "ENTRY" }], targets: [{ index: 1, minutesFromEntry: 30, ambiguous: false }], risk: 5 },
+  overrideReason: null,
+  createdBy: "engine",
+  computedAt: now,
+};
+const analysis = {
+  id: "a1",
+  signalId: "sig1",
+  sourceId: null,
+  analysisType: "signal_setup" as const,
+  model: "mock",
+  promptVersion: "signal-setup-v1",
+  inputHash: "h",
+  inputJson: {},
+  outputJson: {
+    setupClassification: { label: "SECRET_LABEL", confidence: 0.7, rationale: "r" },
+    summary: "SECRET_SUMMARY",
+    patternTags: ["SECRET_TAG"],
+    marketContextTags: [],
+    similarPatternExplanation: "",
+    sourceStrengths: [],
+    sourceWeaknesses: [],
+    factsReferenced: [],
+  },
+  isCurrent: true,
+  createdAt: now,
+};
+const stats = computeSourceStatistics([
+  {
+    signalId: "sig1",
+    direction: "LONG",
+    entryType: "ZONE",
+    signalType: "pullback",
+    signalTime: now,
+    classification: "WON",
+    entered: true,
+    rResult: 1,
+    mfe: 5,
+    mae: 2,
+    mfeR: 1,
+    maeR: 0.4,
+    durationMinutes: 30,
+    targetMinutes: [30],
+  },
+]);
+
+const detailFor = (access: ReturnType<typeof buildAccess>) =>
+  presentSignalDetail(
+    {
+      signal,
+      source: { id: "src1", name: "Src", slug: "src", showRawText: true },
+      targets,
+      outcome,
+      rawText: "XAUUSD BUY ZONE",
+      updates: [],
+      sourceStats: stats,
+      similar: { dimensions: ["source"], matched: [{ signalId: "x", signalTime: now.toISOString(), direction: "LONG", classification: "WON", rResult: 1, mfeR: 1, maeR: 0.2, durationMinutes: 5 }], summary: { n: 1, wins: 1, losses: 0, winRate: 1, avgR: 1 } },
+      analysis,
+    },
+    access,
+    config,
+  );
+
+describe("access", () => {
+  it("anonymous users have no features", () => {
+    expect(ANONYMOUS.features.size).toBe(0);
+    expect(() => requireFeature(ANONYMOUS, "signals.core")).toThrow();
+  });
+
+  it("tiers are cumulative by default", () => {
+    for (const f of config.silver.features) expect(can(gold, f)).toBe(true);
+    for (const f of config.gold.features) expect(can(platinum, f)).toBe(true);
+    expect(can(silver, "sources.stats.summary")).toBe(false);
+    expect(can(gold, "ai.summary")).toBe(false);
+  });
+
+  it("admins get every feature", () => {
+    const admin = buildAccess(null, config, true);
+    expect(can(admin, "export.csv")).toBe(true);
+  });
+
+  it("reports the lowest tier that unlocks a feature", () => {
+    expect(lowestTierWith("signals.core", config)).toBe("silver");
+    expect(lowestTierWith("similar.summary", config)).toBe("gold");
+    expect(lowestTierWith("ai.patterns", config)).toBe("platinum");
+    expect(lowestTierWith("export.csv", config)).toBeNull();
+  });
+
+  it("follows configuration rather than hard-coded tiers", () => {
+    const custom: Record<"silver" | "gold" | "platinum", TierConfig> = {
+      ...config,
+      silver: { features: [...config.silver.features, "ai.summary"], historyDays: 7 },
+    };
+    const s = buildAccess("silver", custom);
+    expect(can(s, "ai.summary")).toBe(true);
+    expect(gate(s, "ai.summary", custom, () => 1)).toEqual({ locked: false, data: 1 });
+    expect(historyCutoff(s, now)?.toISOString()).toBe("2026-01-25T12:00:00.000Z");
+  });
+
+  it("platinum has unlimited history", () => {
+    expect(historyCutoff(platinum, now)).toBeNull();
+  });
+});
+
+describe("signal detail projection", () => {
+  it("silver receives the core signal and basic result but nothing from higher tiers", () => {
+    const d = detailFor(silver);
+    expect(d.entryMin).toBe(3399);
+    expect(d.rawText).toEqual({ locked: false, data: "XAUUSD BUY ZONE" });
+    expect(d.result.locked).toBe(false);
+    expect(d.outcome.excursionSummary.locked).toBe(true);
+    expect(d.similar.summary.locked).toBe(true);
+    expect(d.ai.classification.locked).toBe(true);
+    const json = JSON.stringify(d);
+    for (const secret of ["SECRET_LABEL", "SECRET_SUMMARY", "SECRET_TAG", '"mfe"', '"bestPrice"', '"timeline"']) {
+      expect(json).not.toContain(secret);
+    }
+    expect(d.sourceStats?.summary.locked).toBe(true);
+    expect(json).not.toContain('"winRate"');
+  });
+
+  it("gold gets statistics and summaries but not AI or detailed excursions", () => {
+    const d = detailFor(gold);
+    expect(d.outcome.excursionSummary).toEqual({ locked: false, data: { mfeR: 1, maeR: 0.4 } });
+    expect(d.similar.summary.locked).toBe(false);
+    expect(d.similar.details).toMatchObject({ locked: true, requiredTier: "platinum" });
+    expect(d.outcome.excursionDetail.locked).toBe(true);
+    expect(d.sourceStats?.summary.locked).toBe(false);
+    expect(d.sourceStats?.extended.locked).toBe(true);
+    const json = JSON.stringify(d);
+    expect(json).not.toContain("SECRET_SUMMARY");
+    expect(json).not.toContain('"bestPrice"');
+  });
+
+  it("platinum gets everything", () => {
+    const d = detailFor(platinum);
+    expect(d.ai.classification).toMatchObject({ locked: false, data: { label: "SECRET_LABEL" } });
+    expect(d.ai.summary).toMatchObject({ locked: false, data: { summary: "SECRET_SUMMARY" } });
+    expect(d.outcome.excursionDetail).toMatchObject({ locked: false, data: { bestPrice: 3405 } });
+    expect(d.outcome.timeToTarget).toMatchObject({ locked: false, data: [{ index: 1, minutesFromEntry: 30 }] });
+    expect(d.similar.details.locked).toBe(false);
+  });
+
+  it("hides raw text when the source does not permit it, even for platinum", () => {
+    const d = presentSignalDetail(
+      { signal, source: { id: "s", name: "S", slug: "s", showRawText: false }, targets, outcome, rawText: "PRIVATE", updates: [], sourceStats: null, similar: null, analysis: null },
+      platinum,
+      config,
+    );
+    expect(JSON.stringify(d)).not.toContain("PRIVATE");
+  });
+});
+
+describe("source stats projection", () => {
+  it("only exposes totals to silver", () => {
+    const s = presentSourceStats(stats, silver, config);
+    expect(s.totalSignals).toBe(1);
+    expect(s.summary.locked && s.recent.locked && s.timeOfDay.locked && s.extended.locked).toBe(true);
+  });
+});

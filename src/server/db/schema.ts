@@ -1,0 +1,476 @@
+import {
+  boolean,
+  doublePrecision,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+
+const id = () =>
+  text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID());
+const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+const updatedAt = () =>
+  timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date());
+const ts = (name: string) => timestamp(name, { withTimezone: true });
+
+/* ------------------------------------------------------------------ */
+/* Users, sessions, auth tokens                                        */
+/* ------------------------------------------------------------------ */
+
+export const users = pgTable("users", {
+  id: id(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role", { enum: ["member", "admin"] }).notNull().default("member"),
+  emailVerifiedAt: ts("email_verified_at"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(), // sha256 of the cookie token
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: ts("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("sessions_user_idx").on(t.userId)],
+);
+
+export const authTokens = pgTable("auth_tokens", {
+  id: text("id").primaryKey(), // sha256 of the emailed token
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  type: text("type", { enum: ["verify_email", "reset_password"] }).notNull(),
+  expiresAt: ts("expires_at").notNull(),
+  usedAt: ts("used_at"),
+  createdAt: createdAt(),
+});
+
+/** Local stand-in for an email provider. Every outbound email is recorded here. */
+export const outboundEmails = pgTable("outbound_emails", {
+  id: id(),
+  to: text("to").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  createdAt: createdAt(),
+});
+
+/* ------------------------------------------------------------------ */
+/* Billing and entitlements                                            */
+/* ------------------------------------------------------------------ */
+
+export const TIERS = ["silver", "gold", "platinum"] as const;
+export type Tier = (typeof TIERS)[number];
+export const PERIODS = ["weekly", "monthly", "annual"] as const;
+export type BillingPeriod = (typeof PERIODS)[number];
+
+export const plans = pgTable(
+  "plans",
+  {
+    id: id(),
+    tier: text("tier", { enum: TIERS }).notNull(),
+    period: text("period", { enum: PERIODS }).notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull().default("usd"),
+    providerPriceId: text("provider_price_id"),
+    active: boolean("active").notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("plans_tier_period_idx").on(t.tier, t.period)],
+);
+
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: id(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tier: text("tier", { enum: TIERS }).notNull(),
+    period: text("period", { enum: PERIODS }).notNull(),
+    status: text("status", {
+      enum: ["incomplete", "active", "trialing", "past_due", "canceled", "expired"],
+    }).notNull(),
+    provider: text("provider", { enum: ["stripe", "mock"] }).notNull(),
+    providerCustomerId: text("provider_customer_id"),
+    providerSubscriptionId: text("provider_subscription_id").unique(),
+    currentPeriodEnd: ts("current_period_end").notNull(),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    canceledAt: ts("canceled_at"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("subscriptions_user_idx").on(t.userId)],
+);
+
+/** Configurable entitlements. One row per tier; features are string keys. */
+export const tierEntitlements = pgTable("tier_entitlements", {
+  tier: text("tier", { enum: TIERS }).primaryKey(),
+  features: jsonb("features").$type<string[]>().notNull(),
+  historyDays: integer("history_days"), // null = unlimited
+  updatedAt: updatedAt(),
+});
+
+/* ------------------------------------------------------------------ */
+/* Sources and raw evidence                                            */
+/* ------------------------------------------------------------------ */
+
+export const sources = pgTable("sources", {
+  id: id(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  sourceType: text("source_type", { enum: ["webhook", "mock_feed", "manual"] }).notNull(),
+  sourceUrl: text("source_url"),
+  description: text("description"),
+  active: boolean("active").notNull().default(true),
+  timezone: text("timezone").notNull().default("UTC"),
+  parserType: text("parser_type").notNull(),
+  showRawText: boolean("show_raw_text").notNull().default(true),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const EVENT_TYPES = [
+  "NEW_SIGNAL",
+  "UPDATE",
+  "CANCEL",
+  "TARGET_HIT",
+  "STOP_HIT",
+  "CLOSE",
+  "COMMENT",
+] as const;
+export type EventType = (typeof EVENT_TYPES)[number];
+
+/** Immutable. Rows are only ever inserted. */
+export const rawEvents = pgTable(
+  "raw_events",
+  {
+    id: id(),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => sources.id),
+    externalMessageId: text("external_message_id"),
+    rawText: text("raw_text").notNull(),
+    rawPayloadJson: jsonb("raw_payload_json").$type<Record<string, unknown>>(),
+    publishedAt: ts("published_at").notNull(),
+    receivedAt: ts("received_at").notNull().defaultNow(),
+    eventType: text("event_type", { enum: EVENT_TYPES }),
+    contentHash: text("content_hash").notNull(),
+  },
+  (t) => [
+    uniqueIndex("raw_events_source_ext_idx").on(t.sourceId, t.externalMessageId),
+    uniqueIndex("raw_events_source_hash_idx").on(t.sourceId, t.contentHash),
+    index("raw_events_published_idx").on(t.publishedAt),
+  ],
+);
+
+/** Each parse attempt is a new row; raw events are never mutated. */
+export const parseResults = pgTable(
+  "parse_results",
+  {
+    id: id(),
+    rawEventId: text("raw_event_id")
+      .notNull()
+      .references(() => rawEvents.id),
+    parserType: text("parser_type").notNull(),
+    parserVersion: text("parser_version").notNull(),
+    eventType: text("event_type", { enum: EVENT_TYPES }).notNull(),
+    outputJson: jsonb("output_json").$type<Record<string, unknown>>().notNull(),
+    confidence: doublePrecision("confidence").notNull(),
+    status: text("status", {
+      enum: ["applied", "needs_review", "failed", "ignored", "resolved", "superseded"],
+    }).notNull(),
+    issues: jsonb("issues").$type<string[]>().notNull().default([]),
+    signalId: text("signal_id"),
+    isCurrent: boolean("is_current").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [index("parse_results_event_idx").on(t.rawEventId), index("parse_results_status_idx").on(t.status)],
+);
+
+/* ------------------------------------------------------------------ */
+/* Normalized signals                                                  */
+/* ------------------------------------------------------------------ */
+
+export const SIGNAL_STATUSES = [
+  "PENDING",
+  "ACTIVE",
+  "PARTIAL",
+  "WON",
+  "LOST",
+  "BREAKEVEN",
+  "CANCELLED",
+  "EXPIRED",
+  "INVALID",
+  "MANUAL_REVIEW",
+] as const;
+export type SignalStatus = (typeof SIGNAL_STATUSES)[number];
+
+export const signals = pgTable(
+  "signals",
+  {
+    id: id(),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => sources.id),
+    originEventId: text("origin_event_id")
+      .notNull()
+      .references(() => rawEvents.id),
+    instrument: text("instrument").notNull().default("XAUUSD"),
+    direction: text("direction", { enum: ["LONG", "SHORT"] }).notNull(),
+    entryType: text("entry_type", { enum: ["MARKET", "LIMIT", "ZONE"] }).notNull(),
+    signalType: text("signal_type"),
+    entryMin: doublePrecision("entry_min").notNull(),
+    entryMax: doublePrecision("entry_max").notNull(),
+    stopLoss: doublePrecision("stop_loss"),
+    status: text("status", { enum: SIGNAL_STATUSES }).notNull().default("PENDING"),
+    signalTime: ts("signal_time").notNull(),
+    expiryTime: ts("expiry_time"),
+    closedAt: ts("closed_at"),
+    sourceConfidenceText: text("source_confidence_text"),
+    parserConfidence: doublePrecision("parser_confidence").notNull(),
+    version: integer("version").notNull().default(1),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("signals_source_idx").on(t.sourceId),
+    index("signals_time_idx").on(t.signalTime),
+    index("signals_status_idx").on(t.status),
+  ],
+);
+
+export const signalTargets = pgTable(
+  "signal_targets",
+  {
+    id: id(),
+    signalId: text("signal_id")
+      .notNull()
+      .references(() => signals.id, { onDelete: "cascade" }),
+    targetIndex: integer("target_index").notNull(),
+    price: doublePrecision("price").notNull(),
+    hitAt: ts("hit_at"),
+    status: text("status", { enum: ["OPEN", "HIT", "MISSED", "AMBIGUOUS"] }).notNull().default("OPEN"),
+  },
+  (t) => [uniqueIndex("signal_targets_idx").on(t.signalId, t.targetIndex)],
+);
+
+/** Source-issued instructions that affect an existing trade (move stop, close, cancel). */
+export const signalAdjustments = pgTable(
+  "signal_adjustments",
+  {
+    id: id(),
+    signalId: text("signal_id")
+      .notNull()
+      .references(() => signals.id, { onDelete: "cascade" }),
+    rawEventId: text("raw_event_id").references(() => rawEvents.id),
+    type: text("type", { enum: ["MOVE_STOP", "CLOSE", "CANCEL", "EDIT"] }).notNull(),
+    effectiveAt: ts("effective_at").notNull(),
+    payloadJson: jsonb("payload_json").$type<Record<string, unknown>>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("signal_adjustments_signal_idx").on(t.signalId)],
+);
+
+/* ------------------------------------------------------------------ */
+/* Market data                                                         */
+/* ------------------------------------------------------------------ */
+
+export const marketBars = pgTable(
+  "market_bars",
+  {
+    instrument: text("instrument").notNull(),
+    resolution: text("resolution").notNull().default("1m"),
+    timestamp: ts("timestamp").notNull(),
+    open: doublePrecision("open").notNull(),
+    high: doublePrecision("high").notNull(),
+    low: doublePrecision("low").notNull(),
+    close: doublePrecision("close").notNull(),
+    volume: doublePrecision("volume"),
+    provider: text("provider").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.instrument, t.resolution, t.timestamp] })],
+);
+
+/** How far market data is known to be complete, per instrument. */
+export const marketDataSync = pgTable("market_data_sync", {
+  instrument: text("instrument").primaryKey(),
+  provider: text("provider").notNull(),
+  syncedThrough: ts("synced_through").notNull(),
+  firstBarAt: ts("first_bar_at"),
+  updatedAt: updatedAt(),
+});
+
+/* ------------------------------------------------------------------ */
+/* Derived facts                                                       */
+/* ------------------------------------------------------------------ */
+
+export const signalOutcomes = pgTable(
+  "signal_outcomes",
+  {
+    id: id(),
+    signalId: text("signal_id")
+      .notNull()
+      .references(() => signals.id, { onDelete: "cascade" }),
+    calcVersion: text("calc_version").notNull(),
+    signalVersion: integer("signal_version").notNull(),
+    kind: text("kind", { enum: ["computed", "override"] }).notNull().default("computed"),
+    isCurrent: boolean("is_current").notNull().default(true),
+    classification: text("classification").notNull(),
+    entered: boolean("entered").notNull(),
+    entryTime: ts("entry_time"),
+    entryPrice: doublePrecision("entry_price"),
+    exitTime: ts("exit_time"),
+    exitReason: text("exit_reason"),
+    stopHitAt: ts("stop_hit_at"),
+    rResult: doublePrecision("r_result"),
+    mfe: doublePrecision("mfe"),
+    mae: doublePrecision("mae"),
+    mfeR: doublePrecision("mfe_r"),
+    maeR: doublePrecision("mae_r"),
+    bestPrice: doublePrecision("best_price"),
+    worstPrice: doublePrecision("worst_price"),
+    durationMinutes: integer("duration_minutes"),
+    ambiguous: boolean("ambiguous").notNull().default(false),
+    detailJson: jsonb("detail_json").$type<Record<string, unknown>>().notNull(),
+    overrideReason: text("override_reason"),
+    createdBy: text("created_by"),
+    computedAt: createdAt(),
+  },
+  (t) => [index("signal_outcomes_signal_idx").on(t.signalId, t.isCurrent)],
+);
+
+export const aiAnalyses = pgTable(
+  "ai_analyses",
+  {
+    id: id(),
+    signalId: text("signal_id").references(() => signals.id, { onDelete: "cascade" }),
+    sourceId: text("source_id").references(() => sources.id),
+    analysisType: text("analysis_type", { enum: ["signal_setup", "source_patterns"] }).notNull(),
+    model: text("model").notNull(),
+    promptVersion: text("prompt_version").notNull(),
+    inputHash: text("input_hash").notNull(),
+    inputJson: jsonb("input_json").$type<Record<string, unknown>>().notNull(),
+    outputJson: jsonb("output_json").$type<Record<string, unknown>>().notNull(),
+    isCurrent: boolean("is_current").notNull().default(true),
+    createdAt: createdAt(),
+  },
+  (t) => [index("ai_analyses_signal_idx").on(t.signalId), index("ai_analyses_source_idx").on(t.sourceId)],
+);
+
+export const sourceStats = pgTable("source_stats", {
+  sourceId: text("source_id")
+    .primaryKey()
+    .references(() => sources.id),
+  calcVersion: text("calc_version").notNull(),
+  statsJson: jsonb("stats_json").$type<Record<string, unknown>>().notNull(),
+  computedAt: ts("computed_at").notNull().defaultNow(),
+});
+
+/* ------------------------------------------------------------------ */
+/* Operations: jobs, audit, affiliates, analytics                      */
+/* ------------------------------------------------------------------ */
+
+export const jobs = pgTable(
+  "jobs",
+  {
+    id: id(),
+    type: text("type").notNull(),
+    payloadJson: jsonb("payload_json").$type<Record<string, unknown>>().notNull(),
+    dedupeKey: text("dedupe_key"),
+    status: text("status", { enum: ["queued", "running", "succeeded", "failed"] }).notNull().default("queued"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(3),
+    lastError: text("last_error"),
+    runAfter: ts("run_after").notNull().defaultNow(),
+    startedAt: ts("started_at"),
+    finishedAt: ts("finished_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("jobs_status_idx").on(t.status, t.runAfter), index("jobs_dedupe_idx").on(t.dedupeKey)],
+);
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: id(),
+    actorUserId: text("actor_user_id"),
+    actorLabel: text("actor_label").notNull(),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    action: text("action").notNull(),
+    beforeJson: jsonb("before_json").$type<unknown>(),
+    afterJson: jsonb("after_json").$type<unknown>(),
+    reason: text("reason"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("audit_entity_idx").on(t.entityType, t.entityId)],
+);
+
+export const affiliateLinks = pgTable("affiliate_links", {
+  id: id(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  destinationUrl: text("destination_url").notNull(),
+  disclosure: text("disclosure").notNull(),
+  placements: jsonb("placements").$type<string[]>().notNull().default([]),
+  active: boolean("active").notNull().default(true),
+  clickCount: integer("click_count").notNull().default(0),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+export const affiliateClicks = pgTable(
+  "affiliate_clicks",
+  {
+    id: id(),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => affiliateLinks.id, { onDelete: "cascade" }),
+    userId: text("user_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("affiliate_clicks_link_idx").on(t.linkId)],
+);
+
+export const analyticsEvents = pgTable(
+  "analytics_events",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    userId: text("user_id"),
+    propsJson: jsonb("props_json").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [index("analytics_name_idx").on(t.name)],
+);
+
+export type User = typeof users.$inferSelect;
+export type Source = typeof sources.$inferSelect;
+export type RawEvent = typeof rawEvents.$inferSelect;
+export type Signal = typeof signals.$inferSelect;
+export type SignalTarget = typeof signalTargets.$inferSelect;
+export type SignalAdjustment = typeof signalAdjustments.$inferSelect;
+export type SignalOutcome = typeof signalOutcomes.$inferSelect;
+export type MarketBar = typeof marketBars.$inferSelect;
+export type AiAnalysis = typeof aiAnalyses.$inferSelect;
+export type Subscription = typeof subscriptions.$inferSelect;
+export type Plan = typeof plans.$inferSelect;
+export type AffiliateLink = typeof affiliateLinks.$inferSelect;
+export type Job = typeof jobs.$inferSelect;
