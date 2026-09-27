@@ -1,0 +1,46 @@
+import Link from "next/link";
+import { Suspense } from "react";
+import { PageHeader } from "@/components/page-header";
+import { SignalFilters } from "@/components/signal-filters";
+import { SignalList } from "@/components/signal-list";
+import { requireAdmin } from "@/server/auth/guards";
+import { getViewer } from "@/server/entitlements/service";
+import { listSignalsForViewer, listSignalTypes, listSources, parseSignalFilters } from "@/server/signals/queries";
+
+export const metadata = { title: "Signals" };
+const PAGE = 50;
+
+export default async function AdminSignalsPage({ searchParams }: PageProps<"/admin/signals">) {
+  await requireAdmin();
+  const sp = await searchParams;
+  const viewer = await getViewer();
+  const page = Math.max(1, Number(sp.page ?? 1) || 1);
+  const filters = parseSignalFilters(sp);
+  const [result, sources, signalTypes] = await Promise.all([
+    listSignalsForViewer(viewer, filters, { limit: PAGE, offset: (page - 1) * PAGE }),
+    listSources({ includeInactive: true }),
+    listSignalTypes(),
+  ]);
+  const pageHref = (p: number) => {
+    const q = new URLSearchParams(Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : [])));
+    q.set("page", String(p));
+    return `/admin/signals?${q}`;
+  };
+
+  return (
+    <>
+      <PageHeader title="Signals" description="Open a signal to correct fields, recalculate or override its outcome, and regenerate AI analysis." />
+      <div className="mb-4">
+        <Suspense>
+          <SignalFilters sources={sources.map((s) => ({ value: s.id, label: s.name }))} signalTypes={signalTypes} advanced search />
+        </Suspense>
+      </div>
+      <div className="mb-2 text-xs text-muted-foreground">{result.total.toLocaleString()} signals</div>
+      <SignalList items={result.items} hrefBase="/admin/signals" />
+      <div className="mt-3 flex justify-between text-sm">
+        {page > 1 ? <Link href={pageHref(page - 1)} className="text-primary hover:underline">Previous</Link> : <span />}
+        {page * PAGE < result.total && <Link href={pageHref(page + 1)} className="text-primary hover:underline">Next</Link>}
+      </div>
+    </>
+  );
+}

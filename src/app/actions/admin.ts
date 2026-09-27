@@ -1,0 +1,336 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { z } from "zod";
+import { retryJob, upsertSource } from "@/server/admin";
+import { upsertAffiliateLink, PLACEMENTS, type Placement } from "@/server/affiliates";
+import { analyzeSignal, analyzeSourcePatterns } from "@/server/ai/service";
+import { PROMPTS } from "@/server/ai/prompts";
+import { recordAudit } from "@/server/audit";
+import { requireAdmin } from "@/server/auth/guards";
+import { TIERS, type Tier } from "@/server/db/schema";
+import { ALL_FEATURES, type Feature } from "@/server/entitlements/config";
+import { getTierConfig, saveTierConfig } from "@/server/entitlements/service";
+import { ingestRawEvent } from "@/server/ingestion";
+import { enqueueJob, JOB_TYPES, type JobType } from "@/server/jobs/queue";
+import { processJobs, scheduleRecurring } from "@/server/jobs/runner";
+import { correctSignal, dismissReview, processRawEvent, resolveReviewWithSignal, type SignalInput } from "@/server/normalization";
+import { clearOverride, overrideOutcome, recalculateOutcome } from "@/server/outcomes/service";
+import { PARSER_TYPES } from "@/server/parsing";
+
+function back(path: string, notice: string, kind: "ok" | "error" = "ok"): never {
+  const sep = path.includes("?") ? "&" : "?";
+  redirect(`${path}${sep}${kind === "ok" ? "notice" : "error"}=${encodeURIComponent(notice)}`);
+}
+
+const str = (form: FormData, key: string) => {
+  const v = form.get(key);
+  return typeof v === "string" ? v.trim() : "";
+};
+const num = (form: FormData, key: string) => {
+  const s = str(form, key);
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+};
+const reasonOf = (form: FormData) => {
+  const r = str(form, "reason");
+  if (r.length < 3) throw new Error("A reason is required for manual changes.");
+  return r.slice(0, 500);
+};
+const safeReturn = (form: FormData, fallback: string) => {
+  const r = str(form, "returnTo");
+  return r.startsWith("/admin") ? r : fallback;
+};
+
+async function attempt(path: string, fn: () => Promise<string | void>) {
+  let message: string | void;
+  try {
+    message = await fn();
+  } catch (err) {
+    back(path, (err as Error).message, "error");
+  }
+  revalidatePath("/admin", "layout");
+  back(path, message || "Saved.");
+}
+
+/* Jobs */
+
+export async function runJobsAction(form: FormData) {
+  await requireAdmin();
+  const path = safeReturn(form, "/admin/jobs");
+  await attempt(path, async () => {
+    const n = await processJobs(300);
+    return `Processed ${n} job${n === 1 ? "" : "s"}.`;
+  });
+}
+
+export async function enqueueJobAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const path = safeReturn(form, "/admin/jobs");
+  await attempt(path, async () => {
+    const type = str(form, "type");
+    if (type === "recurring:minute" || type === "recurring:poll" || type === "recurring:hourly") {
+      await scheduleRecurring(type.split(":")[1] as "minute" | "poll" | "hourly");
+    } else if ((JOB_TYPES as readonly string[]).includes(type)) {
+      await enqueueJob(type as JobType, {});
+    } else throw new Error("Unknown job type");
+    await recordAudit({ actor, entityType: "job", entityId: type, action: "job.enqueued" });
+    await processJobs(300);
+    return `Queued and ran ${type}.`;
+  });
+}
+
+export async function retryJobAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/jobs", async () => {
+    const job = await retryJob(str(form, "id"), actor);
+    if (!job) throw new Error("Only failed jobs can be retried.");
+    await processJobs(50);
+    return `Retried ${job.type}.`;
+  });
+}
+
+/* Sources and events */
+
+const sourceSchema = z.object({
+  name: z.string().min(2).max(80),
+  slug: z
+    .string()
+    .min(2)
+    .max(60)
+    .regex(/^[a-z0-9-]+$/, "Slug may only contain lowercase letters, numbers and dashes"),
+  sourceType: z.enum(["webhook", "mock_feed", "manual"]),
+  sourceUrl: z.url().nullable(),
+  description: z.string().max(500).nullable(),
+  timezone: z.string().min(1).max(60),
+  parserType: z.enum(PARSER_TYPES as [string, ...string[]]),
+  active: z.boolean(),
+  showRawText: z.boolean(),
+});
+
+export async function saveSourceAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const id = str(form, "id") || null;
+  await attempt(id ? `/admin/sources?edit=${id}` : "/admin/sources", async () => {
+    const parsed = sourceSchema.safeParse({
+      name: str(form, "name"),
+      slug: str(form, "slug"),
+      sourceType: str(form, "sourceType"),
+      sourceUrl: str(form, "sourceUrl") || null,
+      description: str(form, "description") || null,
+      timezone: str(form, "timezone") || "UTC",
+      parserType: str(form, "parserType"),
+      active: form.get("active") === "on",
+      showRawText: form.get("showRawText") === "on",
+    });
+    if (!parsed.success) throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
+    await upsertSource(id, parsed.data, actor);
+    return id ? "Source updated." : "Source created.";
+  });
+}
+
+export async function ingestManualEventAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/events", async () => {
+    const sourceId = str(form, "sourceId");
+    const rawText = str(form, "rawText");
+    if (!sourceId || !rawText) throw new Error("Source and message text are required.");
+    const publishedRaw = str(form, "publishedAt");
+    const publishedAt = publishedRaw ? new Date(`${publishedRaw}Z`) : new Date();
+    if (Number.isNaN(publishedAt.getTime())) throw new Error("Invalid publish time.");
+    let payload: Record<string, unknown> | null = null;
+    const payloadRaw = str(form, "payload");
+    if (payloadRaw) {
+      try {
+        payload = JSON.parse(payloadRaw);
+      } catch {
+        throw new Error("Payload must be valid JSON.");
+      }
+    }
+    const res = await ingestRawEvent(sourceId, { externalMessageId: str(form, "externalMessageId") || null, rawText, payload, publishedAt });
+    if (res.status === "duplicate") return "Duplicate: this event was already recorded.";
+    await recordAudit({ actor, entityType: "raw_event", entityId: res.rawEventId, action: "event.manual_ingest" });
+    await processJobs(100);
+    return "Event recorded and parsed.";
+  });
+}
+
+export async function reparseEventAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const id = str(form, "id");
+  await attempt(safeReturn(form, `/admin/events/${id}`), async () => {
+    await processRawEvent(id, actor);
+    await recordAudit({ actor, entityType: "raw_event", entityId: id, action: "event.reparsed" });
+    await processJobs(50);
+    return "Event re-parsed.";
+  });
+}
+
+/* Review queue */
+
+function signalInputFrom(form: FormData, fallbackTime: Date): SignalInput {
+  const direction = str(form, "direction");
+  const entryType = str(form, "entryType");
+  if (direction !== "LONG" && direction !== "SHORT") throw new Error("Direction is required.");
+  if (entryType !== "MARKET" && entryType !== "LIMIT" && entryType !== "ZONE") throw new Error("Entry type is required.");
+  const entryMin = num(form, "entryMin");
+  const entryMax = num(form, "entryMax") ?? entryMin;
+  if (entryMin === null || Number.isNaN(entryMin) || entryMax === null || Number.isNaN(entryMax)) throw new Error("Entry price is required.");
+  const stopLoss = num(form, "stopLoss");
+  if (Number.isNaN(stopLoss)) throw new Error("Stop loss must be a number.");
+  const targets = str(form, "targets")
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map(Number);
+  if (targets.some((t) => !Number.isFinite(t))) throw new Error("Targets must be numbers separated by commas.");
+  const [lo, hi] = entryMin <= entryMax ? [entryMin, entryMax] : [entryMax, entryMin];
+  if (stopLoss !== null && (direction === "LONG" ? stopLoss >= lo : stopLoss <= hi)) throw new Error("Stop loss is on the wrong side of the entry.");
+  if (targets.some((t) => (direction === "LONG" ? t <= lo : t >= hi))) throw new Error("A target is on the wrong side of the entry.");
+  const time = str(form, "signalTime");
+  const signalTime = time ? new Date(`${time}Z`) : fallbackTime;
+  if (Number.isNaN(signalTime.getTime())) throw new Error("Invalid signal time.");
+  return {
+    instrument: "XAUUSD",
+    direction,
+    entryType,
+    entryMin: lo,
+    entryMax: hi,
+    stopLoss,
+    targets: [...targets].sort((a, b) => (direction === "LONG" ? a - b : b - a)),
+    signalType: str(form, "signalType") || null,
+    sourceConfidenceText: str(form, "sourceConfidenceText") || null,
+    signalTime,
+    expiryTime: null,
+  };
+}
+
+export async function resolveReviewAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/review", async () => {
+    const reason = reasonOf(form);
+    const publishedAt = new Date(str(form, "publishedAt"));
+    const signal = await resolveReviewWithSignal(str(form, "rawEventId"), signalInputFrom(form, publishedAt), actor, reason);
+    await processJobs(50);
+    return `Signal created (${signal.id.slice(0, 8)}).`;
+  });
+}
+
+export async function dismissReviewAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/review", async () => {
+    await dismissReview(str(form, "rawEventId"), actor, reasonOf(form));
+    return "Dismissed.";
+  });
+}
+
+/* Signals */
+
+export async function correctSignalAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const id = str(form, "signalId");
+  await attempt(`/admin/signals/${id}`, async () => {
+    const reason = reasonOf(form);
+    const input = signalInputFrom(form, new Date());
+    const status = str(form, "status");
+    const patch: Parameters<typeof correctSignal>[1] = { ...input };
+    delete patch.expiryTime;
+    delete patch.instrument;
+    if (status === "INVALID") patch.status = "INVALID";
+    await correctSignal(id, patch, actor, reason);
+    await processJobs(50);
+    return status === "INVALID" ? "Signal marked invalid." : "Signal corrected. Outcome recalculated.";
+  });
+}
+
+export async function recalcOutcomeAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const id = str(form, "signalId");
+  await attempt(`/admin/signals/${id}`, async () => {
+    await recalculateOutcome(id, { force: form.get("force") === "on", actor });
+    await recordAudit({ actor, entityType: "signal_outcome", entityId: id, action: "outcome.recalculated" });
+    await processJobs(50);
+    return "Outcome recalculated.";
+  });
+}
+
+export async function overrideOutcomeAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const id = str(form, "signalId");
+  await attempt(`/admin/signals/${id}`, async () => {
+    const reason = reasonOf(form);
+    const classification = str(form, "classification");
+    if (!["WON", "LOST", "BREAKEVEN", "CANCELLED", "EXPIRED"].includes(classification)) throw new Error("Choose a classification.");
+    const r = num(form, "rResult");
+    if (Number.isNaN(r)) throw new Error("R result must be a number.");
+    const exit = str(form, "exitTime");
+    await overrideOutcome(id, { classification: classification as "WON", rResult: r, exitTime: exit ? new Date(`${exit}Z`) : null }, actor, reason);
+    await processJobs(50);
+    return "Outcome overridden.";
+  });
+}
+
+export async function clearOverrideAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const id = str(form, "signalId");
+  await attempt(`/admin/signals/${id}`, async () => {
+    await clearOverride(id, actor, reasonOf(form));
+    await processJobs(50);
+    return "Override cleared; computed outcome restored.";
+  });
+}
+
+export async function rerunAiAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const signalId = str(form, "signalId");
+  const sourceId = str(form, "sourceId");
+  const promptVersion = str(form, "promptVersion") || undefined;
+  const path = signalId ? `/admin/signals/${signalId}` : "/admin/sources";
+  await attempt(path, async () => {
+    if (promptVersion && !PROMPTS[promptVersion]) throw new Error("Unknown prompt version");
+    if (signalId) {
+      const r = await analyzeSignal(signalId, { promptVersion, force: true });
+      await recordAudit({ actor, entityType: "signal", entityId: signalId, action: "ai.rerun", after: { promptVersion: r.analysis.promptVersion, model: r.analysis.model } });
+      return `AI analysis regenerated with ${r.analysis.promptVersion}.`;
+    }
+    await analyzeSourcePatterns(sourceId, { force: true });
+    await recordAudit({ actor, entityType: "source", entityId: sourceId, action: "ai.rerun" });
+    return "Source pattern analysis regenerated.";
+  });
+}
+
+/* Entitlements and affiliates */
+
+export async function saveEntitlementsAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/entitlements", async () => {
+    const reason = reasonOf(form);
+    const before = await getTierConfig();
+    const after = structuredClone(before);
+    for (const tier of TIERS) {
+      const features = form.getAll(`${tier}:features`).map(String).filter((f): f is Feature => (ALL_FEATURES as string[]).includes(f));
+      const daysRaw = str(form, `${tier}:historyDays`);
+      const days = daysRaw === "" ? null : Number(daysRaw);
+      if (days !== null && (!Number.isInteger(days) || days < 1 || days > 36500)) throw new Error(`History days for ${tier} must be a positive whole number or empty.`);
+      after[tier as Tier] = { features, historyDays: days };
+    }
+    for (const tier of TIERS) await saveTierConfig(tier, after[tier]);
+    await recordAudit({ actor, entityType: "entitlements", entityId: "tiers", action: "entitlements.updated", before, after, reason });
+    return "Entitlements saved. Changes apply to the next request.";
+  });
+}
+
+export async function saveAffiliateAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/affiliates", async () => {
+    const placements = form.getAll("placements").map(String).filter((p): p is Placement => (PLACEMENTS as readonly string[]).includes(p));
+    const name = str(form, "name");
+    const slug = str(form, "slug");
+    const disclosure = str(form, "disclosure");
+    if (!name || !/^[a-z0-9-]{2,60}$/.test(slug)) throw new Error("Name and a lowercase slug are required.");
+    if (disclosure.length < 10) throw new Error("A disclosure statement is required.");
+    await upsertAffiliateLink(str(form, "id") || null, { name, slug, destinationUrl: str(form, "destinationUrl"), disclosure, placements, active: form.get("active") === "on" }, actor);
+    return "Affiliate link saved.";
+  });
+}

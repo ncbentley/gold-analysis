@@ -10,7 +10,7 @@ import {
   SIGNAL_STATUSES,
   type SignalStatus,
 } from "@/server/db/schema";
-import { can, historyCutoff, lowestTierWith } from "@/server/entitlements/access";
+import { buildAccess, can, historyCutoff, lowestTierWith } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
 import { presentSignalDetail, presentSignalListItem, type SignalBundle } from "@/server/presenters";
 import { getSimilarTradesForSignal } from "@/server/similar/service";
@@ -162,12 +162,11 @@ export async function getSignalDetailForViewer(signalId: string, viewer: Viewer)
     where (sa.signal_id = ${signalId} or pr.signal_id = ${signalId}) and re.id <> ${bundle.signal.originEventId}
     order by re.published_at asc`);
 
-  const needStats = ["sources.stats.summary", "sources.stats.recent", "sources.stats.time_of_day"].some((f) => access.features.has(f as never));
   const needSimilar = can(access, "similar.summary") || can(access, "similar.details");
   const needAi = can(access, "ai.classification") || can(access, "ai.summary") || can(access, "ai.patterns");
 
   const [stats, similar, analysis] = await Promise.all([
-    needStats ? getSourceStats(bundle.signal.sourceId) : Promise.resolve(null),
+    getSourceStats(bundle.signal.sourceId),
     needSimilar ? getSimilarTradesForSignal(signalId) : Promise.resolve(null),
     needAi ? getCurrentAnalysis({ signalId, analysisType: "signal_setup" }) : Promise.resolve(null),
   ]);
@@ -185,6 +184,25 @@ export async function getSignalDetailForViewer(signalId: string, viewer: Viewer)
     config,
   );
   return { kind: "ok", detail };
+}
+
+/**
+ * Public sample for the landing page: closed trades older than `delayDays`, projected
+ * with Silver-level fields only so nothing premium leaks to anonymous visitors.
+ */
+export async function listPublicSampleSignals(config: Viewer["config"], opts: { delayDays?: number; limit?: number } = {}) {
+  const db = await getDb();
+  const before = new Date(Date.now() - (opts.delayDays ?? 7) * 86_400_000);
+  const rows = await db
+    .select({ signal: signals, source: sources, outcome: signalOutcomes })
+    .from(signals)
+    .innerJoin(sources, eq(sources.id, signals.sourceId))
+    .leftJoin(signalOutcomes, and(eq(signalOutcomes.signalId, signals.id), eq(signalOutcomes.isCurrent, true)))
+    .where(and(inArray(signals.status, ["WON", "LOST", "BREAKEVEN"]), lte(signals.signalTime, before)))
+    .orderBy(desc(signals.signalTime))
+    .limit(opts.limit ?? 6);
+  const access = buildAccess("silver", config);
+  return (await hydrate(rows)).map((b) => presentSignalListItem(b, access, config));
 }
 
 export async function listSources(opts: { includeInactive?: boolean } = {}) {
