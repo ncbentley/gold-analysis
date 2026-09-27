@@ -8,14 +8,20 @@ Known gaps and next steps after the MVP, roughly in priority order.
 - [ ] **Real email delivery.** `sendEmail` writes to the `outbound_emails` table (the dev mailbox). Connect a provider such as Resend or Postmark and disable the mailbox link in production.
 - [ ] **Stripe setup.** Create products and prices, set `STRIPE_PRICE_*`, register the webhook endpoint `/api/billing/webhook` for `checkout.session.completed` and `customer.subscription.*`, and configure the Customer Portal. Confirm the real prices in the `plans` table.
 - [ ] **Production database.** Point `DATABASE_URL` at managed Postgres and apply the migrations in `drizzle/`. Add backups.
-- [ ] **Market data licence** check for the chosen provider, and configure `MARKET_DATA_PROVIDER=twelvedata` or add another adapter in `src/server/market-data/`.
-- [ ] **Source permissions.** Confirm that each tracked source allows redistribution of its text; otherwise set `showRawText=false` on that source.
+- [ ] **Market data licence** check for the chosen provider, or add another adapter in `src/server/market-data/`.
+- [ ] **Source permissions.** Confirm that each tracked channel allows redistribution of its text; otherwise set `showRawText=false` on that source.
+- [ ] **Set `APP_SECRET`** in production before signing in to Telegram, and keep it stable; rotating it requires signing in again.
+- [ ] **Connect real market data** in `/admin/settings` before members see results. Synthetic prices are for development only.
+- [ ] **Telegram account hygiene.** Use a dedicated account, enable two-step verification on it, and keep it in only the channels you track.
 - [ ] **Shared rate limiting.** Move to Redis or a platform limiter before running more than one instance.
 - [ ] **Dedicated worker.** Run a separate worker process and set `JOBS_WORKER=off` on web instances.
 
 ## Product
 
-- [ ] Real source connectors: Telegram, Discord and email-to-webhook adapters that post to `/api/v1/ingest/:slug`.
+- [ ] Telegram albums: a multi-photo post arrives as several messages sharing a `groupedId`. Today only the one carrying the caption produces a signal; the others are stored as captionless evidence.
+- [ ] Image signals: some channels post the trade as a screenshot. Add OCR or a vision model that produces text for the parser, flagged for review.
+- [ ] Alert the admin (email or Telegram) when the Telegram session is revoked or a channel sync keeps failing.
+- [ ] Discord and email-to-webhook adapters that post to `/api/v1/ingest/:slug`.
 - [ ] Notifications (email or push) for new signals and status changes. This is out of scope in the PRD but the most requested next feature.
 - [ ] Per-source parser configuration, such as custom aliases and label patterns, editable in the admin.
 - [ ] Better ambiguous-candle resolution using tick or 1-second data when available, as an optional rules version `outcome-v2`.

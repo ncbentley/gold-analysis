@@ -1,29 +1,56 @@
 # Aurum Ledger: Gold Signal Intelligence
 
-A subscription web platform that collects third-party gold (XAU/USD) trading signals, replays each one against one-minute market data with versioned deterministic rules, and shows members how every source has actually performed. It includes source statistics, similar historical trades and AI-written context, with Silver, Gold and Platinum tiers.
+A subscription web platform that captures gold (XAU/USD) trading signals from Telegram channels, replays each one against one-minute market data with versioned deterministic rules, and shows members how every channel has actually performed. It includes source statistics, similar historical trades and AI-written context, with Silver, Gold and Platinum tiers.
 
 This is the MVP described in [`docs/PRD.md`](docs/PRD.md). Design decisions are in [`DECISIONS.md`](DECISIONS.md) and known gaps in [`TODO.md`](TODO.md).
 
 ## Quick start
 
-Requirements: Node 20+ and pnpm. No database, Docker or API keys are needed.
+Requirements: Node 20+ and pnpm. No database, Docker or API keys are needed to start.
 
 ```bash
+git clone <your-repo-url> aurum-ledger && cd aurum-ledger
 pnpm install
-pnpm dev          # seeds on first run (~30s), then serves http://localhost:4317
+pnpm dev          # migrates and seeds on first run, then serves http://localhost:4317
 ```
 
-On first run, `pnpm dev` creates an embedded Postgres database (PGlite) in `.data/pglite`. It applies migrations and seeds three sources, 60 days of synthetic XAU/USD minute bars and several hundred signals with computed outcomes, stats and AI analyses. Later runs reuse the data. A background worker keeps market data, mock feeds and open trades moving while the server runs.
+On first run, `pnpm dev` creates an embedded Postgres database (PGlite) in `.data/pglite`. It applies migrations and seeds the plans, tier entitlements and one admin account. There are no demo sources or signals. Everything shown to members comes from the Telegram channels you connect.
 
-| Account | Password | Access |
-| --- | --- | --- |
-| `admin@example.com` | `admin12345` | Admin console plus everything |
-| `platinum@example.com` | `demo12345` | Platinum |
-| `gold@example.com` | `demo12345` | Gold |
-| `silver@example.com` | `demo12345` | Silver |
-| `free@example.com` | `demo12345` | Signed in, no plan |
+Sign in at `/login` as `admin@example.com` / `admin12345`. Set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` before the first run to choose your own.
 
-Billing runs in test mode: choosing a plan on `/pricing` opens a mock checkout that activates the subscription immediately. Verification and password-reset emails are written to a dev mailbox, and a link to them appears on `/check-email`.
+## Connecting Telegram
+
+Signals are read from Telegram channels through a Telegram **user account**. A bot can only read channels where it is an admin; a user account can read any channel it has joined, including private ones. Use a dedicated account (a spare SIM or eSIM is fine) rather than your personal one. The app only reads; it never posts.
+
+1. On [my.telegram.org/apps](https://my.telegram.org/apps), sign in with that account's phone number and create an application. Any name works. Note the **api_id** and **api_hash**.
+2. In the app, open **Admin, then Telegram** (`/admin/telegram`). Enter the api_id, api_hash and phone number, then click **Send login code**.
+3. Enter the code Telegram sends to the account. If the account has two-step verification, you are asked for its password next.
+4. Under **Add a channel**, paste `@username`, a `t.me/name` link or a private `t.me/+invite` link. Choose how many recent messages to import (up to 1000) and click **Add channel**. The account joins the channel if it hasn't already.
+
+The session is stored encrypted in the database (see `APP_SECRET`), so you only sign in once. New posts arrive live over Telegram's update stream. A catch-up sync also runs every two minutes, so nothing is missed while the server was down: on restart it fetches everything after the last message it saw.
+
+### QA channel
+
+Tick **QA channel (admins only)** when adding your testing channel. QA channels go through the same pipeline (parsing, review, outcome replay, stats, AI), but they are hidden from members, the public landing page and the member API. Admins see them everywhere with a `QA` badge. You can switch a channel between QA and live later under **Admin, then Sources, then Edit**.
+
+A good workflow: create a private channel, add it as QA, post signals in the formats your real channels use, and check how they appear in `/admin/review` and `/admin/signals` before adding real channels.
+
+### How Telegram messages are handled
+
+- Each post becomes an immutable raw event keyed by its Telegram message id, so the live update and the catch-up sync can't create duplicates.
+- A reply (for example "move SL to entry" in reply to the signal) is linked to the signal it replies to.
+- An **edit** to an earlier post is stored as a separate event and sent to the review queue. It never silently changes a recorded signal. Review it and use **Correct signal** if the change is legitimate.
+- Posts that are only a photo keep a placeholder text as evidence. Link previews and empty service messages are skipped.
+
+## Market data
+
+Outcomes are replayed against 1-minute XAU/USD bars. Until you configure a provider, the app uses **synthetic prices**, and the admin overview warns about it. For real results, create a free [Twelve Data](https://twelvedata.com) key and enter it in **Admin, then Settings**. Switching provider clears the stored bars, re-fetches history back to the oldest signal and recalculates every outcome. When a channel's history is imported, missing older bars are backfilled automatically.
+
+## Billing and email
+
+Billing runs in test mode until Stripe keys are set: choosing a plan on `/pricing` opens a mock checkout that activates the subscription immediately. Verification and password-reset emails are written to a dev mailbox, and a link to them appears on `/check-email`.
+
+To see what each tier sees without paying, run `SEED_DEMO_USERS=1 pnpm db:reset`. This creates `free@`, `silver@`, `gold@` and `platinum@example.com` with password `demo12345`.
 
 ### Scripts
 
@@ -34,7 +61,7 @@ Billing runs in test mode: choosing a plan on `/pricing` opens a mock checkout t
 | `pnpm test` | Vitest: outcome engine, parsers, entitlements, pipeline integration |
 | `pnpm typecheck` / `pnpm lint` | TypeScript and ESLint |
 | `pnpm db:setup` | Apply migrations and seed if the database is empty (`--force` to reseed) |
-| `pnpm db:reset` | Delete the local PGlite database and reseed |
+| `pnpm db:reset` | Delete the local PGlite database and reseed. This also deletes the stored Telegram session and all channels |
 | `pnpm db:generate` | Generate a SQL migration from `src/server/db/schema.ts` |
 
 PGlite is single-process: stop the dev server before running `db:setup` or `db:reset` against the same data directory. Set `DATABASE_URL` to use a regular Postgres server instead.
@@ -42,7 +69,7 @@ PGlite is single-process: stop the dev server before running `db:setup` or `db:r
 ## How it works
 
 ```
-source message ─▶ raw_events (immutable) ─▶ parse_results (versioned) ─▶ signals + targets + adjustments
+Telegram post ─▶ raw_events (immutable) ─▶ parse_results (versioned) ─▶ signals + targets + adjustments
                                                      │ low confidence
                                                      ▼
                                                admin review queue
@@ -53,6 +80,7 @@ market_bars (1m) ─▶ outcome engine (outcome-v1) ─▶ signal_outcomes (vers
                         entitlement-aware presenters ─▶ pages and /api/v1
 ```
 
+- **Telegram** (`src/server/telegram`) uses GramJS (MTProto). It handles sign-in, channel resolution and joining, the live update handlers, and a catch-up sync that pages through history by message id.
 - **Raw events are never edited.** Every incoming message is stored with its timestamp and content hash, and is de-duplicated by external id or hash. Re-parsing creates a new parse result.
 - **Parsing** (`src/server/parsing`) extracts direction, entry (market, limit or zone), stop, targets, signal type and follow-up instructions such as move SL to breakeven, cancel, close, TP hit and SL hit. Anything below 80% confidence, or with a wrong-side stop or an implausible price, goes to `/admin/review` instead of being guessed.
 - **Outcomes** (`src/server/outcomes/engine.ts`) are a pure function of the signal, its adjustments and minute bars. The rules are versioned (`outcome-v1`):
@@ -67,14 +95,14 @@ market_bars (1m) ─▶ outcome engine (outcome-v1) ─▶ signal_outcomes (vers
 - **Similar trades** always match on source and direction, then on session, entry type, signal type, weekday and AI pattern tags. The least important criteria are dropped until at least five matches exist. Only trades that closed before the signal count.
 - **AI** only explains computed facts. Prompts are versioned, outputs are schema-validated, and analyses are stored separately from outcomes (`ai_analyses`). The AI never changes a result. The default provider is a deterministic mock; set `AI_PROVIDER=openai` to use a real model.
 - **Entitlements** (`src/server/entitlements`) are configurable per tier in `/admin/entitlements`: a feature list plus a history window. They are enforced on the server in `src/server/presenters.ts`, so locked fields are never serialized to the browser or the API.
-- **Jobs** are durable rows in `jobs`, retried with exponential backoff. An in-process scheduler (`src/instrumentation.ts`) runs them. It handles market data sync every minute, mock feed polling, open-trade recalculation, stats refresh, AI analysis and subscription reconciliation.
+- **Jobs** are durable rows in `jobs`, retried with exponential backoff. An in-process scheduler (`src/instrumentation.ts`) runs them. It handles market data sync every minute, Telegram catch-up sync every two minutes, market data backfill, open-trade recalculation, stats refresh, AI analysis and subscription reconciliation.
 - **Audit**: every manual change to a signal, outcome, source, entitlement, affiliate link or subscription is written to `audit_logs` with before and after values and a reason.
 
 ## Pages
 
 - **Public:** `/`, `/pricing`, `/login`, `/signup`, `/forgot-password`, `/terms`, `/privacy`
 - **Members:** `/dashboard`, `/signals`, `/signals/:id`, `/sources`, `/sources/:slug`, `/billing`, `/account`
-- **Admin:** `/admin`, `/admin/review`, `/admin/events`, `/admin/signals`, `/admin/sources`, `/admin/jobs`, `/admin/entitlements`, `/admin/affiliates`, `/admin/audit`
+- **Admin:** `/admin`, `/admin/telegram`, `/admin/review`, `/admin/events`, `/admin/signals`, `/admin/sources`, `/admin/jobs`, `/admin/entitlements`, `/admin/affiliates`, `/admin/audit`, `/admin/settings`
 
 ## API
 
@@ -88,30 +116,35 @@ All `/api/v1` read endpoints use the session cookie and return the same entitlem
 | GET | `/api/v1/signals/:id/analysis` | AI classification, summary and patterns |
 | GET | `/api/v1/sources`, `/api/v1/sources/:id`, `/api/v1/sources/:id/stats` | `:id` accepts a slug |
 | GET | `/api/v1/me/entitlements` | Tier, features, history window and subscription |
-| POST | `/api/v1/ingest/:slug` | Webhook ingestion, authenticated with `x-ingest-token` |
+| POST | `/api/v1/ingest/:slug` | Webhook ingestion for non-Telegram sources, authenticated with `x-ingest-token` |
 | POST | `/api/billing/checkout`, `/api/billing/portal` | Return a redirect `url` |
 | POST | `/api/billing/webhook` | Stripe webhook, signature-verified |
 
-Send a signal to the seeded webhook source:
+Telegram is the primary source. For other feeds, create a **webhook** source in `/admin/sources` and post to it:
 
 ```bash
-curl -X POST http://localhost:4317/api/v1/ingest/midas-webhook \
+curl -X POST http://localhost:4317/api/v1/ingest/<source-slug> \
   -H 'x-ingest-token: dev-ingest-token' -H 'content-type: application/json' \
-  -d '{"action":"open","side":"buy","entry":[3400,3402],"sl":3392,"tp":[3412,3425],"ref":"demo-1","message_id":"demo-1"}'
+  -d '{"text": "XAUUSD BUY 3400-3402 SL 3392 TP1 3412 TP2 3425", "message_id": "1"}'
 ```
 
-Text sources accept `{"text": "XAUUSD BUY 3400-3402 SL 3392 TP1 3412 TP2 3425", "message_id": "..."}`. Sending the same `message_id` again returns `duplicate`.
+Sending the same `message_id` again returns `duplicate`. The `json-webhook` parser accepts structured payloads such as `{"action":"open","side":"buy","entry":[3400,3402],"sl":3392,"tp":[3412,3425],"ref":"1"}`.
 
 ## Configuration
 
-Every integration has a local fallback, so nothing is required to run locally. See [`.env.example`](.env.example) for the full list. The main switches are:
+Every integration has a local fallback, so nothing is required to run locally. Telegram and market data credentials are entered in the admin and stored encrypted. See [`.env.example`](.env.example) for the full list. The main switches are:
 
+- `APP_SECRET`: the key that encrypts credentials stored from the admin. It is required in production. In development one is generated in `.data/app-secret`.
 - `DATABASE_URL`: use Postgres instead of embedded PGlite.
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_<TIER>_<PERIOD>`: real Stripe Checkout, Customer Portal and webhooks. Without them, mock checkout is used.
-- `MARKET_DATA_PROVIDER=twelvedata` plus `TWELVEDATA_API_KEY`: real XAU/USD minute bars.
+- `MARKET_DATA_PROVIDER=twelvedata` plus `TWELVEDATA_API_KEY`: real XAU/USD minute bars, if you prefer env vars to `/admin/settings`.
 - `AI_PROVIDER=openai` plus `OPENAI_API_KEY` (and optionally `OPENAI_BASE_URL` and `AI_MODEL`): real AI analysis.
-- `INGEST_TOKEN`: the webhook secret. It is required in production.
+- `INGEST_TOKEN`: the webhook secret. It is required in production if you use webhook sources.
 - `APP_URL`: the public base URL for emails and Stripe redirects.
+
+## Deploying
+
+The Telegram client holds a long-lived connection and runs background jobs in-process, so deploy it as a **persistent Node process**: a VPS, Railway, Fly.io, Render or a Docker host. Serverless platforms such as Vercel stop the process between requests, which drops the Telegram connection. Use `DATABASE_URL` with a managed Postgres, set `APP_SECRET`, `APP_URL` and `SEED_ADMIN_PASSWORD`, then run `pnpm build && pnpm start`. The server must be allowed to make outbound connections to Telegram's servers.
 
 ## Project layout
 
@@ -120,9 +153,9 @@ src/app/(public)      landing, pricing, auth, legal pages
 src/app/(app)         member area and /admin (server components + server actions)
 src/app/api           REST endpoints, ingest webhook, billing
 src/app/actions       server actions (auth, billing, admin)
-src/server            domain logic: db, ingestion, parsing, normalization, market-data,
-                      outcomes, statistics, similar, ai, entitlements, billing, jobs, audit
-scripts/seed.ts       migrations + demo data
+src/server            domain logic: db, telegram, ingestion, parsing, normalization, market-data,
+                      outcomes, statistics, similar, ai, entitlements, billing, jobs, settings, audit
+scripts/seed.ts       migrations + plans, entitlements and the admin account
 drizzle/              SQL migrations
 ```
 

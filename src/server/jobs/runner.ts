@@ -1,12 +1,12 @@
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { analyzeSignal, analyzeSourcePatterns } from "@/server/ai/service";
 import { reconcileSubscriptions } from "@/server/billing/service";
 import { getDb } from "@/server/db";
-import { jobs, sources, type Job } from "@/server/db/schema";
-import { pollMockFeed } from "@/server/ingestion/mock-feed";
-import { syncMarketData } from "@/server/market-data";
+import { jobs, signalOutcomes, signals, type Job } from "@/server/db/schema";
+import { ensureMarketDataCoverage, syncMarketData } from "@/server/market-data";
 import { openSignalIds, recalculateOutcome } from "@/server/outcomes/service";
 import { refreshSourceStats } from "@/server/statistics/service";
+import { syncAllTelegramSources, syncTelegramSource } from "@/server/telegram";
 import { enqueueJob, type JobType } from "./queue";
 
 type Handler = (payload: Record<string, unknown>) => Promise<unknown>;
@@ -36,7 +36,25 @@ const handlers: Record<JobType, Handler> = {
     const r = await analyzeSourcePatterns(String(p.sourceId), { force: Boolean(p.force) });
     return { skipped: r.skipped };
   },
-  POLL_SOURCE: async (p) => pollMockFeed(String(p.sourceId)),
+  TELEGRAM_SYNC: async (p) =>
+    p.sourceId ? syncTelegramSource(String(p.sourceId), { backfill: Number(p.backfill ?? 0) }) : syncAllTelegramSources(),
+  MARKET_DATA_BACKFILL: async () => {
+    const res = await ensureMarketDataCoverage();
+    await enqueueJob("RECALC_ALL_SIGNALS", { onlyMissing: true }, { dedupeKey: "recalc-all-missing" });
+    return res;
+  },
+  RECALC_ALL_SIGNALS: async (p) => {
+    const db = await getDb();
+    const rows = p.onlyMissing
+      ? await db
+          .select({ id: signals.id })
+          .from(signals)
+          .leftJoin(signalOutcomes, and(eq(signalOutcomes.signalId, signals.id), eq(signalOutcomes.isCurrent, true)))
+          .where(isNull(signalOutcomes.id))
+      : await db.select({ id: signals.id }).from(signals);
+    for (const r of rows) await recalculateOutcome(r.id, { force: !p.onlyMissing });
+    return { recalculated: rows.length };
+  },
   RECONCILE_SUBSCRIPTIONS: async () => reconcileSubscriptions(),
 };
 
@@ -114,12 +132,8 @@ export async function requeueStaleJobs() {
     .where(and(eq(jobs.status, "running"), lte(jobs.startedAt, new Date(Date.now() - 10 * 60_000))));
 }
 
-export async function scheduleRecurring(kind: "minute" | "poll" | "hourly") {
+export async function scheduleRecurring(kind: "minute" | "telegram" | "hourly") {
   if (kind === "minute") await enqueueJob("MARKET_DATA_SYNC", {}, { dedupeKey: "market-sync" });
+  if (kind === "telegram") await enqueueJob("TELEGRAM_SYNC", {}, { dedupeKey: "telegram-sync" });
   if (kind === "hourly") await enqueueJob("RECONCILE_SUBSCRIPTIONS", {}, { dedupeKey: "reconcile" });
-  if (kind === "poll") {
-    const db = await getDb();
-    const feeds = await db.select({ id: sources.id }).from(sources).where(and(eq(sources.sourceType, "mock_feed"), eq(sources.active, true)));
-    for (const f of feeds) await enqueueJob("POLL_SOURCE", { sourceId: f.id }, { dedupeKey: `poll:${f.id}` });
-  }
 }

@@ -31,7 +31,7 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
   const filters = parseSignalFilters(sp);
   const [result, sources, signalTypes] = await Promise.all([
     listSignalsForViewer(viewer, filters, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
-    listSources(),
+    listSources({ includeQa: viewer.access.isAdmin }),
     listSignalTypes(),
   ]);
   const pages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));

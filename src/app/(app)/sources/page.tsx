@@ -15,13 +15,13 @@ export const metadata: Metadata = { title: "Sources" };
 
 export default async function SourcesPage() {
   const viewer = await getViewer();
-  const sources = await listSources();
+  const sources = await listSources({ includeQa: viewer.access.isAdmin });
   const rows = await Promise.all(sources.map(async (s) => presentSourceSummary(s, await getSourceStats(s.id), viewer.access, viewer.config)));
   return (
     <>
-      <PageHeader title="Sources" description="Every tracked signal provider, measured with the same deterministic rules." />
+      <PageHeader title="Sources" description="Every tracked Telegram channel, measured against market data with the same deterministic rules." />
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">No sources are being tracked yet.</div>
+        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">No channels are being tracked yet. Signal channels appear here as soon as they are connected.</div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((s) => (
@@ -36,7 +36,8 @@ export default async function SourcesPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant="outline">{s.sourceType.replace("_", " ")}</Badge>
+                    <Badge variant="outline">{s.sourceType === "telegram" ? "Telegram" : s.sourceType}</Badge>
+                    {s.isQa && <Badge variant="secondary">QA</Badge>}
                     {s.stats?.totalSignals ?? 0} signals · {s.stats?.closedTrades ?? 0} closed
                   </div>
                   {s.stats && !s.stats.summary.locked ? (

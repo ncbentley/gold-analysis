@@ -9,7 +9,9 @@ export const JOB_TYPES = [
   "REFRESH_SOURCE_STATS",
   "AI_ANALYZE_SIGNAL",
   "AI_ANALYZE_SOURCE",
-  "POLL_SOURCE",
+  "TELEGRAM_SYNC",
+  "MARKET_DATA_BACKFILL",
+  "RECALC_ALL_SIGNALS",
   "RECONCILE_SUBSCRIPTIONS",
 ] as const;
 export type JobType = (typeof JOB_TYPES)[number];

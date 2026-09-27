@@ -1,12 +1,14 @@
 import type { MarketDataProvider, ProviderBar } from "./provider";
 
 /**
- * Twelve Data adapter (https://twelvedata.com). Enabled when MARKET_DATA_PROVIDER=twelvedata
- * and TWELVEDATA_API_KEY is set. Not exercised in local development.
+ * Twelve Data adapter (https://twelvedata.com). The free plan allows 8 requests per minute
+ * and 800 per day, so routine syncs run every 2 minutes and backfill requests are spaced out.
  */
 export function createTwelveDataProvider(apiKey: string): MarketDataProvider {
   return {
     name: "twelvedata",
+    minSyncIntervalMs: 2 * 60_000,
+    requestSpacingMs: 8_000,
     async fetchMinuteBars(instrument, from, to) {
       const symbol = instrument === "XAUUSD" ? "XAU/USD" : instrument;
       const fmt = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");

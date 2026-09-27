@@ -69,7 +69,10 @@ export function SignalList({
                   <div className="text-sm">{fmtDateTime(s.signalTime)}</div>
                   <div className="text-[11px] text-muted-foreground">{fmtAge(s.signalTime, now)} ago</div>
                 </TableCell>
-                <TableCell className="font-medium">{s.source.name}</TableCell>
+                <TableCell className="font-medium">
+                  {s.source.name}
+                  {s.source.isQa && <span className="ml-1.5 rounded border px-1 text-[10px] font-normal text-muted-foreground">QA</span>}
+                </TableCell>
                 <TableCell>
                   <DirectionBadge direction={s.direction} />
                   <div className="text-[11px] text-muted-foreground capitalize">{s.entryType.toLowerCase()}</div>
@@ -96,7 +99,10 @@ export function SignalList({
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <DirectionBadge direction={s.direction} />
-                <span className="text-sm font-medium">{s.source.name}</span>
+                <span className="text-sm font-medium">
+                  {s.source.name}
+                  {s.source.isQa && <span className="ml-1.5 rounded border px-1 text-[10px] font-normal text-muted-foreground">QA</span>}
+                </span>
               </div>
               <StatusBadge status={s.status} />
             </div>

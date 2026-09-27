@@ -88,6 +88,7 @@ export async function listSignalsForViewer(viewer: Viewer, filters: SignalFilter
 
   const cutoff = historyCutoff(access);
   const conds: SQL[] = [sql`${signals.status} <> 'INVALID'`];
+  if (!access.isAdmin) conds.push(eq(sources.isQa, false));
   if (cutoff) conds.push(gte(signals.signalTime, cutoff));
   if (f.sourceId) conds.push(eq(signals.sourceId, f.sourceId));
   if (f.status === "OPEN") conds.push(inArray(signals.status, OPEN));
@@ -112,6 +113,7 @@ export async function listSignalsForViewer(viewer: Viewer, filters: SignalFilter
   const [{ count }] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(signals)
+    .innerJoin(sources, eq(sources.id, signals.sourceId))
     .innerJoin(rawEvents, eq(rawEvents.id, signals.originEventId))
     .leftJoin(signalOutcomes, and(eq(signalOutcomes.signalId, signals.id), eq(signalOutcomes.isCurrent, true)))
     .where(where);
@@ -148,6 +150,7 @@ export async function getSignalDetailForViewer(signalId: string, viewer: Viewer)
   const { access, config } = viewer;
   const bundle = await getSignalBundle(signalId);
   if (!bundle || bundle.signal.status === "INVALID") return { kind: "not_found" };
+  if (bundle.source.isQa && !access.isAdmin) return { kind: "not_found" };
   if (!can(access, "signals.core")) return { kind: "no_access", requiredTier: lowestTierWith("signals.core", config) };
   const cutoff = historyCutoff(access);
   if (cutoff && bundle.signal.signalTime < cutoff) return { kind: "history_locked", requiredTier: lowestTierWith("sources.history.full", config) };
@@ -198,28 +201,30 @@ export async function listPublicSampleSignals(config: Viewer["config"], opts: { 
     .from(signals)
     .innerJoin(sources, eq(sources.id, signals.sourceId))
     .leftJoin(signalOutcomes, and(eq(signalOutcomes.signalId, signals.id), eq(signalOutcomes.isCurrent, true)))
-    .where(and(inArray(signals.status, ["WON", "LOST", "BREAKEVEN"]), lte(signals.signalTime, before)))
+    .where(and(inArray(signals.status, ["WON", "LOST", "BREAKEVEN"]), lte(signals.signalTime, before), eq(sources.isQa, false), eq(sources.active, true)))
     .orderBy(desc(signals.signalTime))
     .limit(opts.limit ?? 6);
   const access = buildAccess("silver", config);
   return (await hydrate(rows)).map((b) => presentSignalListItem(b, access, config));
 }
 
-export async function listSources(opts: { includeInactive?: boolean } = {}) {
+/** QA channels are admin-only and excluded unless `includeQa` is set. */
+export async function listSources(opts: { includeInactive?: boolean; includeQa?: boolean } = {}) {
   const db = await getDb();
   return db
     .select()
     .from(sources)
-    .where(opts.includeInactive ? undefined : eq(sources.active, true))
+    .where(and(opts.includeInactive ? undefined : eq(sources.active, true), opts.includeQa ? undefined : eq(sources.isQa, false)))
     .orderBy(asc(sources.name));
 }
 
-export async function getSourceBySlugOrId(key: string) {
+export async function getSourceBySlugOrId(key: string, opts: { includeQa?: boolean } = {}) {
   const db = await getDb();
   const [row] = await db
     .select()
     .from(sources)
     .where(sql`${sources.slug} = ${key} or ${sources.id} = ${key}`);
+  if (row?.isQa && !opts.includeQa) return null;
   return row ?? null;
 }
 

@@ -34,7 +34,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/ingest/[slug
   const limit = rateLimit(`ingest:${slug}:${clientIp(req.headers)}`, 120, 60_000);
   if (!limit.ok) return apiError(429, "rate_limited", "Too many events; slow down.", { retryAt: new Date(limit.resetAt).toISOString() });
 
-  const source = await getSourceBySlugOrId(slug);
+  const source = await getSourceBySlugOrId(slug, { includeQa: true });
   if (!source || source.slug !== slug) return apiError(404, "unknown_source", "No source with this slug.");
   if (!source.active) return apiError(409, "source_disabled", "This source is disabled.");
 

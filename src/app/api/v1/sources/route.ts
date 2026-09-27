@@ -5,7 +5,7 @@ import { getSourceStats } from "@/server/statistics/service";
 
 export async function GET() {
   return withViewer(async (viewer) => {
-    const sources = await listSources();
+    const sources = await listSources({ includeQa: viewer.access.isAdmin });
     const data = await Promise.all(sources.map(async (s) => presentSourceSummary(s, await getSourceStats(s.id), viewer.access, viewer.config)));
     return json({ data });
   });

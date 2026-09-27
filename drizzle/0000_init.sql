@@ -41,6 +41,12 @@ CREATE TABLE "analytics_events" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "app_settings" (
+	"key" text PRIMARY KEY NOT NULL,
+	"value_encrypted" text NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "audit_logs" (
 	"id" text PRIMARY KEY NOT NULL,
 	"actor_user_id" text,
@@ -238,12 +244,20 @@ CREATE TABLE "sources" (
 	"source_url" text,
 	"description" text,
 	"active" boolean DEFAULT true NOT NULL,
+	"is_qa" boolean DEFAULT false NOT NULL,
 	"timezone" text DEFAULT 'UTC' NOT NULL,
 	"parser_type" text NOT NULL,
 	"show_raw_text" boolean DEFAULT true NOT NULL,
+	"telegram_channel_id" text,
+	"telegram_access_hash" text,
+	"telegram_username" text,
+	"last_message_id" integer,
+	"last_synced_at" timestamp with time zone,
+	"sync_error" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "sources_slug_unique" UNIQUE("slug")
+	CONSTRAINT "sources_slug_unique" UNIQUE("slug"),
+	CONSTRAINT "sources_telegram_channel_id_unique" UNIQUE("telegram_channel_id")
 );
 --> statement-breakpoint
 CREATE TABLE "subscriptions" (

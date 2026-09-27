@@ -16,7 +16,7 @@ import { getSourceStats } from "@/server/statistics/service";
 export const dynamic = "force-dynamic";
 
 const STEPS = [
-  { icon: Database, title: "Collect", body: "Every message from each tracked source is stored exactly as received, with its timestamp, before anything else happens." },
+  { icon: Database, title: "Collect", body: "Every post from each tracked Telegram channel is stored exactly as published, with its timestamp. Later edits are kept alongside the original, never over it." },
   { icon: ScrollText, title: "Normalize", body: "Entries, stops, targets and follow-up instructions are parsed into a standard format. Unclear messages go to a human reviewer instead of being guessed." },
   { icon: Timer, title: "Replay", body: "Each signal is replayed against XAU/USD one-minute candles with published, versioned rules for fills, targets, stops and same-candle ambiguity." },
   { icon: LineChart, title: "Measure", body: "Win rate, R-multiples, excursion, time-to-target and session behaviour are computed per source from the recorded outcomes." },
@@ -49,14 +49,15 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 pb-16 pt-16 md:pb-24 md:pt-24">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-3 py-1 text-xs text-primary">
-              XAU/USD · {sources.length} tracked sources · {totalClosed.toLocaleString()} measured trades
+              XAU/USD · {sources.length ? `${sources.length} tracked Telegram ${sources.length === 1 ? "channel" : "channels"}` : "Telegram signal channels"}
+              {totalClosed > 0 && ` · ${totalClosed.toLocaleString()} measured trades`}
             </div>
             <h1 className="mt-5 text-4xl font-semibold tracking-tight md:text-6xl">
               Every gold signal, <span className="gold-text">tracked and measured</span>.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-              Aurum Ledger records gold trading signals from third-party sources, replays each one against minute-level market data, and shows you how every
-              source has actually performed. The same way, every time, with the rules in the open.
+              Aurum Ledger records gold trading signals from Telegram channels, replays each one against minute-level market data, and shows you how every
+              channel has actually performed. The same way, every time, with the rules in the open.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/signup" className={cn(buttonVariants({ size: "lg" }), "px-5")}>
@@ -90,9 +91,14 @@ export default async function LandingPage() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight">Source track records</h2>
-              <p className="mt-2 max-w-2xl text-muted-foreground">Lifetime results for each source, computed from recorded outcomes. Ambiguous and cancelled signals are excluded from win rate.</p>
+              <p className="mt-2 max-w-2xl text-muted-foreground">Lifetime results for each channel, computed from recorded outcomes. Ambiguous and cancelled signals are excluded from win rate.</p>
             </div>
           </div>
+          {sourceStats.length === 0 && (
+            <div className="mt-8 rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+              Channel track records are published here once the first channels are connected and their signals have closed.
+            </div>
+          )}
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             {sourceStats.map(({ source, stats }) => (
               <Card key={source.id} className="bg-card/60">

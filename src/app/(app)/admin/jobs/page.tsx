@@ -25,12 +25,12 @@ export default async function JobsPage({ searchParams }: PageProps<"/admin/jobs"
           <>
             <form action={enqueueJobAction} className="flex gap-2">
               <NativeSelect name="type" aria-label="Job to queue" className="w-52" defaultValue="MARKET_DATA_SYNC">
-                {JOB_TYPES.filter((t) => !["RECALC_OUTCOME", "AI_ANALYZE_SIGNAL", "AI_ANALYZE_SOURCE", "REFRESH_SOURCE_STATS", "POLL_SOURCE"].includes(t)).map((t) => (
+                {JOB_TYPES.filter((t) => !["RECALC_OUTCOME", "AI_ANALYZE_SIGNAL", "AI_ANALYZE_SOURCE", "REFRESH_SOURCE_STATS"].includes(t)).map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
                 ))}
-                <option value="recurring:poll">Poll all mock feeds</option>
+                <option value="recurring:telegram">Sync all Telegram channels</option>
               </NativeSelect>
               <Button type="submit" size="sm" variant="outline">
                 Queue and run

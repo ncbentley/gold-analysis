@@ -23,7 +23,7 @@ export default async function EventsPage({ searchParams }: PageProps<"/admin/eve
   const one = (k: string) => (typeof sp[k] === "string" && sp[k] ? (sp[k] as string) : undefined);
   const page = Math.max(1, Number(one("page") ?? 1) || 1);
   const filters = { sourceId: one("source"), status: one("status") };
-  const [{ rows, total }, sources] = await Promise.all([listRawEvents(filters, { limit: PAGE, offset: (page - 1) * PAGE }), listSources({ includeInactive: true })]);
+  const [{ rows, total }, sources] = await Promise.all([listRawEvents(filters, { limit: PAGE, offset: (page - 1) * PAGE }), listSources({ includeInactive: true, includeQa: true })]);
   const qs = (patch: Record<string, string | undefined>) => {
     const p = new URLSearchParams(Object.entries({ source: filters.sourceId, status: filters.status, ...patch }).filter(([, v]) => v) as [string, string][]);
     return `/admin/events${p.size ? `?${p}` : ""}`;

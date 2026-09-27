@@ -14,7 +14,7 @@ const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
 export interface SignalBundle {
   signal: Signal;
-  source: Pick<Source, "id" | "name" | "slug" | "showRawText">;
+  source: Pick<Source, "id" | "name" | "slug" | "showRawText" | "isQa">;
   targets: SignalTarget[];
   outcome: SignalOutcome | null;
 }
@@ -23,7 +23,7 @@ export function presentSignalListItem({ signal, source, targets, outcome }: Sign
   const isClosed = outcome ? CLOSED.has(outcome.classification) : false;
   return {
     id: signal.id,
-    source: { id: source.id, name: source.name, slug: source.slug },
+    source: { id: source.id, name: source.name, slug: source.slug, isQa: source.isQa },
     instrument: signal.instrument,
     direction: signal.direction,
     entryType: signal.entryType,
@@ -204,6 +204,8 @@ export function presentSourceSummary(source: Source, stats: SourceStatistics | n
     slug: source.slug,
     description: source.description,
     sourceType: source.sourceType,
+    telegramUsername: source.telegramUsername,
+    isQa: source.isQa,
     active: source.active,
     stats: stats ? presentSourceStats(stats, access, config) : null,
   };

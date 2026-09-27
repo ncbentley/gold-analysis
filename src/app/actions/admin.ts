@@ -9,7 +9,7 @@ import { analyzeSignal, analyzeSourcePatterns } from "@/server/ai/service";
 import { PROMPTS } from "@/server/ai/prompts";
 import { recordAudit } from "@/server/audit";
 import { requireAdmin } from "@/server/auth/guards";
-import { TIERS, type Tier } from "@/server/db/schema";
+import { SOURCE_TYPES, TIERS, type Tier } from "@/server/db/schema";
 import { ALL_FEATURES, type Feature } from "@/server/entitlements/config";
 import { getTierConfig, saveTierConfig } from "@/server/entitlements/service";
 import { ingestRawEvent } from "@/server/ingestion";
@@ -17,7 +17,20 @@ import { enqueueJob, JOB_TYPES, type JobType } from "@/server/jobs/queue";
 import { processJobs, scheduleRecurring } from "@/server/jobs/runner";
 import { correctSignal, dismissReview, processRawEvent, resolveReviewWithSignal, type SignalInput } from "@/server/normalization";
 import { clearOverride, overrideOutcome, recalculateOutcome } from "@/server/outcomes/service";
+import { getMarketDataConfig, resetMarketData } from "@/server/market-data";
+import { createTwelveDataProvider } from "@/server/market-data/twelvedata-provider";
 import { PARSER_TYPES } from "@/server/parsing";
+import { setSetting, SETTING_KEYS } from "@/server/settings";
+import {
+  addTelegramChannel,
+  cancelTelegramLogin,
+  completeTelegramLogin,
+  connectTelegram,
+  signOutTelegram,
+  startTelegramLogin,
+  syncTelegramSource,
+  telegramStatus,
+} from "@/server/telegram";
 
 function back(path: string, notice: string, kind: "ok" | "error" = "ok"): never {
   const sep = path.includes("?") ? "&" : "?";
@@ -71,8 +84,8 @@ export async function enqueueJobAction(form: FormData) {
   const path = safeReturn(form, "/admin/jobs");
   await attempt(path, async () => {
     const type = str(form, "type");
-    if (type === "recurring:minute" || type === "recurring:poll" || type === "recurring:hourly") {
-      await scheduleRecurring(type.split(":")[1] as "minute" | "poll" | "hourly");
+    if (type === "recurring:minute" || type === "recurring:telegram" || type === "recurring:hourly") {
+      await scheduleRecurring(type.split(":")[1] as "minute" | "telegram" | "hourly");
     } else if ((JOB_TYPES as readonly string[]).includes(type)) {
       await enqueueJob(type as JobType, {});
     } else throw new Error("Unknown job type");
@@ -101,13 +114,14 @@ const sourceSchema = z.object({
     .min(2)
     .max(60)
     .regex(/^[a-z0-9-]+$/, "Slug may only contain lowercase letters, numbers and dashes"),
-  sourceType: z.enum(["webhook", "mock_feed", "manual"]),
+  sourceType: z.enum(SOURCE_TYPES),
   sourceUrl: z.url().nullable(),
   description: z.string().max(500).nullable(),
   timezone: z.string().min(1).max(60),
   parserType: z.enum(PARSER_TYPES as [string, ...string[]]),
   active: z.boolean(),
   showRawText: z.boolean(),
+  isQa: z.boolean(),
 });
 
 export async function saveSourceAction(form: FormData) {
@@ -124,6 +138,7 @@ export async function saveSourceAction(form: FormData) {
       parserType: str(form, "parserType"),
       active: form.get("active") === "on",
       showRawText: form.get("showRawText") === "on",
+      isQa: form.get("isQa") === "on",
     });
     if (!parsed.success) throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
     await upsertSource(id, parsed.data, actor);
@@ -332,5 +347,114 @@ export async function saveAffiliateAction(form: FormData) {
     if (disclosure.length < 10) throw new Error("A disclosure statement is required.");
     await upsertAffiliateLink(str(form, "id") || null, { name, slug, destinationUrl: str(form, "destinationUrl"), disclosure, placements, active: form.get("active") === "on" }, actor);
     return "Affiliate link saved.";
+  });
+}
+
+/* Telegram */
+
+export async function telegramSendCodeAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/telegram", async () => {
+    const apiId = Number(str(form, "apiId"));
+    const apiHash = str(form, "apiHash");
+    const phone = str(form, "phone").replace(/[\s()-]/g, "");
+    if (!Number.isInteger(apiId) || apiId <= 0) throw new Error("API ID must be the number shown on my.telegram.org.");
+    if (!/^[a-f0-9]{32}$/i.test(apiHash)) throw new Error("API hash must be the 32-character value shown on my.telegram.org.");
+    if (!/^\+?[0-9]{6,16}$/.test(phone)) throw new Error("Enter the phone number in international format, e.g. +447700900123.");
+    const { viaApp } = await startTelegramLogin({ apiId, apiHash, phone: phone.startsWith("+") ? phone : `+${phone}` }, actor);
+    return viaApp ? "Code sent to your Telegram app. Enter it below." : "Code sent by SMS. Enter it below.";
+  });
+}
+
+export async function telegramVerifyAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/telegram", async () => {
+    const res = await completeTelegramLogin({ code: str(form, "code").replace(/\s/g, "") || undefined, password: str(form, "password") || undefined }, actor);
+    if (res.needsPassword) return "This account has two-step verification. Enter your Telegram password.";
+    await enqueueJob("TELEGRAM_SYNC", {}, { dedupeKey: "telegram-sync" });
+    return `Signed in as ${res.me.name}.`;
+  });
+}
+
+export async function telegramCancelLoginAction() {
+  await requireAdmin();
+  await attempt("/admin/telegram", async () => {
+    await cancelTelegramLogin();
+    return "Sign-in cancelled.";
+  });
+}
+
+export async function telegramSignOutAction() {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/telegram", async () => {
+    await signOutTelegram(actor);
+    return "Signed out of Telegram. Channels stay in place; sign in again to resume syncing.";
+  });
+}
+
+export async function telegramReconnectAction() {
+  await requireAdmin();
+  await attempt("/admin/telegram", async () => {
+    const client = await connectTelegram();
+    if (!client) throw new Error((await telegramStatus()).lastError ?? "Could not connect. Sign in again.");
+    return "Connected to Telegram.";
+  });
+}
+
+export async function telegramAddChannelAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/telegram", async () => {
+    const parserType = str(form, "parserType") || PARSER_TYPES[0];
+    if (!(PARSER_TYPES as readonly string[]).includes(parserType)) throw new Error("Unknown parser.");
+    const backfill = Math.trunc(num(form, "backfill") ?? 0);
+    if (!Number.isFinite(backfill) || backfill < 0 || backfill > 1000) throw new Error("Backfill must be between 0 and 1000 messages.");
+    const isQa = form.get("isQa") === "on";
+    const res = await addTelegramChannel({ channel: str(form, "channel"), name: str(form, "name").slice(0, 80) || undefined, isQa, parserType, backfill }, actor);
+    await enqueueJob("TELEGRAM_SYNC", { sourceId: res.sourceId, backfill }, { dedupeKey: `telegram-sync:${res.sourceId}` });
+    await processJobs(backfill + 50);
+    const what = isQa ? "QA channel" : "Channel";
+    if (!res.created) return `${what} ${res.title} was already tracked; it is linked and active again.`;
+    return backfill ? `${what} ${res.title} added. Imported up to ${backfill} recent messages.` : `${what} ${res.title} added. New posts will be captured from now on.`;
+  });
+}
+
+export async function telegramSyncSourceAction(form: FormData) {
+  await requireAdmin();
+  await attempt("/admin/telegram", async () => {
+    const id = str(form, "sourceId");
+    const res = await syncTelegramSource(id);
+    await processJobs(200);
+    return "ingested" in res ? `Synced: ${res.ingested} new message${res.ingested === 1 ? "" : "s"}.` : "Channel is disabled.";
+  });
+}
+
+/* Settings */
+
+export async function saveMarketDataAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/settings", async () => {
+    const provider = str(form, "provider");
+    if (provider !== "mock" && provider !== "twelvedata") throw new Error("Choose a market data provider.");
+    const before = await getMarketDataConfig();
+    const keyInput = str(form, "twelvedataApiKey");
+    const twelvedataApiKey = keyInput || (before.provider === "twelvedata" ? before.twelvedataApiKey ?? null : null);
+    if (provider === "twelvedata" && !twelvedataApiKey) throw new Error("A Twelve Data API key is required.");
+    if (provider === "twelvedata" && keyInput) {
+      const check = await createTwelveDataProvider(keyInput)
+        .fetchMinuteBars("XAUUSD", new Date(Date.now() - 3 * 86_400_000), new Date())
+        .catch((err: Error) => err);
+      if (check instanceof Error && !/no data/i.test(check.message)) throw new Error(`Twelve Data rejected the key: ${check.message}`);
+    }
+    await setSetting(SETTING_KEYS.marketData, { provider, twelvedataApiKey: provider === "twelvedata" ? twelvedataApiKey : null });
+    await recordAudit({ actor, entityType: "settings", entityId: "market_data", action: "settings.market_data", before: { provider: before.provider }, after: { provider } });
+    if (before.provider !== provider) {
+      // Bars from different providers must not be mixed inside one outcome evaluation.
+      await resetMarketData();
+      await enqueueJob("MARKET_DATA_BACKFILL", {}, { dedupeKey: "market-backfill" });
+      await enqueueJob("RECALC_ALL_SIGNALS", {}, { dedupeKey: "recalc-all" });
+      void processJobs(500).catch(() => {});
+      return "Provider switched. Stored prices were cleared; history is being re-fetched and every outcome recalculated in the background.";
+    }
+    return "Market data settings saved.";
   });
 }

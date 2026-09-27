@@ -39,9 +39,9 @@ function Panel({ title, description, children }: { title: string; description?: 
 
 export default async function SourcePage({ params }: PageProps<"/sources/[id]">) {
   const { id } = await params;
-  const source = await getSourceBySlugOrId(id);
-  if (!source) notFound();
   const viewer = await getViewer();
+  const source = await getSourceBySlugOrId(id, { includeQa: viewer.access.isAdmin });
+  if (!source) notFound();
   const { access, config } = viewer;
   const uid = viewer.user?.id;
   void trackEvent("source_viewed", uid ?? null, { source: source.slug });

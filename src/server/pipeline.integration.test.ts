@@ -15,7 +15,7 @@ import { processJobs } from "@/server/jobs/runner";
 import { syncMarketData } from "@/server/market-data";
 import { correctSignal } from "@/server/normalization";
 import { overrideOutcome } from "@/server/outcomes/service";
-import { getSignalDetailForViewer, listSignalsForViewer } from "@/server/signals/queries";
+import { getSignalDetailForViewer, getSourceBySlugOrId, listSignalsForViewer, listSources } from "@/server/signals/queries";
 
 // Unlimited history so the fixed-date fixture stays visible; the default windows are tested separately.
 const config = Object.fromEntries(TIERS.map((t) => [t, { ...DEFAULT_TIER_CONFIG[t], historyDays: null }])) as typeof DEFAULT_TIER_CONFIG;
@@ -25,6 +25,7 @@ const viewer = (tier: "silver" | "gold" | "platinum", cfg = config): Viewer => (
   config: cfg,
   subscription: null,
 });
+const adminViewer = (): Viewer => ({ user: null, access: buildAccess(null, config, true), config, subscription: null });
 const admin = { userId: null, label: "test-admin" };
 
 // A Tuesday in the mock data range; the market is open.
@@ -146,5 +147,51 @@ describe("pipeline", () => {
     expect(current[0].kind).toBe("override");
     const audit = await db.select().from(auditLogs).where(eq(auditLogs.action, "outcome.override"));
     expect(audit[0].reason).toBe("Broker feed outage");
+  });
+
+  it("sends edited signal posts to review instead of applying them", async () => {
+    const db = await getDb();
+    const [bar] = await db.select().from(marketBars).where(eq(marketBars.timestamp, new Date(T.getTime() + 2 * 3_600_000 - 60_000)));
+    const p = bar.close;
+    const res = await ingestRawEvent(sourceId, {
+      externalMessageId: "m1@edit-1",
+      rawText: `XAUUSD BUY NOW @ ${p.toFixed(2)}\nSL: ${(p - 5).toFixed(2)}\nTP1: ${(p + 8).toFixed(2)}`,
+      payload: { message_id: "m1", edit_of: "m1" },
+      publishedAt: new Date(T.getTime() + 2 * 3_600_000),
+    });
+    expect(res.status).toBe("stored");
+    if (res.status !== "stored") return;
+    const [pr] = await db.select().from(parseResults).where(eq(parseResults.rawEventId, res.rawEventId));
+    expect(pr.status).toBe("needs_review");
+    expect(JSON.stringify(pr.issues)).toContain("edited message m1");
+    expect(await db.select().from(signals).where(eq(signals.originEventId, res.rawEventId))).toHaveLength(0);
+  });
+
+  it("keeps QA channels visible to admins only", async () => {
+    const db = await getDb();
+    const [qa] = await db.insert(sources).values({ name: "QA", slug: "qa-channel", sourceType: "telegram", telegramChannelId: "999", parserType: "text-generic", isQa: true }).returning();
+    const [bar] = await db.select().from(marketBars).where(eq(marketBars.timestamp, new Date(T.getTime() + 3 * 3_600_000 - 60_000)));
+    const p = bar.close;
+    await ingestRawEvent(qa.id, {
+      externalMessageId: "1",
+      rawText: `XAUUSD SELL NOW @ ${p.toFixed(2)}\nSL: ${(p + 6).toFixed(2)}\nTP1: ${(p - 6).toFixed(2)}`,
+      publishedAt: new Date(T.getTime() + 3 * 3_600_000),
+    });
+    await drain();
+    const [qaSignal] = await db.select().from(signals).where(eq(signals.sourceId, qa.id));
+    expect(qaSignal).toBeDefined();
+
+    expect((await getSignalDetailForViewer(qaSignal.id, viewer("platinum"))).kind).toBe("not_found");
+    expect((await getSignalDetailForViewer(qaSignal.id, adminViewer())).kind).toBe("ok");
+    const member = await listSignalsForViewer(viewer("platinum"), {});
+    expect(member.items.map((i) => i.id)).not.toContain(qaSignal.id);
+    expect(member.total).toBe(member.items.length);
+    const adminList = await listSignalsForViewer(adminViewer(), {});
+    expect(adminList.items.map((i) => i.id)).toContain(qaSignal.id);
+
+    expect((await listSources()).map((s) => s.id)).not.toContain(qa.id);
+    expect((await listSources({ includeQa: true })).map((s) => s.id)).toContain(qa.id);
+    expect(await getSourceBySlugOrId("qa-channel")).toBeNull();
+    expect(await getSourceBySlugOrId("qa-channel", { includeQa: true })).not.toBeNull();
   });
 });

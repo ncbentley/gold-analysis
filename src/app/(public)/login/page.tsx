@@ -36,10 +36,8 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       </div>
       {process.env.NODE_ENV !== "production" && (
         <div className="mt-5 rounded-md border border-dashed p-3 text-[11px] leading-relaxed text-muted-foreground">
-          <div className="mb-1 font-medium text-foreground">Local demo accounts</div>
-          admin@example.com / admin12345
-          <br />
-          silver@, gold@, platinum@, free@example.com / demo12345
+          <div className="mb-1 font-medium text-foreground">Local development</div>
+          Default admin: admin@example.com / admin12345 (override with SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD)
         </div>
       )}
     </AuthCard>

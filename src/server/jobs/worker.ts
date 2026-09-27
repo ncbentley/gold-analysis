@@ -1,3 +1,4 @@
+import { connectTelegram } from "@/server/telegram";
 import { processJobs, requeueStaleJobs, scheduleRecurring } from "./runner";
 
 const g = globalThis as unknown as { __gsiWorker?: boolean };
@@ -19,20 +20,24 @@ export function startWorker() {
     await scheduleRecurring("minute");
     await processJobs(200);
   });
-  const poll = safe("poll", () => scheduleRecurring("poll"));
+  const telegram = safe("telegram", async () => {
+    await scheduleRecurring("telegram");
+    await processJobs(200);
+  });
   const hourly = safe("hourly", () => scheduleRecurring("hourly"));
 
   safe("startup", async () => {
     await requeueStaleJobs();
     await scheduleRecurring("minute");
-    await scheduleRecurring("poll");
+    await connectTelegram();
+    await scheduleRecurring("telegram");
     await scheduleRecurring("hourly");
     await processJobs(200);
   })();
 
   setInterval(tick, 15_000).unref();
   setInterval(minute, 60_000).unref();
-  setInterval(poll, 5 * 60_000).unref();
+  setInterval(telegram, 2 * 60_000).unref();
   setInterval(hourly, 60 * 60_000).unref();
   console.log("[worker] background jobs started");
 }

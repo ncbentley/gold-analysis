@@ -179,6 +179,15 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
     return storeParse(event, failed, "failed", null);
   }
 
+  const editOf = (event.rawPayloadJson as { edit_of?: unknown } | null)?.edit_of;
+  if (editOf != null) {
+    // Silent edits after posting are how track records get rewritten, so they never apply automatically.
+    if (out.eventType === "COMMENT") return storeParse(event, out, "ignored", null, [`Edit of message ${editOf}; comment ignored.`]);
+    return storeParse(event, out, "needs_review", null, [
+      `Source edited message ${editOf} after posting. Compare with the original before correcting the signal.`,
+    ]);
+  }
+
   if (out.eventType === "NEW_SIGNAL") {
     const [existing] = await db.select({ id: signals.id }).from(signals).where(eq(signals.originEventId, event.id));
     if (existing) {

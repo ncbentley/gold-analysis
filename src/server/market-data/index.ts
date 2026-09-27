@@ -1,19 +1,34 @@
 import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import { getDb } from "@/server/db";
-import { marketBars, marketDataSync } from "@/server/db/schema";
+import { marketBars, marketDataSync, signals } from "@/server/db/schema";
+import { getSetting, SETTING_KEYS } from "@/server/settings";
 import type { EngineBar } from "@/server/outcomes/engine";
 import { mockMarketDataProvider } from "./mock-provider";
-import type { MarketDataProvider } from "./provider";
+import { isGoldMarketOpen, type MarketDataProvider } from "./provider";
 import { createTwelveDataProvider } from "./twelvedata-provider";
 
 export const INSTRUMENT = "XAUUSD";
 const MINUTE = 60_000;
 const CHUNK_MINUTES = 60 * 24 * 3;
 
-export function getMarketDataProvider(): MarketDataProvider {
+export interface MarketDataSettings {
+  provider: "mock" | "twelvedata";
+  twelvedataApiKey?: string | null;
+}
+
+/** Admin settings take precedence over environment variables. */
+export async function getMarketDataConfig(): Promise<MarketDataSettings & { configuredIn: "admin" | "env" | "default" }> {
+  const saved = await getSetting<MarketDataSettings>(SETTING_KEYS.marketData);
+  if (saved) return { ...saved, configuredIn: "admin" };
   if (process.env.MARKET_DATA_PROVIDER === "twelvedata" && process.env.TWELVEDATA_API_KEY) {
-    return createTwelveDataProvider(process.env.TWELVEDATA_API_KEY);
+    return { provider: "twelvedata", twelvedataApiKey: process.env.TWELVEDATA_API_KEY, configuredIn: "env" };
   }
+  return { provider: "mock", configuredIn: "default" };
+}
+
+export async function getMarketDataProvider(): Promise<MarketDataProvider> {
+  const cfg = await getMarketDataConfig();
+  if (cfg.provider === "twelvedata" && cfg.twelvedataApiKey) return createTwelveDataProvider(cfg.twelvedataApiKey);
   return mockMarketDataProvider;
 }
 
@@ -27,14 +42,20 @@ export async function getSyncState(instrument = INSTRUMENT) {
 export async function syncMarketData(opts: { from?: Date; to?: Date; instrument?: string } = {}) {
   const db = await getDb();
   const instrument = opts.instrument ?? INSTRUMENT;
-  const provider = getMarketDataProvider();
+  const provider = await getMarketDataProvider();
   const state = await getSyncState(instrument);
-  const to = new Date(Math.floor((opts.to ?? new Date()).getTime() / MINUTE) * MINUTE);
+  const now = new Date();
+  if (!opts.from && state && provider.minSyncIntervalMs) {
+    const interval = isGoldMarketOpen(now) ? provider.minSyncIntervalMs : 60 * MINUTE;
+    if (now.getTime() - state.updatedAt.getTime() < interval) return { inserted: 0, syncedThrough: state.syncedThrough, skipped: true };
+  }
+  const to = new Date(Math.floor((opts.to ?? now).getTime() / MINUTE) * MINUTE);
   const from = opts.from ?? state?.syncedThrough ?? new Date(to.getTime() - 3 * 86_400_000);
   if (from >= to) return { inserted: 0, syncedThrough: to };
 
   let inserted = 0;
   for (let start = from.getTime(); start < to.getTime(); start += CHUNK_MINUTES * MINUTE) {
+    if (start > from.getTime() && provider.requestSpacingMs) await new Promise((r) => setTimeout(r, provider.requestSpacingMs));
     const end = new Date(Math.min(start + CHUNK_MINUTES * MINUTE, to.getTime()));
     const bars = await provider.fetchMinuteBars(instrument, new Date(start), end);
     for (let i = 0; i < bars.length; i += 1000) {
@@ -66,6 +87,7 @@ export async function syncMarketData(opts: { from?: Date; to?: Date; instrument?
         provider: provider.name,
         syncedThrough: sql`greatest(${marketDataSync.syncedThrough}, ${to.toISOString()}::timestamptz)`,
         firstBarAt: sql`least(${marketDataSync.firstBarAt}, ${firstBarAt.toISOString()}::timestamptz)`,
+        updatedAt: new Date(),
       },
     });
   return { inserted, syncedThrough: to };
@@ -110,4 +132,26 @@ export async function getMarketDataSummary(instrument = INSTRUMENT) {
     .from(marketBars)
     .where(eq(marketBars.instrument, instrument));
   return row;
+}
+
+/**
+ * Makes sure stored bars reach back to the oldest signal, so backfilled Telegram history is
+ * evaluated against real data instead of an empty window. Returns true if data was fetched.
+ */
+export async function ensureMarketDataCoverage(instrument = INSTRUMENT) {
+  const db = await getDb();
+  const [{ oldest }] = await db.select({ oldest: sql<Date | null>`min(${signals.signalTime})` }).from(signals).where(eq(signals.instrument, instrument));
+  const state = await getSyncState(instrument);
+  if (!oldest) return false;
+  const need = new Date(new Date(oldest).getTime() - 2 * 60 * MINUTE);
+  if (state?.firstBarAt && state.firstBarAt <= need) return false;
+  await syncMarketData({ from: need, to: state?.firstBarAt ?? new Date(), instrument });
+  return true;
+}
+
+/** Removes all stored bars, e.g. after switching from synthetic to real prices. */
+export async function resetMarketData(instrument = INSTRUMENT) {
+  const db = await getDb();
+  await db.delete(marketBars).where(eq(marketBars.instrument, instrument));
+  await db.delete(marketDataSync).where(eq(marketDataSync.instrument, instrument));
 }

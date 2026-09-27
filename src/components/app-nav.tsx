@@ -14,6 +14,8 @@ import {
   ListChecks,
   Menu,
   Radio,
+  Send,
+  Settings,
   ShieldCheck,
   User,
   Workflow,
@@ -36,6 +38,7 @@ const MEMBER = [
 
 const ADMIN = [
   { href: "/admin", label: "Overview", icon: Gauge },
+  { href: "/admin/telegram", label: "Telegram", icon: Send },
   { href: "/admin/review", label: "Review queue", icon: ClipboardCheck },
   { href: "/admin/events", label: "Raw events", icon: Inbox },
   { href: "/admin/signals", label: "Signals", icon: ListChecks },
@@ -44,6 +47,7 @@ const ADMIN = [
   { href: "/admin/entitlements", label: "Entitlements", icon: ShieldCheck },
   { href: "/admin/affiliates", label: "Affiliates", icon: Link2 },
   { href: "/admin/audit", label: "Audit log", icon: FileClock },
+  { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
 function NavLinks({ isAdmin, onNavigate, reviewCount }: { isAdmin: boolean; onNavigate?: () => void; reviewCount?: number }) {

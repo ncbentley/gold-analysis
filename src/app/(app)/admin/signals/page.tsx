@@ -18,7 +18,7 @@ export default async function AdminSignalsPage({ searchParams }: PageProps<"/adm
   const filters = parseSignalFilters(sp);
   const [result, sources, signalTypes] = await Promise.all([
     listSignalsForViewer(viewer, filters, { limit: PAGE, offset: (page - 1) * PAGE }),
-    listSources({ includeInactive: true }),
+    listSources({ includeInactive: true, includeQa: true }),
     listSignalTypes(),
   ]);
   const pageHref = (p: number) => {

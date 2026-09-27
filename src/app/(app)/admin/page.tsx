@@ -13,13 +13,14 @@ import { requireAdmin } from "@/server/auth/guards";
 import { TIER_LABEL, TIER_ORDER } from "@/server/entitlements/config";
 import { getMarketDataProvider } from "@/server/market-data";
 import { nowMs } from "@/lib/clock";
+import { telegramStatus } from "@/server/telegram";
 
 export const metadata = { title: "Overview" };
 
 export default async function AdminOverviewPage({ searchParams }: PageProps<"/admin">) {
   await requireAdmin();
   const sp = await searchParams;
-  const o = await getAdminOverview();
+  const [o, provider, tg] = await Promise.all([getAdminOverview(), getMarketDataProvider(), telegramStatus()]);
   const open = (o.signals.PENDING ?? 0) + (o.signals.ACTIVE ?? 0) + (o.signals.PARTIAL ?? 0);
   const closed = (o.signals.WON ?? 0) + (o.signals.LOST ?? 0) + (o.signals.BREAKEVEN ?? 0);
   const staleMinutes = o.market.last ? (nowMs() - new Date(o.market.last).getTime()) / 60_000 : null;
@@ -45,6 +46,25 @@ export default async function AdminOverviewPage({ searchParams }: PageProps<"/ad
       />
       <Notice searchParams={sp} />
 
+      {!tg.signedIn && (
+        <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
+          <span className="font-medium">Telegram is not connected.</span> Signals are captured from Telegram channels.{" "}
+          <Link href="/admin/telegram" className="text-primary hover:underline">
+            Sign in and add channels
+          </Link>
+          .
+        </div>
+      )}
+      {provider.name === "mock" && (
+        <div className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/5 p-4 text-sm text-amber-200/90">
+          Outcomes are being replayed against synthetic prices. Before publishing results,{" "}
+          <Link href="/admin/settings" className="underline">
+            connect a real XAU/USD data provider
+          </Link>
+          .
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
         <Stat label="Raw events" value={o.events.total.toLocaleString()} hint={`${o.events.day} in last 24h`} />
         <Stat label="Open signals" value={open} hint={`${o.signals.PENDING ?? 0} pending`} />
@@ -64,7 +84,7 @@ export default async function AdminOverviewPage({ searchParams }: PageProps<"/ad
             <CardTitle className="text-base">Market data</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1.5 text-sm">
-            <Row k="Provider" v={getMarketDataProvider().name} />
+            <Row k="Provider" v={provider.name === "mock" ? "Synthetic (development)" : provider.name} />
             <Row k="Bars stored" v={o.market.count.toLocaleString()} />
             <Row k="First bar" v={fmtDateTime(o.market.first)} />
             <Row
@@ -87,6 +107,18 @@ export default async function AdminOverviewPage({ searchParams }: PageProps<"/ad
             <CardTitle className="text-base">Integrations</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1.5 text-sm">
+            <Row
+              k="Telegram"
+              v={
+                tg.connected ? (
+                  <span className="text-win">Connected{tg.me ? ` as ${tg.me.name}` : ""}</span>
+                ) : tg.signedIn ? (
+                  <span className="text-amber-300">Signed in, reconnecting</span>
+                ) : (
+                  "Not signed in"
+                )
+              }
+            />
             <Row k="Billing" v={billingMode() === "stripe" ? "Stripe" : "Mock (test mode)"} />
             <Row k="AI provider" v={getAiProvider().model} />
             <Row k="Job worker" v={process.env.JOBS_WORKER === "off" ? "Disabled" : "In-process"} />

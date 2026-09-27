@@ -9,6 +9,10 @@ export interface ProviderBar {
 
 export interface MarketDataProvider {
   name: string;
+  /** Minimum time between routine syncs, to stay inside provider rate limits. */
+  minSyncIntervalMs?: number;
+  /** Pause between chunked requests during large backfills. */
+  requestSpacingMs?: number;
   /** Returns 1-minute bars with timestamp in [from, to). */
   fetchMinuteBars(instrument: string, from: Date, to: Date): Promise<ProviderBar[]>;
 }

@@ -152,17 +152,21 @@ export async function retryJob(id: string, actor: Actor) {
   return job ?? null;
 }
 
-export type SourceInput = Pick<Source, "name" | "slug" | "sourceType" | "sourceUrl" | "description" | "active" | "timezone" | "parserType" | "showRawText">;
+export type SourceInput = Pick<Source, "name" | "slug" | "sourceType" | "sourceUrl" | "description" | "active" | "timezone" | "parserType" | "showRawText" | "isQa">;
 
 export async function upsertSource(id: string | null, input: SourceInput, actor: Actor) {
   const db = await getDb();
   if (id) {
     const [before] = await db.select().from(sources).where(eq(sources.id, id));
     if (!before) throw new Error("Source not found");
+    if ((before.sourceType === "telegram") !== (input.sourceType === "telegram")) {
+      throw new Error("A Telegram channel's type can't be changed. Add other sources separately.");
+    }
     await db.update(sources).set(input).where(eq(sources.id, id));
     await recordAudit({ actor, entityType: "source", entityId: id, action: "source.updated", before, after: input });
     return id;
   }
+  if (input.sourceType === "telegram") throw new Error("Add Telegram channels from the Telegram page so they are linked to the channel.");
   const [row] = await db.insert(sources).values(input).returning({ id: sources.id });
   await recordAudit({ actor, entityType: "source", entityId: row.id, action: "source.created", after: input });
   return row.id;

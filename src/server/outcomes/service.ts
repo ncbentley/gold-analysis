@@ -85,6 +85,10 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
   const targets = await db.select().from(signalTargets).where(eq(signalTargets.signalId, signalId)).orderBy(asc(signalTargets.targetIndex));
   const adjustments = await db.select().from(signalAdjustments).where(eq(signalAdjustments.signalId, signalId));
   const sync = await getSyncState(signal.instrument);
+  if (!sync?.firstBarAt || sync.firstBarAt.getTime() > signal.signalTime.getTime()) {
+    await enqueueJob("MARKET_DATA_BACKFILL", {}, { dedupeKey: "market-backfill" });
+    return { skipped: "no_market_data" as const };
+  }
 
   const horizonMs = (OUTCOME_RULES.defaultExpiryMinutes + OUTCOME_RULES.maxHoldMinutes + 24 * 60) * 60_000;
   const from = new Date(signal.signalTime.getTime() - 60_000);

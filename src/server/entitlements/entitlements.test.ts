@@ -106,7 +106,7 @@ const detailFor = (access: ReturnType<typeof buildAccess>) =>
   presentSignalDetail(
     {
       signal,
-      source: { id: "src1", name: "Src", slug: "src", showRawText: true },
+      source: { id: "src1", name: "Src", slug: "src", showRawText: true, isQa: false },
       targets,
       outcome,
       rawText: "XAUUSD BUY ZONE",
@@ -201,7 +201,7 @@ describe("signal detail projection", () => {
 
   it("hides raw text when the source does not permit it, even for platinum", () => {
     const d = presentSignalDetail(
-      { signal, source: { id: "s", name: "S", slug: "s", showRawText: false }, targets, outcome, rawText: "PRIVATE", updates: [], sourceStats: null, similar: null, analysis: null },
+      { signal, source: { id: "s", name: "S", slug: "s", showRawText: false, isQa: false }, targets, outcome, rawText: "PRIVATE", updates: [], sourceStats: null, similar: null, analysis: null },
       platinum,
       config,
     );

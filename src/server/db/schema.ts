@@ -23,6 +23,9 @@ const updatedAt = () =>
     .$onUpdate(() => new Date());
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
+export const SOURCE_TYPES = ["telegram", "webhook", "manual"] as const;
+export type SourceType = (typeof SOURCE_TYPES)[number];
+
 /* ------------------------------------------------------------------ */
 /* Users, sessions, auth tokens                                        */
 /* ------------------------------------------------------------------ */
@@ -135,14 +138,29 @@ export const sources = pgTable("sources", {
   id: id(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
-  sourceType: text("source_type", { enum: ["webhook", "mock_feed", "manual"] }).notNull(),
+  sourceType: text("source_type", { enum: SOURCE_TYPES }).notNull(),
   sourceUrl: text("source_url"),
   description: text("description"),
   active: boolean("active").notNull().default(true),
+  /** QA sources are visible to admins only and never appear in member views or public stats. */
+  isQa: boolean("is_qa").notNull().default(false),
   timezone: text("timezone").notNull().default("UTC"),
   parserType: text("parser_type").notNull(),
   showRawText: boolean("show_raw_text").notNull().default(true),
+  telegramChannelId: text("telegram_channel_id").unique(),
+  telegramAccessHash: text("telegram_access_hash"),
+  telegramUsername: text("telegram_username"),
+  lastMessageId: integer("last_message_id"),
+  lastSyncedAt: ts("last_synced_at"),
+  syncError: text("sync_error"),
   createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/** Encrypted key/value store for credentials entered in the admin (Telegram session, API keys). */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  valueEncrypted: text("value_encrypted").notNull(),
   updatedAt: updatedAt(),
 });
 
