@@ -48,9 +48,9 @@ export default async function AdminOverviewPage({ searchParams }: PageProps<"/ad
 
       {!tg.signedIn && (
         <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
-          <span className="font-medium">Telegram is not connected.</span> Signals are captured from Telegram channels.{" "}
+          <span className="font-medium">Telegram is not connected.</span> Signals are captured from channels and groups the account has joined.{" "}
           <Link href="/admin/telegram" className="text-primary hover:underline">
-            Sign in and add channels
+            Connect a Telegram account
           </Link>
           .
         </div>

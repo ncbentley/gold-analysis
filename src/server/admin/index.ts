@@ -166,7 +166,7 @@ export async function upsertSource(id: string | null, input: SourceInput, actor:
     await recordAudit({ actor, entityType: "source", entityId: id, action: "source.updated", before, after: input });
     return id;
   }
-  if (input.sourceType === "telegram") throw new Error("Add Telegram channels from the Telegram page so they are linked to the channel.");
+  if (input.sourceType === "telegram") throw new Error("Add a Telegram source by choosing a channel or group the connected account has joined.");
   const [row] = await db.insert(sources).values(input).returning({ id: sources.id });
   await recordAudit({ actor, entityType: "source", entityId: row.id, action: "source.created", after: input });
   return row.id;

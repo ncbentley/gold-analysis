@@ -22,10 +22,12 @@ import { createTwelveDataProvider } from "@/server/market-data/twelvedata-provid
 import { PARSER_TYPES } from "@/server/parsing";
 import { setSetting, SETTING_KEYS } from "@/server/settings";
 import {
-  addTelegramChannel,
+  addJoinedTelegramChat,
   cancelTelegramLogin,
   completeTelegramLogin,
   connectTelegram,
+  listJoinedTelegramChats,
+  selectJoinedChat,
   signOutTelegram,
   startTelegramLogin,
   syncTelegramSource,
@@ -401,18 +403,21 @@ export async function telegramReconnectAction() {
   });
 }
 
-export async function telegramAddChannelAction(form: FormData) {
+export async function telegramAddJoinedChatAction(form: FormData) {
   const { actor } = await requireAdmin();
-  await attempt("/admin/telegram", async () => {
+  await attempt("/admin/sources", async () => {
+    const listed = await listJoinedTelegramChats();
+    if (!listed.connected) throw new Error("Telegram is not connected. Sign in on the Telegram page first.");
+    const chat = selectJoinedChat(listed.chats, str(form, "chatId"));
     const parserType = str(form, "parserType") || PARSER_TYPES[0];
     if (!(PARSER_TYPES as readonly string[]).includes(parserType)) throw new Error("Unknown parser.");
     const backfill = Math.trunc(num(form, "backfill") ?? 0);
     if (!Number.isFinite(backfill) || backfill < 0 || backfill > 1000) throw new Error("Backfill must be between 0 and 1000 messages.");
     const isQa = form.get("isQa") === "on";
-    const res = await addTelegramChannel({ channel: str(form, "channel"), name: str(form, "name").slice(0, 80) || undefined, isQa, parserType, backfill }, actor);
+    const res = await addJoinedTelegramChat({ chat, isQa, parserType, backfill }, actor);
     await enqueueJob("TELEGRAM_SYNC", { sourceId: res.sourceId, backfill }, { dedupeKey: `telegram-sync:${res.sourceId}` });
     await processJobs(backfill + 50);
-    const what = isQa ? "QA channel" : "Channel";
+    const what = isQa ? "QA source" : "Source";
     if (!res.created) return `${what} ${res.title} was already tracked; it is linked and active again.`;
     return backfill ? `${what} ${res.title} added. Imported up to ${backfill} recent messages.` : `${what} ${res.title} added. New posts will be captured from now on.`;
   });

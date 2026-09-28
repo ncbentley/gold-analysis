@@ -14,7 +14,11 @@ import { getDb } from "@/server/db";
 import { sources, type Source } from "@/server/db/schema";
 import { ingestRawEvent } from "@/server/ingestion";
 import { deleteSetting, getSetting, setSetting, SETTING_KEYS } from "@/server/settings";
+import { listJoinedChats, type JoinedChat } from "./dialogs";
 import { parseChannelInput, toIncomingEvent } from "./mapping";
+
+export { selectJoinedChat } from "./dialogs";
+export type { JoinedChat };
 
 interface ApiCredentials {
   apiId: number;
@@ -284,6 +288,18 @@ async function requireClient() {
   return client;
 }
 
+/** Channels and groups the connected account is already in. Empty when Telegram is not connected. */
+export async function listJoinedTelegramChats(): Promise<{ connected: true; chats: JoinedChat[] } | { connected: false; chats: [] }> {
+  const client = await connectTelegram();
+  if (!client) return { connected: false, chats: [] };
+  try {
+    const chats = await withTimeout(listJoinedChats(client));
+    return { connected: true, chats };
+  } catch (err) {
+    throw new Error(telegramErrorMessage(err));
+  }
+}
+
 /** Resolves a username or invite link and joins the channel, so live updates are delivered. */
 export async function resolveAndJoinChannel(input: string): Promise<ResolvedChannel> {
   const parsed = parseChannelInput(input);
@@ -348,12 +364,7 @@ export interface AddChannelInput {
   backfill: number;
 }
 
-/**
- * Joins the channel and creates (or re-links) its source. Re-adding a known channel keeps its
- * history and sync cursor instead of creating a duplicate.
- */
-export async function addTelegramChannel(input: AddChannelInput, actor: Actor) {
-  const ch = await resolveAndJoinChannel(input.channel);
+async function saveLinkedTelegramSource(ch: ResolvedChannel, input: { name?: string; isQa: boolean; parserType: string; backfill: number }, actor: Actor) {
   const db = await getDb();
   const [existing] = await db.select().from(sources).where(eq(sources.telegramChannelId, ch.channelId));
   const linked = {
@@ -370,7 +381,7 @@ export async function addTelegramChannel(input: AddChannelInput, actor: Actor) {
     await recordAudit({ actor, entityType: "source", entityId: existing.id, action: "telegram.channel_relinked", after: { channel: ch.username ?? ch.channelId } });
     return { sourceId: existing.id, created: false, title: ch.title };
   }
-  const name = input.name || ch.title;
+  const name = (input.name || ch.title).trim().slice(0, 80);
   const [row] = await db
     .insert(sources)
     .values({
@@ -397,9 +408,41 @@ export async function addTelegramChannel(input: AddChannelInput, actor: Actor) {
   return { sourceId: row.id, created: true, title: ch.title };
 }
 
+/**
+ * Joins the channel and creates (or re-links) its source. Re-adding a known channel keeps its
+ * history and sync cursor instead of creating a duplicate.
+ */
+export async function addTelegramChannel(input: AddChannelInput, actor: Actor) {
+  const ch = await resolveAndJoinChannel(input.channel);
+  return saveLinkedTelegramSource(ch, input, actor);
+}
+
+/** Creates a source from a channel or group the account has already joined. The title is the dialog title. */
+export async function addJoinedTelegramChat(input: { chat: JoinedChat; name?: string; isQa: boolean; parserType: string; backfill: number }, actor: Actor) {
+  const title = input.chat.title.trim();
+  if (!title || !/^[1-9][0-9]*$/.test(input.chat.id)) throw new Error("Choose a channel or group the connected account has joined.");
+  if (input.chat.kind === "channel" && !input.chat.accessHash) {
+    throw new Error(`Telegram did not include an access hash for ${title}. Open it in Telegram and try again.`);
+  }
+  return saveLinkedTelegramSource(
+    {
+      channelId: input.chat.id,
+      accessHash: input.chat.accessHash,
+      username: input.chat.username,
+      title,
+      broadcast: input.chat.kind === "channel",
+    },
+    input,
+    actor,
+  );
+}
+
 function inputPeer(source: Source) {
   if (!source.telegramChannelId) throw new Error("Source is not linked to a Telegram channel");
-  return new Api.InputPeerChannel({ channelId: returnBigInt(source.telegramChannelId), accessHash: returnBigInt(source.telegramAccessHash ?? "0") });
+  if (source.telegramAccessHash) {
+    return new Api.InputPeerChannel({ channelId: returnBigInt(source.telegramChannelId), accessHash: returnBigInt(source.telegramAccessHash) });
+  }
+  return new Api.InputPeerChat({ chatId: returnBigInt(source.telegramChannelId) });
 }
 
 const PAGE = 100;
@@ -498,10 +541,16 @@ function installHandlers(client: TelegramClient) {
   client.addEventHandler((e: EditedMessageEvent) => void onLiveMessage(e.message, true), new EditedMessage({}));
 }
 
+function messagePeerId(msg: Api.Message) {
+  if (msg.peerId instanceof Api.PeerChannel) return msg.peerId.channelId.toString();
+  if (msg.peerId instanceof Api.PeerChat) return msg.peerId.chatId.toString();
+  return null;
+}
+
 async function onLiveMessage(msg: Api.Message, edited: boolean) {
   try {
-    if (!(msg.peerId instanceof Api.PeerChannel)) return;
-    const channelId = msg.peerId.channelId.toString();
+    const channelId = messagePeerId(msg);
+    if (!channelId) return;
     const db = await getDb();
     const [source] = await db
       .select()

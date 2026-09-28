@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  telegramAddChannelAction,
   telegramCancelLoginAction,
   telegramReconnectAction,
   telegramSendCodeAction,
@@ -8,17 +7,16 @@ import {
   telegramSyncSourceAction,
   telegramVerifyAction,
 } from "@/app/actions/admin";
-import { Field, NativeSelect, Notice } from "@/components/admin-bits";
+import { Field, Notice } from "@/components/admin-bits";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtAge } from "@/lib/format";
 import { sourceEventCounts } from "@/server/admin";
 import { requireAdmin } from "@/server/auth/guards";
-import { PARSER_TYPES } from "@/server/parsing";
 import { secretKeySource } from "@/server/settings";
 import { listSources } from "@/server/signals/queries";
 import { connectTelegram, telegramStatus } from "@/server/telegram";
@@ -41,7 +39,7 @@ export default async function AdminTelegramPage({ searchParams }: PageProps<"/ad
     <>
       <PageHeader
         title="Telegram"
-        description="Signals are captured from Telegram channels through a Telegram user account, so any channel that account can read can be tracked, including private ones."
+        description="Signals are captured through a Telegram user account. Connect it here. Channels and groups it has already joined are added from Sources."
       />
       <Notice searchParams={sp} />
 
@@ -162,41 +160,14 @@ export default async function AdminTelegramPage({ searchParams }: PageProps<"/ad
 
         <Card className="bg-card/60 lg:col-span-3">
           <CardHeader>
-            <CardTitle className="text-base">Add a channel</CardTitle>
-            <CardDescription>
-              The account joins the channel if needed. Mark your testing channel as QA: its signals are processed the same way but only admins can see them.
-            </CardDescription>
+            <CardTitle className="text-base">Add a source</CardTitle>
+            <CardDescription>Sources are chosen from the channels and groups this account has already joined. Join a chat in Telegram first.</CardDescription>
           </CardHeader>
-          <CardContent>
-            <form action={telegramAddChannelAction} className="grid gap-3 md:grid-cols-2">
-              <Field label="Channel" htmlFor="ch-input" hint="@username, t.me/name, or a t.me/+invite link" className="md:col-span-2">
-                <Input id="ch-input" name="channel" required disabled={!status.signedIn} placeholder="@goldsignals or https://t.me/+AbCdEf…" autoComplete="off" />
-              </Field>
-              <Field label="Display name" htmlFor="ch-name" hint="Defaults to the channel title">
-                <Input id="ch-name" name="name" disabled={!status.signedIn} maxLength={80} />
-              </Field>
-              <Field label="Parser" htmlFor="ch-parser">
-                <NativeSelect id="ch-parser" name="parserType" disabled={!status.signedIn} defaultValue={PARSER_TYPES[0]}>
-                  {PARSER_TYPES.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </Field>
-              <Field label="Import recent history" htmlFor="ch-backfill" hint="Messages to import now (0 to 1000). 0 captures new posts only.">
-                <Input id="ch-backfill" name="backfill" type="number" min={0} max={1000} defaultValue={200} disabled={!status.signedIn} />
-              </Field>
-              <div className="flex items-end justify-between gap-3">
-                <label className="flex items-center gap-2 pb-2 text-sm">
-                  <input type="checkbox" name="isQa" disabled={!status.signedIn} className="accent-primary" /> QA channel (admins only)
-                </label>
-                <Button type="submit" disabled={!status.signedIn}>
-                  Add channel
-                </Button>
-              </div>
-              {!status.signedIn && <p className="text-xs text-muted-foreground md:col-span-2">Sign in to Telegram first.</p>}
-            </form>
+          <CardContent className="space-y-3 text-sm text-muted-foreground">
+            <p>There is no field to type a channel name. The list on Sources uses the titles Telegram already has for this account.</p>
+            <Link href="/admin/sources#add-telegram" className={buttonVariants({ size: "sm" })}>
+              Choose a channel or group
+            </Link>
           </CardContent>
         </Card>
       </div>
@@ -219,7 +190,11 @@ export default async function AdminTelegramPage({ searchParams }: PageProps<"/ad
             {channels.length === 0 && (
               <TableRow>
                 <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
-                  No channels yet. Add the first one above; a QA channel is a good place to start.
+                  No channels yet.{" "}
+                  <Link href="/admin/sources#add-telegram" className="text-primary hover:underline">
+                    Choose one on Sources
+                  </Link>{" "}
+                  after this account has joined it.
                 </TableCell>
               </TableRow>
             )}

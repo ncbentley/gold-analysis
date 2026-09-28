@@ -25,7 +25,7 @@ Signals are read from Telegram channels through a Telegram **user account**. A b
 1. On [my.telegram.org/apps](https://my.telegram.org/apps), sign in with that account's phone number and create an application. Any name works. Note the **api_id** and **api_hash**.
 2. In the app, open **Admin, then Telegram** (`/admin/telegram`). Enter the api_id, api_hash and phone number, then click **Send login code**.
 3. Enter the code Telegram sends to the account. If the account has two-step verification, you are asked for its password next.
-4. Under **Add a channel**, paste `@username`, a `t.me/name` link or a private `t.me/+invite` link. Choose how many recent messages to import (up to 1000) and click **Add channel**. The account joins the channel if it hasn't already.
+4. Join the channel or group in the Telegram app with that account. Then open **Admin, then Sources** (`/admin/sources`). The page lists the channels and groups the account is already in. Choose one, pick a parser and how many recent messages to import (up to 1000), and click **Add source**. The source name is the chat's Telegram title. If Telegram is not connected, Sources says so and links back to the Telegram page.
 
 The session is stored encrypted in the database (see `APP_SECRET`), so you only sign in once. New posts arrive live over Telegram's update stream. A catch-up sync also runs every two minutes, so nothing is missed while the server was down: on restart it fetches everything after the last message it saw.
 
@@ -33,7 +33,7 @@ The session is stored encrypted in the database (see `APP_SECRET`), so you only 
 
 Tick **QA channel (admins only)** when adding your testing channel. QA channels go through the same pipeline (parsing, review, outcome replay, stats, AI), but they are hidden from members, the public landing page and the member API. Admins see them everywhere with a `QA` badge. You can switch a channel between QA and live later under **Admin, then Sources, then Edit**.
 
-A good workflow: create a private channel, add it as QA, post signals in the formats your real channels use, and check how they appear in `/admin/review` and `/admin/signals` before adding real channels.
+A good workflow: create a private channel, join it with the connected account, add it as QA from Sources, post signals in the formats your real channels use, and check how they appear in `/admin/review` and `/admin/signals` before adding real channels.
 
 ### How Telegram messages are handled
 
@@ -80,7 +80,7 @@ market_bars (1m) ─▶ outcome engine (outcome-v3) ─▶ signal_outcomes (vers
                         entitlement-aware presenters ─▶ pages and /api/v1
 ```
 
-- **Telegram** (`src/server/telegram`) uses GramJS (MTProto). It handles sign-in, channel resolution and joining, the live update handlers, and a catch-up sync that pages through history by message id.
+- **Telegram** (`src/server/telegram`) uses GramJS (MTProto). It handles sign-in, listing the channels and groups the account has joined, the live update handlers, and a catch-up sync that pages through history by message id.
 - **Raw events are never edited.** Every incoming message is stored with its timestamp and content hash, and is de-duplicated by external id or hash. Re-parsing creates a new parse result.
 - **Parsing** (`src/server/parsing`) extracts direction, entry (market, limit or zone), stop, targets, signal type and follow-up instructions such as move SL to breakeven, cancel, close, TP hit and SL hit. Anything below 80% confidence, or with a wrong-side stop or an implausible price, goes to `/admin/review` instead of being guessed.
 - **Outcomes** (`src/server/outcomes/engine.ts`) are a pure function of the signal, its adjustments and minute bars. The rules are versioned (`outcome-v3`):
