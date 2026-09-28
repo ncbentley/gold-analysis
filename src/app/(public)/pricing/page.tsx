@@ -38,7 +38,7 @@ export default async function PricingPage({ searchParams }: PageProps<"/pricing"
       <div className="max-w-2xl">
         <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Pricing</h1>
         <p className="mt-3 text-muted-foreground">
-          Choose how deep you want to go. Every plan includes the same live signals; higher tiers add the analysis around them. Access is never tied to opening a broker account.
+          Choose how deep you want to go. Every plan includes the same live signals; higher tiers add the analysis around them.
         </p>
       </div>
 
