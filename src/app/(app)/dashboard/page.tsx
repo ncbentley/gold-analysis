@@ -109,7 +109,7 @@ export default async function DashboardPage() {
               <CardHeader>
                 <CardTitle className="flex items-center justify-between text-base">
                   How this source performed
-                  <Link href={`/sources/${source.id}`} className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Open this source">
+                  <Link href={`/signals?source=${source.id}`} className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Signals from this source">
                     <ArrowRight />
                   </Link>
                 </CardTitle>
