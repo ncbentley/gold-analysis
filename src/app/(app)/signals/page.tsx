@@ -45,9 +45,14 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
       <PageHeader
         title="Signals"
         description={
-          result.historyCutoff
-            ? `Showing signals since ${fmtDate(result.historyCutoff)} (${viewer.access.historyDays}-day history on your plan).`
-            : "Full signal history."
+          [
+            filters.sourceId ? "Showing signals from this source." : null,
+            result.historyCutoff
+              ? `Showing signals since ${fmtDate(result.historyCutoff)} (${viewer.access.historyDays}-day history on your plan).`
+              : "Full signal history.",
+          ]
+            .filter(Boolean)
+            .join(" ")
         }
       />
       <div className="mb-4">

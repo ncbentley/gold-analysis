@@ -9,7 +9,6 @@ import { PageHeader } from "@/components/page-header";
 import { downsample, PriceChart } from "@/components/price-chart";
 import { DirectionBadge, RValue, Stat, StatusBadge } from "@/components/signal-bits";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtAge, fmtDateTime, fmtEntry, fmtMinutes, fmtPct, fmtPrice } from "@/lib/format";
@@ -347,10 +346,6 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
 
         <div className="space-y-4">
           <Section n={2} title="How this source performed">
-            <div className="flex items-center justify-between">
-              <div className="font-medium">{d.source.name}</div>
-              <Link href={`/sources/${d.source.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>Details</Link>
-            </div>
             {d.sourceStats && (
               <>
                 <div className="mt-2 text-xs text-muted-foreground">{d.sourceStats.totalSignals} tracked signals · {d.sourceStats.closedTrades} closed</div>
