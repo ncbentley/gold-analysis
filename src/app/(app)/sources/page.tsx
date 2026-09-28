@@ -20,7 +20,7 @@ export default async function SourcesPage() {
     <>
       <PageHeader title="Sources" description="How each source performed against the same rules. Channel names are not shown." />
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">No channels are being tracked yet. Signal channels appear here as soon as they are connected.</div>
+        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">No sources are being tracked yet.</div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((s) => (

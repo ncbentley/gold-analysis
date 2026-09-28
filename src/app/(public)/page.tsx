@@ -49,15 +49,15 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 pb-16 pt-16 md:pb-24 md:pt-24">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-3 py-1 text-xs text-primary">
-              XAU/USD · {sources.length ? `${sources.length} tracked Telegram ${sources.length === 1 ? "channel" : "channels"}` : "Telegram signal channels"}
+              XAU/USD · {sources.length ? `${sources.length} tracked ${sources.length === 1 ? "source" : "sources"}` : "tracked sources"}
               {totalClosed > 0 && ` · ${totalClosed.toLocaleString()} measured trades`}
             </div>
             <h1 className="mt-5 text-4xl font-semibold tracking-tight md:text-6xl">
               Every gold signal, <span className="gold-text">tracked and measured</span>.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-              Aurum Ledger records gold trading signals from Telegram channels, replays each one against minute-level market data, and shows you how every
-              channel has actually performed. The same way, every time, with the rules in the open.
+              Aurum Ledger records gold trading signals, replays each one against minute-level market data, and shows you how each
+              source has actually performed. The channel is not named. The same way, every time, with the rules in the open.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/signup" className={cn(buttonVariants({ size: "lg" }), "px-5")}>
@@ -96,7 +96,7 @@ export default async function LandingPage() {
           </div>
           {sourceStats.length === 0 && (
             <div className="mt-8 rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Channel track records are published here once the first channels are connected and their signals have closed.
+              Source track records are published here once signals have closed.
             </div>
           )}
           <div className="mt-8 grid gap-4 md:grid-cols-3">
