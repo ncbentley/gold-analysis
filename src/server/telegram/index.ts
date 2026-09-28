@@ -14,7 +14,7 @@ import { getDb } from "@/server/db";
 import { sources, type Source } from "@/server/db/schema";
 import { ingestRawEvent } from "@/server/ingestion";
 import { deleteSetting, getSetting, setSetting, SETTING_KEYS } from "@/server/settings";
-import { listJoinedChats, type JoinedChat } from "./dialogs";
+import { listJoinedChats, selectJoinedChat, accessHashOf, chatWithLoadedAccessHash, type JoinedChat } from "./dialogs";
 import { parseChannelInput, toIncomingEvent } from "./mapping";
 
 export { selectJoinedChat } from "./dialogs";
@@ -420,20 +420,65 @@ export async function addTelegramChannel(input: AddChannelInput, actor: Actor) {
   return saveLinkedTelegramSource(ch, input, actor);
 }
 
+function hashFromPeer(peer: unknown): string | null {
+  if (peer instanceof Api.InputPeerChannel || peer instanceof Api.Channel) return accessHashOf(peer.accessHash ?? null);
+  return null;
+}
+
+/**
+ * Dialogs sometimes omit the access hash. The connected session can still resolve the peer
+ * from its entity cache, a fresh dialog list, or the public username.
+ */
+async function loadChannelAccessHash(chat: JoinedChat): Promise<string | null> {
+  const client = await requireClient();
+  const marked = `-100${chat.id}`;
+  try {
+    const hash = hashFromPeer(await withTimeout(client.getInputEntity(marked)));
+    if (hash) return hash;
+  } catch {
+    // The peer is not in the session cache yet.
+  }
+  try {
+    const hash = hashFromPeer(await withTimeout(client.getEntity(marked)));
+    if (hash) return hash;
+  } catch {
+    // A direct entity lookup can fail until dialogs are refreshed.
+  }
+  try {
+    const refreshed = await withTimeout(listJoinedChats(client));
+    const again = refreshed.find((item) => item.id === chat.id);
+    if (again?.accessHash) return again.accessHash;
+  } catch {
+    // Keep trying the username when the dialog refresh fails.
+  }
+  if (chat.username) {
+    try {
+      const res = await withTimeout(client.invoke(new Api.contacts.ResolveUsername({ username: chat.username })));
+      for (const item of res.chats) {
+        if (item instanceof Api.Channel && item.id.toString() === chat.id) {
+          const hash = accessHashOf(item.accessHash ?? null);
+          if (hash) return hash;
+        }
+      }
+    } catch {
+      // A private channel has no username to resolve.
+    }
+  }
+  return null;
+}
+
 /** Creates a source from a channel or group the account has already joined. The title is the dialog title. */
 export async function addJoinedTelegramChat(input: { chat: JoinedChat; name?: string; isQa: boolean; parserType: string; backfill: number }, actor: Actor) {
   const title = input.chat.title.trim();
   if (!title || !/^[1-9][0-9]*$/.test(input.chat.id)) throw new Error("Choose a channel or group the connected account has joined.");
-  if (input.chat.kind === "channel" && !input.chat.accessHash) {
-    throw new Error(`Telegram did not include an access hash for ${title}. Open it in Telegram and try again.`);
-  }
+  const chat = input.chat.kind === "channel" && !input.chat.accessHash ? chatWithLoadedAccessHash(input.chat, await loadChannelAccessHash(input.chat)) : input.chat;
   return saveLinkedTelegramSource(
     {
-      channelId: input.chat.id,
-      accessHash: input.chat.accessHash,
-      username: input.chat.username,
+      channelId: chat.id,
+      accessHash: chat.accessHash,
+      username: chat.username,
       title,
-      broadcast: input.chat.kind === "channel",
+      broadcast: chat.kind === "channel",
     },
     input,
     actor,
