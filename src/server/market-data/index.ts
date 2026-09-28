@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, lt, sql } from "drizzle-orm";
 import { getDb } from "@/server/db";
 import { marketBars, marketDataSync, signals } from "@/server/db/schema";
 import { getSetting, SETTING_KEYS } from "@/server/settings";
@@ -35,7 +35,27 @@ export async function getMarketDataProvider(): Promise<MarketDataProvider> {
 export async function getSyncState(instrument = INSTRUMENT) {
   const db = await getDb();
   const [row] = await db.select().from(marketDataSync).where(eq(marketDataSync.instrument, instrument));
-  return row ?? null;
+  if (!row) return null;
+  return {
+    ...row,
+    syncedThrough: new Date(row.syncedThrough),
+    firstBarAt: row.firstBarAt ? new Date(row.firstBarAt) : null,
+    updatedAt: new Date(row.updatedAt),
+  };
+}
+
+/** Bars can exist without a sync row after a crash. Record their span so the next sync continues. */
+async function adoptStoredBars(instrument: string, providerName: string) {
+  const existing = await getSyncState(instrument);
+  if (existing) return existing;
+  const summary = await getMarketDataSummary(instrument);
+  if (!summary?.count || !summary.first || !summary.last) return null;
+  const db = await getDb();
+  await db
+    .insert(marketDataSync)
+    .values({ instrument, provider: providerName, syncedThrough: summary.last, firstBarAt: summary.first })
+    .onConflictDoNothing();
+  return getSyncState(instrument);
 }
 
 /** Fetches bars from the provider and stores them. Idempotent: existing bars are kept. */
@@ -43,7 +63,7 @@ export async function syncMarketData(opts: { from?: Date; to?: Date; instrument?
   const db = await getDb();
   const instrument = opts.instrument ?? INSTRUMENT;
   const provider = await getMarketDataProvider();
-  const state = await getSyncState(instrument);
+  const state = await adoptStoredBars(instrument, provider.name);
   const now = new Date();
   if (!opts.from && state && provider.minSyncIntervalMs) {
     const interval = isGoldMarketOpen(now) ? provider.minSyncIntervalMs : 60 * MINUTE;
@@ -75,22 +95,47 @@ export async function syncMarketData(opts: { from?: Date; to?: Date; instrument?
         inserted += batch.length;
       }
     }
+    // Persist each chunk so a killed backfill resumes instead of forgetting where it got to.
+    const firstBarAt = state?.firstBarAt && state.firstBarAt < from ? state.firstBarAt : from;
+    await db
+      .insert(marketDataSync)
+      .values({ instrument, provider: provider.name, syncedThrough: end, firstBarAt })
+      .onConflictDoUpdate({
+        target: marketDataSync.instrument,
+        set: {
+          provider: provider.name,
+          syncedThrough: sql`greatest(${marketDataSync.syncedThrough}, ${end.toISOString()}::timestamptz)`,
+          firstBarAt: sql`least(${marketDataSync.firstBarAt}, ${firstBarAt.toISOString()}::timestamptz)`,
+          updatedAt: new Date(),
+        },
+      });
   }
 
-  const firstBarAt = state?.firstBarAt && state.firstBarAt < from ? state.firstBarAt : from;
-  await db
-    .insert(marketDataSync)
-    .values({ instrument, provider: provider.name, syncedThrough: to, firstBarAt })
-    .onConflictDoUpdate({
-      target: marketDataSync.instrument,
-      set: {
-        provider: provider.name,
-        syncedThrough: sql`greatest(${marketDataSync.syncedThrough}, ${to.toISOString()}::timestamptz)`,
-        firstBarAt: sql`least(${marketDataSync.firstBarAt}, ${firstBarAt.toISOString()}::timestamptz)`,
-        updatedAt: new Date(),
-      },
-    });
   return { inserted, syncedThrough: to };
+}
+
+/** Close of the nearest 1-minute bar to `at`, or null when nothing is within a few hours. */
+export async function getPriceNear(at: Date, instrument = INSTRUMENT): Promise<number | null> {
+  const db = await getDb();
+  const when = at.getTime();
+  const [before] = await db
+    .select({ close: marketBars.close, timestamp: marketBars.timestamp })
+    .from(marketBars)
+    .where(and(eq(marketBars.instrument, instrument), eq(marketBars.resolution, "1m"), lte(marketBars.timestamp, at)))
+    .orderBy(desc(marketBars.timestamp))
+    .limit(1);
+  if (before) {
+    const ts = new Date(before.timestamp).getTime();
+    if (when - ts <= 6 * 60 * 60_000) return before.close;
+  }
+  const [after] = await db
+    .select({ close: marketBars.close, timestamp: marketBars.timestamp })
+    .from(marketBars)
+    .where(and(eq(marketBars.instrument, instrument), eq(marketBars.resolution, "1m"), gte(marketBars.timestamp, at)))
+    .orderBy(asc(marketBars.timestamp))
+    .limit(1);
+  if (after && new Date(after.timestamp).getTime() - when <= 15 * 60_000) return after.close;
+  return null;
 }
 
 export async function getEngineBars(from: Date, to: Date, instrument = INSTRUMENT): Promise<EngineBar[]> {
@@ -131,7 +176,11 @@ export async function getMarketDataSummary(instrument = INSTRUMENT) {
     })
     .from(marketBars)
     .where(eq(marketBars.instrument, instrument));
-  return row;
+  return {
+    count: row?.count ?? 0,
+    first: row?.first ? new Date(row.first) : null,
+    last: row?.last ? new Date(row.last) : null,
+  };
 }
 
 /**
@@ -140,6 +189,8 @@ export async function getMarketDataSummary(instrument = INSTRUMENT) {
  */
 export async function ensureMarketDataCoverage(instrument = INSTRUMENT) {
   const db = await getDb();
+  const provider = await getMarketDataProvider();
+  await adoptStoredBars(instrument, provider.name);
   const [{ oldest }] = await db.select({ oldest: sql<Date | null>`min(${signals.signalTime})` }).from(signals).where(eq(signals.instrument, instrument));
   const state = await getSyncState(instrument);
   if (!oldest) return false;

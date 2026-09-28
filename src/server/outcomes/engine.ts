@@ -2,7 +2,7 @@
  * Deterministic trade replay engine.
  *
  * Pure function of (signal, adjustments, bars, rules). No I/O, no clock, no randomness.
- * Every rule here is documented in DECISIONS.md under "Outcome rules v1".
+ * Every rule here is documented in DECISIONS.md under "Outcome rules".
  * Bump OUTCOME_RULES.version whenever behaviour changes so stored outcomes can be recalculated.
  */
 
@@ -40,15 +40,18 @@ export interface OutcomeRules {
   maxHoldMinutes: number;
   breakevenBandR: number;
   breakevenBandPrice: number;
+  /** A market quote farther than this from the bar is not a fill. */
+  maxQuoteDistance: number;
 }
 
 export const OUTCOME_RULES: OutcomeRules = {
-  version: "outcome-v1",
+  version: "outcome-v3",
   barMs: 60_000,
   defaultExpiryMinutes: 24 * 60,
   maxHoldMinutes: 7 * 24 * 60,
   breakevenBandR: 0.05,
   breakevenBandPrice: 0.1,
+  maxQuoteDistance: 80,
 };
 
 export type Classification =
@@ -181,9 +184,15 @@ export function evaluateSignal(
   let fillIdx = -1;
   let fillPrice = 0;
   let adjCursor = 0;
+  let skippedFarQuote = false;
   for (let i = 0; i < series.length; i++) {
     const bar = series[i];
     if (bar.t >= expiry) {
+      if (skippedFarQuote) {
+        notes.push(
+          `Quoted entry was more than ${rules.maxQuoteDistance} away from traded price, so it was not filled as a market order.`,
+        );
+      }
       timeline.push({ t: expiry, type: "EXPIRE" });
       return { ...base, classification: "EXPIRED", status: "EXPIRED" };
     }
@@ -196,23 +205,30 @@ export function evaluateSignal(
       if (a.type === "MOVE_STOP" && a.stop !== "ENTRY") base.finalStop = a.stop;
     }
     if (signal.entryType === "MARKET") {
+      const near = bar.h >= signal.entryMin - rules.maxQuoteDistance && bar.l <= signal.entryMax + rules.maxQuoteDistance;
+      if (!near) {
+        skippedFarQuote = true;
+        continue;
+      }
       fillIdx = i;
       fillPrice = bar.o;
       break;
     }
-    if (dir === 1 && bar.l <= signal.entryMax) {
+    // The bar has to trade the zone. A low far under a buy zone is not a fill.
+    const overlaps = bar.h >= signal.entryMin && bar.l <= signal.entryMax;
+    if (overlaps) {
       fillIdx = i;
-      fillPrice = Math.min(bar.o, signal.entryMax);
-      break;
-    }
-    if (dir === -1 && bar.h >= signal.entryMin) {
-      fillIdx = i;
-      fillPrice = Math.max(bar.o, signal.entryMin);
+      fillPrice = dir === 1 ? Math.min(bar.o, signal.entryMax) : Math.max(bar.o, signal.entryMin);
       break;
     }
   }
 
   if (fillIdx === -1) {
+    if (skippedFarQuote) {
+      notes.push(
+        `Quoted entry was more than ${rules.maxQuoteDistance} away from traded price, so it was not filled as a market order.`,
+      );
+    }
     const pendingCancel = adj.slice(adjCursor).find((a) => a.type === "CANCEL" || a.type === "CLOSE");
     if (pendingCancel && (lastKnown === null || pendingCancel.effectiveAt <= lastKnown)) {
       timeline.push({ t: pendingCancel.effectiveAt, type: "CANCEL", note: "Cancelled by source before entry" });

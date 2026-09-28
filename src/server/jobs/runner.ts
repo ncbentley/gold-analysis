@@ -5,6 +5,7 @@ import { getDb } from "@/server/db";
 import { jobs, signalOutcomes, signals, type Job } from "@/server/db/schema";
 import { ensureMarketDataCoverage, syncMarketData } from "@/server/market-data";
 import { openSignalIds, recalculateOutcome } from "@/server/outcomes/service";
+import { repairShortZones } from "@/server/parsing/repair-zones";
 import { refreshSourceStats } from "@/server/statistics/service";
 import { syncAllTelegramSources, syncTelegramSource } from "@/server/telegram";
 import { enqueueJob, type JobType } from "./queue";
@@ -41,6 +42,11 @@ const handlers: Record<JobType, Handler> = {
   MARKET_DATA_BACKFILL: async () => {
     const res = await ensureMarketDataCoverage();
     await enqueueJob("RECALC_ALL_SIGNALS", { onlyMissing: true }, { dedupeKey: "recalc-all-missing" });
+    return res;
+  },
+  REPAIR_QUOTE_PARSES: async () => {
+    const res = await repairShortZones();
+    await enqueueJob("RECALC_ALL_SIGNALS", {}, { dedupeKey: "recalc-all-after-repair" });
     return res;
   },
   RECALC_ALL_SIGNALS: async (p) => {

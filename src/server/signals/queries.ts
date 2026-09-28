@@ -13,6 +13,7 @@ import {
 import { buildAccess, can, historyCutoff, lowestTierWith } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
 import { presentSignalDetail, presentSignalListItem, type SignalBundle } from "@/server/presenters";
+import { OUTCOME_RULES } from "@/server/outcomes/engine";
 import { getSimilarTradesForSignal } from "@/server/similar/service";
 import { getSourceStats } from "@/server/statistics/service";
 
@@ -29,7 +30,6 @@ export interface SignalFilters {
   q?: string;
 }
 
-const OPEN: SignalStatus[] = ["PENDING", "ACTIVE", "PARTIAL"];
 const CLOSED: SignalStatus[] = ["WON", "LOST", "BREAKEVEN", "CANCELLED", "EXPIRED", "MANUAL_REVIEW"];
 
 export function parseSignalFilters(params: URLSearchParams | Record<string, string | string[] | undefined>): SignalFilters {
@@ -91,7 +91,13 @@ export async function listSignalsForViewer(viewer: Viewer, filters: SignalFilter
   if (!access.isAdmin) conds.push(eq(sources.isQa, false));
   if (cutoff) conds.push(gte(signals.signalTime, cutoff));
   if (f.sourceId) conds.push(eq(signals.sourceId, f.sourceId));
-  if (f.status === "OPEN") conds.push(inArray(signals.status, OPEN));
+  if (f.status === "OPEN") {
+    // A pending order whose entry window has already closed is waiting to be scored, not a live trade.
+    conds.push(sql`(
+      ${signals.status} in ('ACTIVE', 'PARTIAL')
+      or (${signals.status} = 'PENDING' and ${signals.signalTime} > now() - (${OUTCOME_RULES.defaultExpiryMinutes} * interval '1 minute'))
+    )`);
+  }
   else if (f.status === "CLOSED") conds.push(inArray(signals.status, CLOSED));
   else if (f.status) conds.push(eq(signals.status, f.status));
   if (f.direction) conds.push(eq(signals.direction, f.direction));
@@ -218,12 +224,12 @@ export async function listSources(opts: { includeInactive?: boolean; includeQa?:
     .orderBy(asc(sources.name));
 }
 
-export async function getSourceBySlugOrId(key: string, opts: { includeQa?: boolean } = {}) {
+export async function getSourceBySlugOrId(key: string, opts: { includeQa?: boolean; allowSlug?: boolean } = {}) {
   const db = await getDb();
   const [row] = await db
     .select()
     .from(sources)
-    .where(sql`${sources.slug} = ${key} or ${sources.id} = ${key}`);
+    .where(opts.allowSlug === false ? eq(sources.id, key) : sql`${sources.slug} = ${key} or ${sources.id} = ${key}`);
   if (row?.isQa && !opts.includeQa) return null;
   return row ?? null;
 }

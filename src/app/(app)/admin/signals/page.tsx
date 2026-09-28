@@ -13,7 +13,7 @@ const PAGE = 50;
 export default async function AdminSignalsPage({ searchParams }: PageProps<"/admin/signals">) {
   await requireAdmin();
   const sp = await searchParams;
-  const viewer = await getViewer();
+  const viewer = await getViewer("admin");
   const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const filters = parseSignalFilters(sp);
   const [result, sources, signalTypes] = await Promise.all([

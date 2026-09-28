@@ -12,9 +12,30 @@ type Config = Record<Tier, TierConfig>;
 const CLOSED = new Set(["WON", "LOST", "BREAKEVEN"]);
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
+/** Member-facing label. The real channel name stays on the source row for admins. */
+export const ANONYMOUS_SOURCE_NAME = "This source";
+
+export function redactIdentities(text: string, identities: Array<string | null | undefined>) {
+  const needles = identities
+    .map((value) => value?.trim())
+    .filter((value): value is string => !!value && value.length >= 4)
+    .sort((a, b) => b.length - a.length);
+  let out = text;
+  for (const needle of needles) {
+    const pattern = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(pattern, "gi"), "this source");
+    out = out.replace(new RegExp(pattern.replace(/-/g, "[\\s-]+"), "gi"), "this source");
+  }
+  return out;
+}
+
+function memberSource(source: { id: string }) {
+  return { id: source.id, name: ANONYMOUS_SOURCE_NAME, slug: source.id, isQa: false };
+}
+
 export interface SignalBundle {
   signal: Signal;
-  source: Pick<Source, "id" | "name" | "slug" | "showRawText" | "isQa">;
+  source: Pick<Source, "id" | "name" | "slug" | "showRawText" | "isQa"> & { telegramUsername?: string | null };
   targets: SignalTarget[];
   outcome: SignalOutcome | null;
 }
@@ -23,7 +44,7 @@ export function presentSignalListItem({ signal, source, targets, outcome }: Sign
   const isClosed = outcome ? CLOSED.has(outcome.classification) : false;
   return {
     id: signal.id,
-    source: { id: source.id, name: source.name, slug: source.slug, isQa: source.isQa },
+    source: memberSource(source),
     instrument: signal.instrument,
     direction: signal.direction,
     entryType: signal.entryType,
@@ -63,6 +84,8 @@ export function presentSignalDetail(input: SignalDetailInput, access: Access, co
     risk?: number | null;
   };
   const isClosed = outcome ? CLOSED.has(outcome.classification) : false;
+  const identities = [input.source.name, input.source.slug, input.source.telegramUsername];
+  const redact = (value: string | null | undefined) => (value == null ? null : redactIdentities(value, identities));
   const ai = (analysis?.outputJson ?? null) as null | {
     setupClassification?: { label: string; confidence: number; rationale: string };
     summary?: string;
@@ -79,11 +102,11 @@ export function presentSignalDetail(input: SignalDetailInput, access: Access, co
     version: input.signal.version,
     parserConfidence: input.signal.parserConfidence,
     sourceConfidenceText: input.signal.sourceConfidenceText,
-    rawText: gate(access, "signals.raw_text", config, () => (input.source.showRawText ? input.rawText : null)),
+    rawText: gate(access, "signals.raw_text", config, () => (input.source.showRawText ? redact(input.rawText) : null)),
     updates: input.updates.map((u) => ({
       publishedAt: u.publishedAt.toISOString(),
       eventType: u.eventType,
-      text: input.source.showRawText && access.features.has("signals.raw_text") ? u.rawText : null,
+      text: input.source.showRawText && access.features.has("signals.raw_text") ? redact(u.rawText) : null,
     })),
     outcome: {
       calcVersion: outcome?.calcVersion ?? null,
@@ -138,15 +161,21 @@ export function presentSignalDetail(input: SignalDetailInput, access: Access, co
         : null,
       classification: gate(access, "ai.classification", config, () => ai?.setupClassification ?? null),
       summary: gate(access, "ai.summary", config, () =>
-        ai ? { summary: ai.summary ?? null, marketContextTags: ai.marketContextTags ?? [], factsReferenced: ai.factsReferenced ?? [] } : null,
+        ai
+          ? {
+              summary: redact(ai.summary ?? null),
+              marketContextTags: (ai.marketContextTags ?? []).map((tag) => redact(tag) ?? tag),
+              factsReferenced: ai.factsReferenced ?? [],
+            }
+          : null,
       ),
       patterns: gate(access, "ai.patterns", config, () =>
         ai
           ? {
-              patternTags: ai.patternTags ?? [],
-              similarPatternExplanation: ai.similarPatternExplanation ?? null,
-              sourceStrengths: ai.sourceStrengths ?? [],
-              sourceWeaknesses: ai.sourceWeaknesses ?? [],
+              patternTags: (ai.patternTags ?? []).map((tag) => redact(tag) ?? tag),
+              similarPatternExplanation: redact(ai.similarPatternExplanation ?? null),
+              sourceStrengths: (ai.sourceStrengths ?? []).map((item) => redact(item) ?? item),
+              sourceWeaknesses: (ai.sourceWeaknesses ?? []).map((item) => redact(item) ?? item),
             }
           : null,
       ),
@@ -198,14 +227,15 @@ export function presentSourceStats(s: SourceStatistics, access: Access, config: 
 export type PresentedSourceStats = ReturnType<typeof presentSourceStats>;
 
 export function presentSourceSummary(source: Source, stats: SourceStatistics | null, access: Access, config: Config) {
+  const identity = memberSource(source);
   return {
     id: source.id,
-    name: source.name,
-    slug: source.slug,
-    description: source.description,
+    name: identity.name,
+    slug: identity.slug,
+    description: null,
     sourceType: source.sourceType,
-    telegramUsername: source.telegramUsername,
-    isQa: source.isQa,
+    telegramUsername: null,
+    isQa: identity.isQa,
     active: source.active,
     stats: stats ? presentSourceStats(stats, access, config) : null,
   };

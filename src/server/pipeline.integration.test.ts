@@ -24,8 +24,9 @@ const viewer = (tier: "silver" | "gold" | "platinum", cfg = config): Viewer => (
   access: buildAccess(tier, cfg),
   config: cfg,
   subscription: null,
+  viewAs: null,
 });
-const adminViewer = (): Viewer => ({ user: null, access: buildAccess(null, config, true), config, subscription: null });
+const adminViewer = (): Viewer => ({ user: null, access: buildAccess(null, config, true), config, subscription: null, viewAs: null });
 const admin = { userId: null, label: "test-admin" };
 
 // A Tuesday in the mock data range; the market is open.
@@ -90,7 +91,7 @@ describe("pipeline", () => {
   it("computes a deterministic outcome from stored bars", async () => {
     const db = await getDb();
     const [o] = await db.select().from(signalOutcomes).where(eq(signalOutcomes.signalId, signalId));
-    expect(o.calcVersion).toBe("outcome-v1");
+    expect(o.calcVersion).toBe("outcome-v3");
     expect(o.entered).toBe(true);
     expect(o.mfe).not.toBeNull();
     expect(["WON", "LOST", "BREAKEVEN", "AMBIGUOUS", "OPEN"]).toContain(o.classification);

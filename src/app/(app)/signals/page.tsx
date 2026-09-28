@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/format";
 import { can, lowestTierWith } from "@/server/entitlements/access";
 import { getViewer } from "@/server/entitlements/service";
-import { listSignalsForViewer, listSignalTypes, listSources, parseSignalFilters } from "@/server/signals/queries";
+import { listSignalsForViewer, listSignalTypes, parseSignalFilters } from "@/server/signals/queries";
 
 export const metadata: Metadata = { title: "Signals" };
 const PAGE_SIZE = 25;
@@ -29,9 +29,8 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
   }
   const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const filters = parseSignalFilters(sp);
-  const [result, sources, signalTypes] = await Promise.all([
+  const [result, signalTypes] = await Promise.all([
     listSignalsForViewer(viewer, filters, { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
-    listSources({ includeQa: viewer.access.isAdmin }),
     listSignalTypes(),
   ]);
   const pages = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
@@ -54,7 +53,7 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
       <div className="mb-4">
         <Suspense>
           <SignalFilters
-            sources={sources.map((s) => ({ value: s.id, label: s.name }))}
+            sources={[]}
             signalTypes={signalTypes}
             advanced={can(viewer.access, "filters.advanced")}
             search={can(viewer.access, "search.history")}

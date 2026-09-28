@@ -40,12 +40,42 @@ describe("entry", () => {
     expect(out.entryPrice).toBe(98);
   });
 
+  it("does not fill a zone when price never touches it", () => {
+    const out = evaluateSignal(longZone, bars([90, 91, 89, 90], [92, 93, 91, 92]));
+    expect(out.entered).toBe(false);
+    const short = evaluateSignal(
+      { ...longZone, direction: "SHORT", entryMin: 99, entryMax: 100, stopLoss: 105, targets: [95] },
+      bars([110, 112, 109, 111]),
+    );
+    expect(short.entered).toBe(false);
+  });
+
   it("fills a short limit when price trades up to it", () => {
     const out = evaluateSignal(
       { ...longZone, direction: "SHORT", entryType: "LIMIT", entryMin: 100, entryMax: 100, stopLoss: 105, targets: [95] },
       bars([98, 100.2, 97.9, 99]),
     );
     expect(out.entryPrice).toBe(100);
+  });
+
+  it("does not fill a market quote that never trades near the posted price", () => {
+    const out = evaluateSignal(
+      {
+        ...longZone,
+        entryType: "MARKET",
+        entryMin: 4819,
+        entryMax: 4819,
+        stopLoss: 4809,
+        targets: [4825],
+        expiryTime: min(3),
+      },
+      bars([4318, 4320, 4316, 4319], [4317, 4319, 4315, 4316]),
+      [],
+      min(10),
+    );
+    expect(out.entered).toBe(false);
+    expect(out.classification).toBe("EXPIRED");
+    expect(out.notes.join(" ")).toMatch(/not filled as a market order/);
   });
 
   it("fills market orders at the open of the first bar at or after the signal time", () => {
@@ -195,7 +225,7 @@ describe("missing fields", () => {
       bars([101, 101, 100, 100.5], [100.5, 102, 100.2, 101.5], [101.5, 103, 101, 102]),
       [],
       null,
-      { version: "test", barMs: 60_000, defaultExpiryMinutes: 60, maxHoldMinutes: 2, breakevenBandR: 0.05, breakevenBandPrice: 0.1 },
+      { version: "test", barMs: 60_000, defaultExpiryMinutes: 60, maxHoldMinutes: 2, breakevenBandR: 0.05, breakevenBandPrice: 0.1, maxQuoteDistance: 80 },
     );
     expect(out.exitReason).toBe("TIMEOUT");
     expect(out.averageExitPrice).toBe(101.5);

@@ -29,11 +29,12 @@ Choices made while building the MVP where the PRD left room for interpretation. 
 - **Outcome history is append-only in substance.** A new outcome row is written whenever the classification, rules version or signal version changes. Minute-by-minute progress on an open trade updates the current row in place, which avoids thousands of near-identical rows. Overrides are separate rows with `kind = override` and a mandatory reason, and automatic recalculation never replaces an override unless an admin forces it.
 - **Source claims ("TP1 hit", "SL hit") are recorded as evidence, never as results.** Outcomes come only from market data.
 
-## Outcome rules (`outcome-v1`)
+## Outcome rules (`outcome-v3`)
 
 The PRD asks for deterministic, documented rules. The choices:
 
-- **Fill.** A market order fills at the open of the first bar at or after the signal time. A long limit or zone fills when the bar low reaches the top of the zone, at `min(open, zoneMax)`; shorts mirror this. This is a conservative "first touch" fill; a mid-zone fill would overstate precision.
+- **Fill.** A market order fills at the open of the first bar at or after the signal time, and only when that bar trades within $80 of the quoted entry. A quote hundreds of dollars from the market is not a fill. A limit or zone fills only when the bar's range overlaps the entry prices: a long fills at `min(open, zoneMax)` when price trades down into the zone, and a short fills at `max(open, zoneMin)` when price trades up into it. Price that misses the zone entirely is not a fill. A gap that opens through the zone fills at the open.
+- **Live gate.** Before a new signal is published, the quoted entry is compared with the price at post time. A quote more than $80 away stays in the review queue instead of the live list. When `AI_PROVIDER=openai` and `OPENAI_API_KEY` are set, that review is offered to the model together with the message, the market price, and the last human signal corrections, so a later call can follow decisions already made. The model cannot override the $80 check.
 - **Targets** are equal-weight partial exits. With three targets, each closes a third. R is the weighted sum.
 - **Same-candle stop and target** is `AMBIGUOUS` and shown as "Ambiguous". It is excluded from win rate and average R, and listed separately. One-minute bars cannot say which was touched first, and counting it as either a win or a loss would bias statistics.
 - **Fill candle.** A stop touched on the fill candle counts. A target on the fill candle counts only if the candle closes beyond it. This is the conservative reading.
@@ -49,7 +50,7 @@ The PRD asks for deterministic, documented rules. The choices:
 - **Features are string keys in a per-tier config** (`tier_entitlements`), editable at `/admin/entitlements`, plus a history window in days (`null` means unlimited). The defaults follow PRD section 5: Silver 30 days, Gold 180 days, Platinum unlimited.
 - **Enforcement lives in presenters** (`src/server/presenters.ts`). Locked sections are replaced with `{ locked: true, requiredTier }` before serialization, so pages and the API share one code path and nothing hidden is sent to the client.
 - **Advanced filters and search** are ignored server-side for tiers without them. The API reports them in `ignoredFilters`.
-- **Admins get every feature.** Visitors with no plan can browse the app shell and see upgrade prompts, but no signal data.
+- **Admins get every feature.** Visitors with no plan can browse the app shell and see upgrade prompts, but no signal data. An admin can preview Silver, Gold, Platinum, or no plan from the member shell. That choice is a cookie honored only for an admin, and admin pages keep using the real account.
 - **CSV export** exists as a feature key but is assigned to no tier, per PRD non-goals.
 
 ## Billing

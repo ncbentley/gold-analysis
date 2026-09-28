@@ -12,6 +12,7 @@ export const JOB_TYPES = [
   "TELEGRAM_SYNC",
   "MARKET_DATA_BACKFILL",
   "RECALC_ALL_SIGNALS",
+  "REPAIR_QUOTE_PARSES",
   "RECONCILE_SUBSCRIPTIONS",
 ] as const;
 export type JobType = (typeof JOB_TYPES)[number];

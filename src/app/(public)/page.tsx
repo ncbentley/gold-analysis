@@ -49,15 +49,15 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 pb-16 pt-16 md:pb-24 md:pt-24">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-3 py-1 text-xs text-primary">
-              XAU/USD · {sources.length ? `${sources.length} tracked Telegram ${sources.length === 1 ? "channel" : "channels"}` : "Telegram signal channels"}
+              XAU/USD · {sources.length ? `${sources.length} tracked ${sources.length === 1 ? "source" : "sources"}` : "tracked sources"}
               {totalClosed > 0 && ` · ${totalClosed.toLocaleString()} measured trades`}
             </div>
             <h1 className="mt-5 text-4xl font-semibold tracking-tight md:text-6xl">
               Every gold signal, <span className="gold-text">tracked and measured</span>.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-              Aurum Ledger records gold trading signals from Telegram channels, replays each one against minute-level market data, and shows you how every
-              channel has actually performed. The same way, every time, with the rules in the open.
+              Aurum Ledger records gold trading signals, replays each one against minute-level market data, and shows you how each
+              source has actually performed. The channel is not named. The same way, every time, with the rules in the open.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/signup" className={cn(buttonVariants({ size: "lg" }), "px-5")}>
@@ -90,21 +90,21 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 py-16">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight">Source track records</h2>
-              <p className="mt-2 max-w-2xl text-muted-foreground">Lifetime results for each channel, computed from recorded outcomes. Ambiguous and cancelled signals are excluded from win rate.</p>
+              <h2 className="text-2xl font-semibold tracking-tight">How sources performed</h2>
+              <p className="mt-2 max-w-2xl text-muted-foreground">Lifetime results for each source, computed from recorded outcomes. Channel names are not shown. Ambiguous and cancelled signals are excluded from win rate.</p>
             </div>
           </div>
           {sourceStats.length === 0 && (
             <div className="mt-8 rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Channel track records are published here once the first channels are connected and their signals have closed.
+              Source track records are published here once signals have closed.
             </div>
           )}
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             {sourceStats.map(({ source, stats }) => (
               <Card key={source.id} className="bg-card/60">
                 <CardHeader>
-                  <CardTitle>{source.name}</CardTitle>
-                  <CardDescription className="line-clamp-2">{source.description}</CardDescription>
+                  <CardTitle>How this source performed</CardTitle>
+                  <CardDescription className="line-clamp-2">Results are computed from recorded outcomes. The channel is not named.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid grid-cols-3 gap-3 text-sm">
                   <div>

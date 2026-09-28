@@ -89,7 +89,7 @@ export async function buildSignalFacts(signalId: string): Promise<SignalFacts> {
 
   return {
     signal: {
-      sourceName: source.name,
+      sourceName: "this source",
       direction: signal.direction,
       entryType: signal.entryType,
       entryMin: signal.entryMin,
@@ -154,7 +154,7 @@ export async function buildSourcePatternFacts(sourceId: string): Promise<SourceP
   const [source] = await db.select().from(sources).where(eq(sources.id, sourceId));
   const s = await getSourceStats(sourceId);
   return {
-    sourceName: source.name,
+    sourceName: "this source",
     closedTrades: s.closedTrades,
     winRate: s.winRate,
     avgR: s.avgR,

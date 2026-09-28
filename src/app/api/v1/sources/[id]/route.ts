@@ -6,7 +6,7 @@ import { getSourceStats } from "@/server/statistics/service";
 export async function GET(_req: Request, ctx: RouteContext<"/api/v1/sources/[id]">) {
   const { id } = await ctx.params;
   return withViewer(async (viewer) => {
-    const source = await getSourceBySlugOrId(id, { includeQa: viewer.access.isAdmin });
+    const source = await getSourceBySlugOrId(id, { includeQa: viewer.access.isAdmin, allowSlug: viewer.access.isAdmin });
     if (!source || (!source.active && !viewer.access.isAdmin)) return apiError(404, "not_found", "Source not found.");
     return json({ data: presentSourceSummary(source, await getSourceStats(source.id), viewer.access, viewer.config) });
   });

@@ -102,7 +102,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             <StatusBadge status={d.status} />
           </span>
         }
-        description={`${d.source.name} · published ${fmtDateTime(d.signalTime)} (${fmtAge(d.signalTime)} ago) · ${session} session`}
+        description={`Published ${fmtDateTime(d.signalTime)} (${fmtAge(d.signalTime)} ago) · ${session} session`}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -346,10 +346,10 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
         </div>
 
         <div className="space-y-4">
-          <Section n={2} title="Source">
+          <Section n={2} title="How this source performed">
             <div className="flex items-center justify-between">
               <div className="font-medium">{d.source.name}</div>
-              <Link href={`/sources/${d.source.slug}`} className={buttonVariants({ variant: "outline", size: "sm" })}>Profile</Link>
+              <Link href={`/sources/${d.source.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>Details</Link>
             </div>
             {d.sourceStats && (
               <>
