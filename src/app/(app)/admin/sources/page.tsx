@@ -90,7 +90,7 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
           )}
           {telegram.connected && !listError && joinedChats.length > 0 && (
             <form action={telegramAddJoinedChatAction} className="grid gap-3 md:grid-cols-2">
-              <Field label="Channel or group" htmlFor="ch-pick" hint="Only chats this account has joined are listed." className="md:col-span-2">
+              <Field label="Channel or group" htmlFor="ch-pick" hint="Filter by name. Only chats this account has joined are listed. Select one, then add it with the parser and history settings below." className="md:col-span-2">
                 <TelegramChatMenu
                   channels={channels.map((c) => ({ id: c.id, label: chatOptionLabel(c, trackedIds.has(c.id)) }))}
                   groups={groups.map((c) => ({ id: c.id, label: chatOptionLabel(c, trackedIds.has(c.id)) }))}
