@@ -155,6 +155,18 @@ function sourcePatterns(f: SourcePatternFacts): SourcePatternsOutput {
 export const mockAiProvider: AiProvider = {
   model: "mock-analyst-1",
   async generate(req: AiRequest) {
+    if (req.analysisType === "parse_review") {
+      return {
+        decision: "reject",
+        reason: "No model is configured.",
+        entryType: null,
+        direction: null,
+        entryMin: null,
+        entryMax: null,
+        stopLoss: null,
+        targets: [],
+      };
+    }
     if (req.analysisType === "signal_setup") return signalSetup(req.facts as unknown as SignalFacts, req.promptVersion);
     return sourcePatterns(req.facts as unknown as SourcePatternFacts);
   },

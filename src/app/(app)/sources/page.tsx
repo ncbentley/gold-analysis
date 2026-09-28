@@ -3,8 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { RValue } from "@/components/signal-bits";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtPct } from "@/lib/format";
 import { getViewer } from "@/server/entitlements/service";
 import { presentSourceSummary } from "@/server/presenters";
@@ -19,25 +18,22 @@ export default async function SourcesPage() {
   const rows = await Promise.all(sources.map(async (s) => presentSourceSummary(s, await getSourceStats(s.id), viewer.access, viewer.config)));
   return (
     <>
-      <PageHeader title="Sources" description="Every tracked Telegram channel, measured against market data with the same deterministic rules." />
+      <PageHeader title="Sources" description="How each source performed against the same rules. Channel names are not shown." />
       {rows.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">No channels are being tracked yet. Signal channels appear here as soon as they are connected.</div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((s) => (
-            <Link key={s.id} href={`/sources/${s.slug}`} className="group">
+            <Link key={s.id} href={`/sources/${s.id}`} className="group">
               <Card className="h-full bg-card/60 transition-colors group-hover:border-primary/30">
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
-                    {s.name}
+                    How this source performed
                     <ArrowRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
                   </CardTitle>
-                  <CardDescription>{s.description}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant="outline">{s.sourceType === "telegram" ? "Telegram" : s.sourceType}</Badge>
-                    {s.isQa && <Badge variant="secondary">QA</Badge>}
+                  <div className="text-xs text-muted-foreground">
                     {s.stats?.totalSignals ?? 0} signals · {s.stats?.closedTrades ?? 0} closed
                   </div>
                   {s.stats && !s.stats.summary.locked ? (

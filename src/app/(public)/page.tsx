@@ -90,8 +90,8 @@ export default async function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 py-16">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight">Source track records</h2>
-              <p className="mt-2 max-w-2xl text-muted-foreground">Lifetime results for each channel, computed from recorded outcomes. Ambiguous and cancelled signals are excluded from win rate.</p>
+              <h2 className="text-2xl font-semibold tracking-tight">How sources performed</h2>
+              <p className="mt-2 max-w-2xl text-muted-foreground">Lifetime results for each source, computed from recorded outcomes. Channel names are not shown. Ambiguous and cancelled signals are excluded from win rate.</p>
             </div>
           </div>
           {sourceStats.length === 0 && (
@@ -103,8 +103,8 @@ export default async function LandingPage() {
             {sourceStats.map(({ source, stats }) => (
               <Card key={source.id} className="bg-card/60">
                 <CardHeader>
-                  <CardTitle>{source.name}</CardTitle>
-                  <CardDescription className="line-clamp-2">{source.description}</CardDescription>
+                  <CardTitle>How this source performed</CardTitle>
+                  <CardDescription className="line-clamp-2">Results are computed from recorded outcomes. The channel is not named.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid grid-cols-3 gap-3 text-sm">
                   <div>

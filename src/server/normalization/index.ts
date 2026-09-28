@@ -12,7 +12,10 @@ import {
   type Signal,
 } from "@/server/db/schema";
 import { enqueueJob } from "@/server/jobs/queue";
+import { getPriceNear } from "@/server/market-data";
 import { parseEvent, REVIEW_THRESHOLD, type ParseOutput } from "@/server/parsing";
+import { reviewFarQuote } from "@/server/parsing/price-review";
+import { distanceToQuote, quoteIsPlausible } from "@/server/parsing/quote-sanity";
 
 const OPEN_STATUSES = ["PENDING", "ACTIVE", "PARTIAL"] as const;
 
@@ -193,12 +196,28 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
     if (existing) {
       return storeParse(event, out, "ignored", existing.id, ["A signal already exists for this event; use Correct signal to change it."]);
     }
-    const input = toSignalInput(out, event.publishedAt);
+    let input = toSignalInput(out, event.publishedAt);
     if (!input || out.confidence < REVIEW_THRESHOLD) {
       return storeParse(event, out, "needs_review", null);
     }
+    const market = await getPriceNear(event.publishedAt, input.instrument);
+    const extra: string[] = [];
+    if (market !== null && !quoteIsPlausible(market, input.entryMin, input.entryMax)) {
+      const revised = await reviewFarQuote(event.rawText, input, market);
+      if (revised && quoteIsPlausible(market, revised.entryMin, revised.entryMax)) {
+        input = { ...input, ...revised };
+        extra.push(
+          `Price check revised the entry to ${input.entryMin}–${input.entryMax} using the market price ${market.toFixed(2)}.`,
+        );
+      } else {
+        const away = distanceToQuote(market, input.entryMin, input.entryMax);
+        return storeParse(event, out, "needs_review", null, [
+          `Quoted entry ${input.entryMin}–${input.entryMax} is ${away.toFixed(0)} away from the market price ${market.toFixed(2)}. Not placed on the live list.`,
+        ]);
+      }
+    }
     const signal = await createSignal(event.sourceId, event.id, input, out.confidence, actor);
-    return storeParse(event, out, "applied", signal.id);
+    return storeParse(event, out, "applied", signal.id, extra);
   }
 
   if (out.eventType === "COMMENT") {

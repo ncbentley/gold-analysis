@@ -73,7 +73,7 @@ Telegram post ─▶ raw_events (immutable) ─▶ parse_results (versioned) ─
                                                      │ low confidence
                                                      ▼
                                                admin review queue
-market_bars (1m) ─▶ outcome engine (outcome-v1) ─▶ signal_outcomes (versioned, override-able)
+market_bars (1m) ─▶ outcome engine (outcome-v3) ─▶ signal_outcomes (versioned, override-able)
                                                      ▼
                          source_stats (stats-v1) · similar trades · ai_analyses (prompt-versioned)
                                                      ▼
@@ -83,7 +83,8 @@ market_bars (1m) ─▶ outcome engine (outcome-v1) ─▶ signal_outcomes (vers
 - **Telegram** (`src/server/telegram`) uses GramJS (MTProto). It handles sign-in, channel resolution and joining, the live update handlers, and a catch-up sync that pages through history by message id.
 - **Raw events are never edited.** Every incoming message is stored with its timestamp and content hash, and is de-duplicated by external id or hash. Re-parsing creates a new parse result.
 - **Parsing** (`src/server/parsing`) extracts direction, entry (market, limit or zone), stop, targets, signal type and follow-up instructions such as move SL to breakeven, cancel, close, TP hit and SL hit. Anything below 80% confidence, or with a wrong-side stop or an implausible price, goes to `/admin/review` instead of being guessed.
-- **Outcomes** (`src/server/outcomes/engine.ts`) are a pure function of the signal, its adjustments and minute bars. The rules are versioned (`outcome-v1`):
+- **Outcomes** (`src/server/outcomes/engine.ts`) are a pure function of the signal, its adjustments and minute bars. The rules are versioned (`outcome-v3`):
+  - a market quote more than $80 from the bar is not a fill, and the same check keeps a new post off the live list;
   - fills are at the zone edge or the bar open, whichever is better for the trader;
   - targets are equal-weight partial exits;
   - a gap through the stop exits at the open;

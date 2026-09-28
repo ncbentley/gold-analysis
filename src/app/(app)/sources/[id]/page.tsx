@@ -7,7 +7,6 @@ import { GatedView } from "@/components/locked";
 import { PageHeader } from "@/components/page-header";
 import { RValue, Stat } from "@/components/signal-bits";
 import { SignalList } from "@/components/signal-list";
-import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtDateTime, fmtMinutes, fmtPct } from "@/lib/format";
@@ -16,7 +15,7 @@ import type { SourcePatternsOutput } from "@/server/ai/types";
 import { trackEvent } from "@/server/analytics";
 import { can, gate } from "@/server/entitlements/access";
 import { getViewer } from "@/server/entitlements/service";
-import { presentSourceStats } from "@/server/presenters";
+import { presentSourceStats, redactIdentities } from "@/server/presenters";
 import { getSourceBySlugOrId, listSignalsForViewer } from "@/server/signals/queries";
 import { getSourceStats, getSourceStatsMeta } from "@/server/statistics/service";
 
@@ -40,7 +39,7 @@ function Panel({ title, description, children }: { title: string; description?: 
 export default async function SourcePage({ params }: PageProps<"/sources/[id]">) {
   const { id } = await params;
   const viewer = await getViewer();
-  const source = await getSourceBySlugOrId(id, { includeQa: viewer.access.isAdmin });
+  const source = await getSourceBySlugOrId(id, { includeQa: viewer.access.isAdmin, allowSlug: viewer.access.isAdmin });
   if (!source) notFound();
   const { access, config } = viewer;
   const uid = viewer.user?.id;
@@ -52,6 +51,7 @@ export default async function SourcePage({ params }: PageProps<"/sources/[id]">)
     can(access, "signals.core") ? listSignalsForViewer(viewer, { sourceId: source.id }, { limit: 10 }) : Promise.resolve(null),
   ]);
   const s = presentSourceStats(raw, access, config);
+  const veil = (value: string) => redactIdentities(value, [source.name, source.slug, source.telegramUsername]);
   const patterns = gate(access, "ai.patterns", config, () => null as null);
   const analysis = !patterns.locked ? await getCurrentAnalysis({ sourceId: source.id, analysisType: "source_patterns" }) : null;
   const ai = analysis?.outputJson as SourcePatternsOutput | undefined;
@@ -62,11 +62,10 @@ export default async function SourcePage({ params }: PageProps<"/sources/[id]">)
         <ArrowLeft className="size-4" /> Sources
       </Link>
       <PageHeader
-        title={source.name}
-        description={source.description}
+        title="How this source performed"
+        description="Win rate, R and recent form. The channel is not named."
         actions={
           <>
-            <Badge variant="outline">{source.sourceType.replace("_", " ")}</Badge>
             {can(access, "sources.history.full") && (
               <Link href={`/signals?source=${source.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
                 Full history
@@ -179,17 +178,17 @@ export default async function SourcePage({ params }: PageProps<"/sources/[id]">)
             {() =>
               ai ? (
                 <div className="space-y-3">
-                  <p className="font-medium">{ai.headline}</p>
+                  <p className="font-medium">{veil(ai.headline)}</p>
                   <div className="grid gap-2 md:grid-cols-2">
                     {ai.patterns.map((p) => (
                       <div key={p.title} className="rounded-lg border bg-background/40 p-3">
-                        <div className="text-sm font-medium">{p.title}</div>
-                        <p className="mt-1 text-xs text-muted-foreground">{p.detail}</p>
+                        <div className="text-sm font-medium">{veil(p.title)}</div>
+                        <p className="mt-1 text-xs text-muted-foreground">{veil(p.detail)}</p>
                         <div className="mt-1 text-[11px] text-muted-foreground">n = {p.sampleSize}</div>
                       </div>
                     ))}
                   </div>
-                  <ul className="text-xs text-muted-foreground">{ai.caveats.map((c) => <li key={c}>• {c}</li>)}</ul>
+                  <ul className="text-xs text-muted-foreground">{ai.caveats.map((c) => <li key={c}>• {veil(c)}</li>)}</ul>
                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                     <Bot className="size-3.5" /> {analysis?.model} · {analysis?.promptVersion} · {fmtDateTime(analysis?.createdAt)}
                   </div>

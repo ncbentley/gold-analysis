@@ -63,6 +63,55 @@ describe("text-generic parser", () => {
     expect(text("Good morning traders").eventType).toBe("COMMENT");
   });
 
+  it("accepts a slash zone with labelled stops and targets", () => {
+    const out = text("GOLD buy 4290/4287 TP 4300 TP 4305 TP 4320 SL 4280");
+    expect(out.eventType).toBe("NEW_SIGNAL");
+    expect(out.signal?.entryType.value).toBe("ZONE");
+    expect(out.signal?.entryMin.value).toBe(4287);
+    expect(out.signal?.entryMax.value).toBe(4290);
+    expect(out.signal?.stopLoss.value).toBe(4280);
+    expect(out.signal?.targets.value).toEqual([4300, 4305, 4320]);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("treats a dotted pair of gold prices as a zone, not a decimal", () => {
+    const out = text("GOLD SELL 4349.4354 TP 4343 TP 4335 TP 4310 SL 4361");
+    expect(out.signal?.entryType.value).toBe("ZONE");
+    expect(out.signal?.entryMin.value).toBe(4349);
+    expect(out.signal?.entryMax.value).toBe(4354);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("expands a two-digit zone tail using the leading price", () => {
+    const out = text("SELL GOLD NOW 4155-60\n\n🎯 TP1: 4150.00\n🎯 TP2: 4145.00\n🎯 TP3: 4140.00\n\n❌ SL: 4170.00");
+    expect(out.signal?.entryType.value).toBe("ZONE");
+    expect(out.signal?.entryMin.value).toBe(4155);
+    expect(out.signal?.entryMax.value).toBe(4160);
+    expect(out.signal?.stopLoss.value).toBe(4170);
+    expect(out.signal?.targets.value).toEqual([4150, 4145, 4140]);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("turns pip targets into prices from the near edge of the zone", () => {
+    const out = text("Im selling Gold Now @ 4349 - 4355 Sl: 4359 TP: 100/200PIPS");
+    expect(out.eventType).toBe("NEW_SIGNAL");
+    expect(out.signal?.direction.value).toBe("SHORT");
+    expect(out.signal?.entryMin.value).toBe(4349);
+    expect(out.signal?.entryMax.value).toBe(4355);
+    expect(out.signal?.stopLoss.value).toBe(4359);
+    expect(out.signal?.targets.value).toEqual([4339, 4329]);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("does not queue result posts or promo that merely say buy", () => {
+    expect(text("#XAUUSD Buy RUNNING 250+ PIP'S PROFIT DONE").eventType).toBe("COMMENT");
+    expect(text("#XAUUSD Buy RUNNING 250+ PIP'S PROFIT DONE").confidence).toBeGreaterThanOrEqual(0.7);
+    expect(text("#XAUUSD BUY TP2 HIT 150+ PIPS PROFIT DONE").eventType).toBe("COMMENT");
+    expect(text("WHAT I'M ABOUT TO BUY IS SERIOUS HEAVY ARTILLERY").eventType).toBe("COMMENT");
+    expect(text("WINNER ANNOUNCED $20,000 GIVEAWAY UID 45200739").eventType).toBe("COMMENT");
+    expect(text("WINNER ANNOUNCED $20,000 GIVEAWAY UID 45200739").confidence).toBeGreaterThanOrEqual(0.7);
+  });
+
   it("ignores non-gold instruments", () => {
     const out = text("EURUSD BUY 1.0850 SL 1.0800");
     expect(out.eventType).toBe("COMMENT");

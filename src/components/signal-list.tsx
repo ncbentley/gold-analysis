@@ -65,7 +65,7 @@ export function SignalList({
             {items.map((s) => (
               <TableRow key={s.id} className="group relative">
                 <TableCell className="whitespace-nowrap">
-                  <Link href={`${hrefBase}/${s.id}`} className="absolute inset-0" aria-label={`Open signal from ${s.source.name}`} />
+                  <Link href={`${hrefBase}/${s.id}`} className="absolute inset-0" aria-label="Open signal" />
                   <div className="text-sm">{fmtDateTime(s.signalTime)}</div>
                   <div className="text-[11px] text-muted-foreground">{fmtAge(s.signalTime, now)} ago</div>
                 </TableCell>

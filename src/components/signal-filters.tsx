@@ -80,7 +80,9 @@ export function SignalFilters({
 
   return (
     <div className={cn("flex flex-wrap items-center gap-2", pending && "opacity-70")}>
-      <FilterSelect name="source" label="Sources" options={sources} value={params.get("source") ?? ""} onChange={set} />
+      {sources.length > 0 && (
+        <FilterSelect name="source" label="Sources" options={sources} value={params.get("source") ?? ""} onChange={set} />
+      )}
       <FilterSelect
         name="status"
         label="Statuses"

@@ -90,7 +90,7 @@ describe("pipeline", () => {
   it("computes a deterministic outcome from stored bars", async () => {
     const db = await getDb();
     const [o] = await db.select().from(signalOutcomes).where(eq(signalOutcomes.signalId, signalId));
-    expect(o.calcVersion).toBe("outcome-v1");
+    expect(o.calcVersion).toBe("outcome-v3");
     expect(o.entered).toBe(true);
     expect(o.mfe).not.toBeNull();
     expect(["WON", "LOST", "BREAKEVEN", "AMBIGUOUS", "OPEN"]).toContain(o.classification);

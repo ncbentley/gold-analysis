@@ -74,7 +74,7 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Active trades" value={activeCount} hint="entered, not closed" />
         <Stat label="Pending entries" value={pendingCount} hint="waiting for fill" />
-        <Stat label="Tracked channels" value={sources.length} />
+        <Stat label="Tracked sources" value={sources.length} />
         <Stat label="Signals in your window" value={open.total + closed.total} hint={access.historyDays ? `last ${access.historyDays} days` : "full history"} />
       </div>
 
@@ -85,7 +85,7 @@ export default async function DashboardPage() {
             View all
           </Link>
         </div>
-        <SignalList items={open.items} now={now} empty="No open signals right now. New signals appear here within moments of being posted in a tracked Telegram channel." />
+        <SignalList items={open.items} now={now} empty="No open signals right now. New signals appear here within moments of being posted." />
       </section>
 
       <section className="mt-8">
@@ -99,17 +99,17 @@ export default async function DashboardPage() {
       </section>
 
       <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold">Channels</h2>
+        <h2 className="mb-3 text-lg font-semibold">How sources performed</h2>
         {sourceCards.length === 0 && (
-          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No channels are being tracked yet.</div>
+          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No sources are being tracked yet.</div>
         )}
         <div className="grid gap-3 md:grid-cols-3">
           {sourceCards.map(({ source, stats }) => (
             <Card key={source.id} className="bg-card/60">
               <CardHeader>
                 <CardTitle className="flex items-center justify-between text-base">
-                  {source.name}
-                  <Link href={`/sources/${source.slug}`} className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label={`Open ${source.name}`}>
+                  How this source performed
+                  <Link href={`/sources/${source.id}`} className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Open this source">
                     <ArrowRight />
                   </Link>
                 </CardTitle>
