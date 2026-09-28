@@ -50,7 +50,7 @@ The PRD asks for deterministic, documented rules. The choices:
 - **Features are string keys in a per-tier config** (`tier_entitlements`), editable at `/admin/entitlements`, plus a history window in days (`null` means unlimited). The defaults follow PRD section 5: Silver 30 days, Gold 180 days, Platinum unlimited.
 - **Enforcement lives in presenters** (`src/server/presenters.ts`). Locked sections are replaced with `{ locked: true, requiredTier }` before serialization, so pages and the API share one code path and nothing hidden is sent to the client.
 - **Advanced filters and search** are ignored server-side for tiers without them. The API reports them in `ignoredFilters`.
-- **Admins get every feature.** Visitors with no plan can browse the app shell and see upgrade prompts, but no signal data.
+- **Admins get every feature.** Visitors with no plan can browse the app shell and see upgrade prompts, but no signal data. An admin can preview Silver, Gold, Platinum, or no plan from the member shell. That choice is a cookie honored only for an admin, and admin pages keep using the real account.
 - **CSV export** exists as a feature key but is assigned to no tier, per PRD non-goals.
 
 ## Billing

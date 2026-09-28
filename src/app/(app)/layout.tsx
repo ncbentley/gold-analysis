@@ -1,8 +1,10 @@
 import { and, eq, sql } from "drizzle-orm";
 import { LogOut, MailWarning } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 import { logoutAction, resendVerificationAction } from "@/app/actions/auth";
 import { MobileNav, Sidebar } from "@/components/app-nav";
+import { ViewAsForm } from "@/components/view-as-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/server/auth/guards";
@@ -25,7 +27,8 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const viewer = await getViewer();
   const isAdmin = user.role === "admin";
   const count = isAdmin ? await reviewCount() : 0;
-  const plan = isAdmin ? "Admin" : viewer.subscription ? TIER_LABEL[viewer.subscription.tier] : "No plan";
+  const previewLabel = viewer.viewAs === "none" ? "No plan" : viewer.viewAs ? TIER_LABEL[viewer.viewAs] : null;
+  const plan = isAdmin ? (previewLabel ? `Viewing as ${previewLabel}` : "Admin") : viewer.subscription ? TIER_LABEL[viewer.subscription.tier] : "No plan";
 
   const footer = (
     <div className="mt-3 border-t pt-3">
@@ -59,6 +62,14 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
                 Resend link
               </button>
             </form>
+          </div>
+        )}
+        {isAdmin && (
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-primary/15 bg-primary/5 px-4 py-2 text-sm lg:px-8">
+            <span>{previewLabel ? `Member pages are showing the ${previewLabel} experience. Admin tools stay on your real account.` : "Member pages are showing the full admin experience."}</span>
+            <Suspense>
+              <ViewAsForm current={viewer.viewAs ?? "admin"} />
+            </Suspense>
           </div>
         )}
         {!isAdmin && !viewer.subscription && user.emailVerifiedAt && (

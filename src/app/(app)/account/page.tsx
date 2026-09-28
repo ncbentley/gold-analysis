@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "Account" };
 
 export default async function AccountPage() {
   const user = await requireUser("/account");
-  const { access, subscription } = await getViewer();
+  const { access, subscription, viewAs } = await getViewer();
   return (
     <>
       <PageHeader title="Account" />
@@ -45,7 +45,15 @@ export default async function AccountPage() {
           <CardHeader>
             <CardTitle>Your access</CardTitle>
             <CardDescription>
-              {user.role === "admin" ? "Administrators can see everything." : subscription ? `${TIER_LABEL[subscription.tier]} membership` : "No active membership"}
+              {viewAs === "none"
+                ? "Previewing a visitor with no plan."
+                : viewAs
+                  ? `Previewing the ${TIER_LABEL[viewAs]} membership.`
+                  : user.role === "admin"
+                    ? "Administrators can see everything."
+                    : subscription
+                      ? `${TIER_LABEL[subscription.tier]} membership`
+                      : "No active membership"}
               {access.historyDays !== null && access.tier ? ` · ${access.historyDays}-day history` : ""}
             </CardDescription>
           </CardHeader>
