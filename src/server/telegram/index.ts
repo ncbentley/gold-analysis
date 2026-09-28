@@ -235,29 +235,32 @@ export async function connectTelegram(): Promise<TelegramClient | null> {
         if (!api || !session) return;
         if (st.client) await st.client.destroy().catch(() => {});
         const client = makeClient(api, session.session);
-        let authorized: boolean;
         try {
-          authorized = await withTimeout(
-            (async () => {
-              await client.connect();
-              return client.checkAuthorization();
-            })(),
-          );
+          await withTimeout(client.connect());
+          // GetState throws on a real failure. checkAuthorization turns every
+          // failure, including a dropped socket, into `false`, and deleting the
+          // stored login on that false result signed the account out on restart.
+          await withTimeout(client.invoke(new Api.updates.GetState()));
         } catch (err) {
           await client.destroy().catch(() => {});
           throw err;
-        }
-        if (!authorized) {
-          await client.destroy().catch(() => {});
-          await deleteSetting(SETTING_KEYS.telegramSession);
-          st.client = null;
-          st.lastError = "The Telegram session is no longer valid. Sign in again.";
-          return;
         }
         installHandlers(client);
         st.client = client;
         st.me = session.me;
         st.lastError = null;
+        try {
+          const described = describeUser(await withTimeout(client.getMe()));
+          const me = described.id === "unknown" ? session.me : described;
+          st.me = me;
+          const saved = (client.session as StringSession).save();
+          const identityChanged = me.id !== session.me.id || me.username !== session.me.username || me.name !== session.me.name;
+          if (saved && (saved !== session.session || identityChanged)) {
+            await setSetting(SETTING_KEYS.telegramSession, { session: saved, me } satisfies StoredSession);
+          }
+        } catch (err) {
+          console.error("[telegram] session refresh failed:", telegramErrorMessage(err));
+        }
       } catch (err) {
         st.lastError = telegramErrorMessage(err);
         console.error("[telegram] connect failed:", st.lastError);

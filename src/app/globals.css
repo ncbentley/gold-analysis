@@ -112,3 +112,12 @@
     background-size: 44px 44px;
   }
 }
+
+/* The open native menu is a light popup. Inherited foreground is near-white, so names vanish. */
+select option,
+select optgroup {
+  background-color: #ffffff;
+  color: #171717;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-weight: 500;
+}
