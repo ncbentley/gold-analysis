@@ -20,7 +20,7 @@ const STEPS = [
   { icon: ScrollText, title: "Normalize", body: "Entries, stops, targets and follow-up instructions are parsed into a standard format. Unclear messages go to a human reviewer instead of being guessed." },
   { icon: Timer, title: "Replay", body: "Each signal is replayed against XAU/USD one-minute candles with published, versioned rules for fills, targets, stops and same-candle ambiguity." },
   { icon: LineChart, title: "Measure", body: "Win rate, R-multiples, excursion, time-to-target and session behaviour are computed per source from the recorded outcomes." },
-  { icon: Bot, title: "Explain", body: "An AI summary describes the setup context using only computed facts. It never changes a recorded result and never promises one." },
+  { icon: Bot, title: "Explain", body: "An AI summary describes the setup context using only computed facts. It never changes a recorded result." },
   { icon: ShieldCheck, title: "Audit", body: "Every manual correction or override keeps the original, the new value, who changed it and why." },
 ];
 
@@ -67,7 +67,7 @@ export default async function LandingPage() {
                 Compare plans
               </Link>
             </div>
-            <p className="mt-4 text-xs text-muted-foreground">No profit claims. Results are historical measurements, not a forecast.</p>
+            <p className="mt-4 text-xs text-muted-foreground">Results are historical measurements, not a forecast.</p>
           </div>
         </div>
       </section>
