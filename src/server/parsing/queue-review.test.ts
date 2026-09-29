@@ -178,6 +178,26 @@ describe("larger model review", () => {
     );
     expect(fields).toMatchObject({ direction: "LONG", entryMin: 4370, entryMax: 4370, stopLoss: null, targets: [] });
   });
+
+  it("does not apply a news or FX post that never calls gold", () => {
+    expect(QUEUE_REVIEW_SYSTEM).toMatch(/never calls gold/i);
+    expect(QUEUE_REVIEW_SYSTEM).toMatch(/1\.4200/);
+    const raw =
+      "The Canadian Dollar round-trips as Fed officials differ on hike timing. The pair went above 1.4200.";
+    const parsed = parseEvent("text-generic", { rawText: raw, payload: null, publishedAt: at });
+    const fields = signalFromQueueReview(
+      parsed,
+      review({
+        reason: "Long at 4200.",
+        entryMin: 4200,
+        entryMax: 4200,
+        stopLoss: null,
+        targets: [],
+      }),
+      raw,
+    );
+    expect(fields).toBeNull();
+  });
 });
 
 describe("learned pattern", () => {

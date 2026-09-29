@@ -3,7 +3,11 @@ import { lessonFromPrices, type LearnedPattern, type LearnedRole, type ParseLess
 import { geometryIsValid, oneDigitVariants, samePrice } from "./repair";
 import type { ParsedSignalFields } from "./types";
 
-const GOLD_PRICE = /\d{3,5}(?:[.,]\d{1,3})?/g;
+import { GOLD_NUMBER_G } from "./gold-text";
+
+function goldPricePattern() {
+  return new RegExp(GOLD_NUMBER_G.source, "g");
+}
 const GOLD_MIN = 1000;
 const GOLD_MAX = 20_000;
 
@@ -16,14 +20,14 @@ export function messagePattern(text: string) {
   return text
     .normalize("NFKC")
     .toLowerCase()
-    .replace(GOLD_PRICE, (raw) => (isGoldPrice(Number(raw.replace(",", "."))) ? "{p}" : raw))
+    .replace(goldPricePattern(), (raw) => (isGoldPrice(Number(raw.replace(",", "."))) ? "{p}" : raw))
     .replace(/\s+/g, " ")
     .trim();
 }
 
 export function goldPricesInOrder(text: string) {
   const prices: number[] = [];
-  for (const match of text.normalize("NFKC").matchAll(GOLD_PRICE)) {
+  for (const match of text.normalize("NFKC").matchAll(goldPricePattern())) {
     const value = Number(match[0].replace(",", "."));
     if (isGoldPrice(value)) prices.push(value);
   }

@@ -77,6 +77,23 @@ describe("consensus score", () => {
     );
   });
 
+  it("counts two sources on the same entry and direction as agreement", () => {
+    const focal = signal("earlier", "src-a", "LONG", 4180, 4180, t0);
+    const other = signal("later", "src-b", "LONG", 4180, 4180, at(6));
+    const alone = computeConsensus(focal, [focal], [unproven("src-a")]);
+    const pair = computeConsensus(focal, [focal, other], [unproven("src-a"), unproven("src-b")]);
+    expect(pair.timing.alignedSources).toBe(2);
+    expect(pair.grade.score).toBe(alone.grade.score + 2);
+  });
+
+  it("does not count a second signal from the same source as another vote", () => {
+    const focal = signal("earlier", "src-a", "LONG", 4180, 4180, t0);
+    const again = signal("later", "src-a", "LONG", 4180, 4180, at(6));
+    const pair = computeConsensus(focal, [focal, again], [unproven("src-a")]);
+    expect(pair.timing.alignedSources).toBe(1);
+    expect(pair.participants).toHaveLength(1);
+  });
+
   it("ignores a same-direction signal outside the window or off the zone", () => {
     const focal = signal("focal", "src-0", "LONG", 2650, 2650, t0);
     const late = signal("late", "src-late", "LONG", 2650, 2650, at(31));

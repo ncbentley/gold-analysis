@@ -26,6 +26,34 @@ export async function getCurrentOutcome(signalId: string) {
   return row ?? null;
 }
 
+/** An unfilled order past its lifetime leaves the board with no win or loss. */
+async function closeUnfilledOrder(signal: Signal, closedAtMs: number) {
+  const db = await getDb();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(signalOutcomes)
+      .set({ isCurrent: false })
+      .where(and(eq(signalOutcomes.signalId, signal.id), eq(signalOutcomes.isCurrent, true)));
+    await tx.insert(signalOutcomes).values({
+      signalId: signal.id,
+      calcVersion: OUTCOME_RULES.version,
+      signalVersion: signal.version,
+      kind: "computed",
+      isCurrent: true,
+      classification: "EXPIRED",
+      entered: false,
+      ambiguous: false,
+      exitTime: new Date(closedAtMs),
+      detailJson: {
+        notes: ["Unfilled order closed after 6 hours. No stored bars, so no win or loss was assigned."],
+        rules: { version: OUTCOME_RULES.version, defaultExpiryMinutes: OUTCOME_RULES.defaultExpiryMinutes },
+      },
+      createdBy: "engine",
+    });
+    await tx.update(signals).set({ status: "EXPIRED", closedAt: new Date(closedAtMs) }).where(eq(signals.id, signal.id));
+  });
+}
+
 function toRow(signal: Signal, out: EngineOutcome) {
   const d = (ms: number | null) => (ms === null ? null : new Date(ms));
   return {
@@ -85,7 +113,13 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
   const targets = await db.select().from(signalTargets).where(eq(signalTargets.signalId, signalId)).orderBy(asc(signalTargets.targetIndex));
   const adjustments = await db.select().from(signalAdjustments).where(eq(signalAdjustments.signalId, signalId));
   const sync = await getSyncState(signal.instrument);
+  const unfilledLifetimeMs = OUTCOME_RULES.defaultExpiryMinutes * 60_000;
+  const unfilledClosesAt = (signal.expiryTime?.getTime() ?? signal.signalTime.getTime()) + unfilledLifetimeMs;
   if (!sync?.firstBarAt || sync.firstBarAt.getTime() > signal.signalTime.getTime()) {
+    if (signal.status === "PENDING" && Date.now() >= unfilledClosesAt) {
+      await closeUnfilledOrder(signal, unfilledClosesAt);
+      return { classification: "EXPIRED" as const, changed: true };
+    }
     await enqueueJob("MARKET_DATA_BACKFILL", {}, { dedupeKey: "market-backfill" });
     return { skipped: "no_market_data" as const };
   }
@@ -126,6 +160,14 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
   if (out.classification === "PENDING" && cursor.getTime() < until.getTime()) {
     bars = await getEngineBars(from, until, signal.instrument);
     out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(until.getTime(), syncedThrough));
+  }
+  if (out.classification === "PENDING" && !out.entered && Date.now() >= unfilledClosesAt) {
+    out = {
+      ...out,
+      classification: "EXPIRED",
+      status: "EXPIRED",
+      notes: [...out.notes, "Unfilled order closed after 6 hours."],
+    };
   }
 
   const row = toRow(signal, out);

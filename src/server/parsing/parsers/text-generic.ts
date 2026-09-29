@@ -1,10 +1,11 @@
 import type { EventType } from "@/server/db/schema";
 import { withInferredDirection } from "../direction";
+import { GOLD_NUMBER, isNonGoldMarketPost } from "../gold-text";
 import { expandShortTail } from "../quote-sanity";
 import type { FieldValue, ParseInput, ParseOutput, ParsedSignalFields, SignalParser } from "../types";
 import { finalizeSignal } from "../validate";
 
-const NUM = String.raw`(\d{3,5}(?:[.,]\d{1,3})?)`;
+const NUM = GOLD_NUMBER;
 /** Emoji, punctuation, and the word "limit" may sit between a label and its price. */
 const GAP = String.raw`(?:\s|[^A-Za-z0-9\n])*(?:limit)?(?:\s|[^A-Za-z0-9\n])*`;
 const TARGET_LABEL = String.raw`\b(?:tp|t\/p|target)\s*(?:\d(?!\d))?${GAP}(?:${NUM}(?:\s*[/|,]\s*${NUM})*|\bopen\b)`;
@@ -65,8 +66,6 @@ const GOLD_ALIASES: [RegExp, string][] = [
   [/\bXAU\s*\/?\s*EUR\b/i, "XAUEUR"],
   [/\bXAU\b/i, "XAUUSD"],
 ];
-const OTHER_INSTRUMENT = /\b(EUR\/?USD|GBP\/?USD|USD\/?JPY|BTC(?:USD)?|NAS100|US30|XAG\/?USD|SILVER)\b/i;
-
 function detectInstrument(text: string): FieldValue<string> {
   for (const [re, symbol] of GOLD_ALIASES) if (re.test(text)) return f(symbol, 1);
   return f("XAUUSD", 0.85);
@@ -210,6 +209,28 @@ function detectConfidenceText(text: string): FieldValue<string> {
   return m ? f(m[1].trim(), 1) : f<string>(null, 1);
 }
 
+/**
+ * A short follow-up that only moves the stop: "extend SL … to @4130", "move stop", "SL to".
+ * A stated gold price is required. Another entry or target keeps this from firing.
+ */
+function stopExtensionPrice(text: string): number | null {
+  if (/\b(?:buy(?:ing)?|sell(?:ing)?|long|short|bullish|bearish)\b/i.test(text)) return null;
+  if ((detectTargets(text).value ?? []).some((target) => target !== null)) return null;
+  const moved = text.match(
+    new RegExp(
+      String.raw`\b(?:extend|move|set|trail)\b[\s\S]{0,80}?\b(?:sl|s\/l|stop(?:\s*loss)?)\b[\s\S]{0,80}?(?:to|at|@)\s*${NUM}`,
+      "i",
+    ),
+  );
+  const labelled = text.match(new RegExp(String.raw`\b(?:sl|s\/l|stop(?:\s*loss)?)\s*(?:to|at)\s*@?\s*${NUM}`, "i"));
+  const raw = moved?.[1] ?? labelled?.[1];
+  if (!raw) return null;
+  const stop = num(raw);
+  if (!isGoldLevel(stop)) return null;
+  const others = [...text.matchAll(new RegExp(NUM, "g"))].map((hit) => num(hit[1])).filter((price) => isGoldLevel(price) && price !== stop);
+  return others.length === 0 ? stop : null;
+}
+
 function detectInstructionEvent(text: string): ParseOutput["instruction"] & { eventType: EventType | null } {
   const t = text.toLowerCase();
   if (/\b(cancel(?:led)?|delete|void|ignore (?:the|this) (?:signal|trade))\b/.test(t)) return { eventType: "CANCEL", cancel: true };
@@ -218,6 +239,8 @@ function detectInstructionEvent(text: string): ParseOutput["instruction"] & { ev
   if (be) return { eventType: "UPDATE", moveStop: f<number | "ENTRY">("ENTRY", 1) };
   const moveTo = text.match(new RegExp(String.raw`\b(?:move|set|trail)\s*(?:sl|stop(?:\s*loss)?)\s*(?:to|at)\s*${NUM}`, "i"));
   if (moveTo) return { eventType: "UPDATE", moveStop: f<number | "ENTRY">(num(moveTo[1]), 1) };
+  const extended = stopExtensionPrice(text);
+  if (extended !== null) return { eventType: "UPDATE", moveStop: f<number | "ENTRY">(extended, 1) };
   if (/\b(close (?:all|now|it|the trade|gold|xau\w*|positions?)|exit (?:now|all)|take (?:it|profits?) now)\b/.test(t))
     return { eventType: "CLOSE", closeAll: true };
   const tpHit = t.match(/\btp\s*(\d)\s*(?:hit|reached|done|smashed)|target\s*(\d)\s*(?:hit|reached)/);
@@ -228,15 +251,22 @@ function detectInstructionEvent(text: string): ParseOutput["instruction"] & { ev
 
 export const textGenericParser: SignalParser = {
   type: "text-generic",
-  version: "text-generic-v5",
+  version: "text-generic-v6",
   parse(input: ParseInput): ParseOutput {
     const text = input.rawText.normalize("NFKC");
     const referencesExternalId =
       typeof input.payload?.reply_to_message_id === "string" ? (input.payload.reply_to_message_id as string) : null;
     const base = { parserType: this.type, parserVersion: this.version, referencesExternalId };
 
-    if (OTHER_INSTRUMENT.test(text) && !GOLD_ALIASES.some(([re]) => re.test(text))) {
-      return { ...base, eventType: "COMMENT", signal: null, instruction: null, issues: ["Non-gold instrument; ignored."], confidence: 1 };
+    if (isNonGoldMarketPost(text)) {
+      return {
+        ...base,
+        eventType: "COMMENT",
+        signal: null,
+        instruction: null,
+        issues: ["News or FX post did not call gold."],
+        confidence: 1,
+      };
     }
 
     const direction = detectDirection(text);
