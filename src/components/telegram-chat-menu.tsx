@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
 
 export interface ChatMenuOption {
   id: string;
@@ -10,7 +9,6 @@ export interface ChatMenuOption {
   title: string;
   kind: "channel" | "group";
   label: string;
-  tracked: boolean;
 }
 
 function payload(chat: ChatMenuOption) {
@@ -23,7 +21,7 @@ function payload(chat: ChatMenuOption) {
   });
 }
 
-/** One filterable list. Each row is a checkbox. Already-tracked chats stay visible and cannot be selected. */
+/** One filterable checkbox list of channels and groups that are not already sources. */
 export function TelegramChatMenu({ chats }: { chats: ChatMenuOption[] }) {
   const [query, setQuery] = useState("");
   const listId = useId();
@@ -47,20 +45,8 @@ export function TelegramChatMenu({ chats }: { chats: ChatMenuOption[] }) {
           <p className="px-3 py-2 text-sm font-medium text-neutral-700">No matching channels or groups.</p>
         ) : (
           shown.map((chat) => (
-            <label
-              key={chat.id}
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-neutral-900",
-                chat.tracked ? "cursor-default text-neutral-500" : "cursor-pointer hover:bg-blue-700 hover:text-white",
-              )}
-            >
-              <input
-                type="checkbox"
-                name="chat"
-                value={payload(chat)}
-                disabled={chat.tracked}
-                className="size-4 accent-blue-700"
-              />
+            <label key={chat.id} className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm font-medium text-neutral-900 hover:bg-blue-700 hover:text-white">
+              <input type="checkbox" name="chat" value={payload(chat)} className="size-4 accent-blue-700" />
               <span>{chat.label}</span>
             </label>
           ))
