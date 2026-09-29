@@ -27,7 +27,7 @@ export type SourcePatternsOutput = z.infer<typeof sourcePatternsOutputSchema>;
 export type AnalysisType = "signal_setup" | "source_patterns";
 
 export interface AiRequest {
-  analysisType: AnalysisType | "parse_review";
+  analysisType: AnalysisType | "parse_review" | "queue_review";
   promptVersion: string;
   system: string;
   facts: Record<string, unknown>;

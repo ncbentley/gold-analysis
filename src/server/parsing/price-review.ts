@@ -1,5 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { resolveChatBackend } from "@/server/ai/backend";
 import { getAiProvider } from "@/server/ai/service";
 import { getDb } from "@/server/db";
 import { auditLogs, rawEvents, signals } from "@/server/db/schema";
@@ -90,7 +91,7 @@ async function recentCorrections(limit = 8) {
  * Human corrections are included so the next call can follow decisions already made.
  */
 export async function reviewFarQuote(rawText: string, draft: QuoteDraft, marketPrice: number): Promise<QuoteDraft | null> {
-  if (process.env.AI_PROVIDER !== "openai" || !process.env.OPENAI_API_KEY) return null;
+  if (!resolveChatBackend()) return null;
   try {
     const lessons = await recentCorrections();
     const provider = getAiProvider();

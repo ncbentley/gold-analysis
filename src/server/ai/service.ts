@@ -5,14 +5,13 @@ import { aiAnalyses } from "@/server/db/schema";
 import { sha256, stableStringify } from "@/server/lib/hash";
 import { buildSignalFacts, buildSourcePatternFacts } from "./facts";
 import { DEFAULT_PROMPT, PROMPTS } from "./prompts";
+import { chatProvider, resolveChatBackend } from "./backend";
 import { mockAiProvider } from "./providers/mock";
-import { createOpenAiProvider } from "./providers/openai";
 import type { AiProvider, AnalysisType } from "./types";
 
 export function getAiProvider(): AiProvider {
-  if (process.env.AI_PROVIDER === "openai" && process.env.OPENAI_API_KEY) {
-    return createOpenAiProvider(process.env.OPENAI_API_KEY, process.env.AI_MODEL ?? "gpt-4o-mini", process.env.OPENAI_BASE_URL);
-  }
+  const backend = resolveChatBackend();
+  if (backend) return chatProvider(backend);
   return mockAiProvider;
 }
 
