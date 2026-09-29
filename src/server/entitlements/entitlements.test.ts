@@ -141,6 +141,9 @@ describe("access", () => {
     expect(lowestTierWith("signals.core", config)).toBe("silver");
     expect(lowestTierWith("similar.summary", config)).toBe("gold");
     expect(lowestTierWith("ai.patterns", config)).toBe("platinum");
+    expect(lowestTierWith("consensus.grade", config)).toBe("gold");
+    expect(lowestTierWith("consensus.timing", config)).toBe("gold");
+    expect(lowestTierWith("consensus.mapping", config)).toBe("platinum");
     expect(lowestTierWith("export.csv", config)).toBeNull();
   });
 
@@ -174,7 +177,11 @@ describe("signal detail projection", () => {
       expect(json).not.toContain(secret);
     }
     expect(d.sourceStats?.summary.locked).toBe(true);
+    expect(d.consensus.grade.locked).toBe(true);
+    expect(d.consensus.timing.locked).toBe(true);
+    expect(d.consensus.mapping.locked).toBe(true);
     expect(json).not.toContain('"winRate"');
+    expect(json).not.toContain("Consensus Score");
   });
 
   it("gold gets statistics and summaries but not AI or detailed excursions", () => {
@@ -185,6 +192,9 @@ describe("signal detail projection", () => {
     expect(d.outcome.excursionDetail.locked).toBe(true);
     expect(d.sourceStats?.summary.locked).toBe(false);
     expect(d.sourceStats?.extended.locked).toBe(true);
+    expect(d.consensus.grade.locked).toBe(false);
+    expect(d.consensus.timing.locked).toBe(false);
+    expect(d.consensus.mapping.locked).toBe(true);
     const json = JSON.stringify(d);
     expect(json).not.toContain("SECRET_SUMMARY");
     expect(json).not.toContain('"bestPrice"');

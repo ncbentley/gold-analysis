@@ -18,8 +18,8 @@ export const metadata: Metadata = { title: "Pricing" };
 
 const TAGLINE: Record<Tier, string> = {
   silver: "Live signals with final results",
-  gold: "Source performance and trade quality",
-  platinum: "Full history, AI analysis and research tools",
+  gold: "Source performance and how a zone lines up in time",
+  platinum: "Anonymized consensus, full history and AI analysis",
 };
 
 const PERIOD_TITLE: Record<BillingPeriod, string> = { weekly: "Weekly", monthly: "Monthly", annual: "Annual" };

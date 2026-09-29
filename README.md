@@ -93,6 +93,7 @@ market_bars (1m) ─▶ outcome engine (outcome-v3) ─▶ signal_outcomes (vers
   
   Results are stored with the rules version and signal version. Admin overrides are separate rows with a reason, and the computed history is kept.
 - **Statistics** (`src/server/statistics`) cover win rate, average R, expectancy, recent form, excursion, time-to-target, and breakdowns by hour, weekday, session, direction, signal type and entry type. Every figure carries its sample size.
+- **Consensus** (`src/server/consensus`) scores sources that publish the same XAU/USD entry zone inside 30 minutes. Historically accurate sources are the ones `stats-v1` already measures (sample size, win rate, expectancy). Silver sees the trade only. Gold sees the score and how the timing lines up. Platinum also sees how many of the top historical performers are on that zone. Channel names stay on the admin signal page.
 - **Similar trades** always match on source and direction, then on session, entry type, signal type, weekday and AI pattern tags. The least important criteria are dropped until at least five matches exist. Only trades that closed before the signal count.
 - **AI** only explains computed facts. Prompts are versioned, outputs are schema-validated, and analyses are stored separately from outcomes (`ai_analyses`). The AI never changes a result. The default provider is a deterministic mock; set `AI_PROVIDER=openai` to use a real model.
 - **Entitlements** (`src/server/entitlements`) are configurable per tier in `/admin/entitlements`: a feature list plus a history window. They are enforced on the server in `src/server/presenters.ts`, so locked fields are never serialized to the browser or the API.
@@ -112,7 +113,7 @@ All `/api/v1` read endpoints use the session cookie and return the same entitlem
 | Method | Path | Notes |
 | --- | --- | --- |
 | GET | `/api/v1/signals` | Filters: `source`, `status` (`OPEN`, `CLOSED` or a status), `direction`, `from`, `to`; Platinum adds `entryType`, `signalType` and `q`. Paging: `limit`, `offset` |
-| GET | `/api/v1/signals/:id` | Signal, targets, updates and outcome |
+| GET | `/api/v1/signals/:id` | Signal, targets, updates, outcome, and consensus gated by tier |
 | GET | `/api/v1/signals/:id/similar` | Similar-trade summary and details |
 | GET | `/api/v1/signals/:id/analysis` | AI classification, summary and patterns |
 | GET | `/api/v1/sources`, `/api/v1/sources/:id`, `/api/v1/sources/:id/stats` | `:id` accepts a slug |

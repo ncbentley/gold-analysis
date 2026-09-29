@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AffiliateStrip } from "@/components/affiliate-strip";
+import { ConsensusPanel } from "@/components/consensus-panel";
 import { BucketRows } from "@/components/bucket-chart";
 import { GatedView, LockedPanel } from "@/components/locked";
 import { PageHeader } from "@/components/page-header";
@@ -156,6 +157,14 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             )}
           </Section>
 
+          <Section
+            n={2}
+            title="Cross-trader consensus"
+            description="Sources on this same entry zone inside 30 minutes. Channel names are not shown."
+          >
+            <ConsensusPanel grade={d.consensus.grade} timing={d.consensus.timing} mapping={d.consensus.mapping} userId={uid} />
+          </Section>
+
           <Section n={3} title="Outcome" description={`Deterministic replay against 1-minute XAU/USD bars · ${d.outcome.calcVersion ?? "not yet calculated"}${d.outcome.kind === "override" ? " · manual override" : ""}`}>
             {d.outcome.ambiguous && (
               <div className="mb-3 flex gap-2 rounded-md border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200">
@@ -233,7 +242,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             </div>
           </Section>
 
-          <Section n={5} title="Similar trades" description="Earlier closed trades from this source matched on deterministic dimensions. Only trades that closed before this signal are used.">
+          <Section n={4} title="Similar trades" description="Earlier closed trades from this source matched on deterministic dimensions. Only trades that closed before this signal are used.">
             <GatedView gated={d.similar.summary} title="Similar historical trade summary" userId={uid}>
               {(s) =>
                 s && s.matched > 0 ? (
@@ -287,7 +296,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             </div>
           </Section>
 
-          <Section n={6} title="AI analysis" description="Generated from the stored facts above. AI output never changes raw signals or deterministic results.">
+          <Section n={5} title="AI analysis" description="Generated from the stored facts above. AI output never changes raw signals or deterministic results.">
             {d.ai.meta && (
               <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                 <Bot className="size-3.5" /> {d.ai.meta.model} · prompt {d.ai.meta.promptVersion} · {fmtDateTime(d.ai.meta.createdAt)}
@@ -346,7 +355,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
         </div>
 
         <div className="space-y-4">
-          <Section n={2} title="How this source performed">
+          <Section n={6} title="How this source performed">
             <div className="flex items-center justify-between">
               <div className="font-medium">{d.source.name}</div>
               <Link href={`/sources/${d.source.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>Details</Link>
@@ -370,7 +379,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             )}
           </Section>
 
-          <Section n={4} title="Historical context" description="How this source has performed in comparable conditions.">
+          <Section n={7} title="Historical context" description="How this source has performed in comparable conditions.">
             {d.sourceStats ? (
               <div className="space-y-4">
                 <GatedView gated={d.sourceStats.direction} title="Performance by direction" userId={uid} compact>

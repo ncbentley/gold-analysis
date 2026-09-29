@@ -21,6 +21,9 @@ export const FEATURE_CATALOG = {
   "similar.details": "Similar-trade details",
   "outcome.excursion_detail": "Detailed MFE / MAE data and trade timeline",
   "outcome.time_to_target": "Time-to-target statistics",
+  "consensus.grade": "Consensus score and grade when sources cluster on the same entry zone",
+  "consensus.timing": "How that cluster lines up in time, without source names",
+  "consensus.mapping": "How many top historical performers are aligned on the zone, without source names",
   "export.csv": "CSV export (disabled by default)",
 } as const;
 
@@ -37,9 +40,12 @@ const GOLD: Feature[] = [
   "sources.stats.signal_type",
   "similar.summary",
   "outcome.excursion_summary",
+  "consensus.grade",
+  "consensus.timing",
 ];
 const PLATINUM: Feature[] = [
   ...GOLD,
+  "consensus.mapping",
   "sources.history.full",
   "sources.stats.extended",
   "filters.advanced",

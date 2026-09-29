@@ -17,15 +17,21 @@ describe("admin view-as", () => {
     expect(silver.isAdmin).toBe(false);
     expect(can(silver, "signals.core")).toBe(true);
     expect(can(silver, "sources.stats.summary")).toBe(false);
+    expect(can(silver, "consensus.grade")).toBe(false);
+    expect(can(silver, "consensus.mapping")).toBe(false);
     expect(silver.historyDays).toBe(30);
 
     const gold = accessForPreview(DEFAULT_TIER_CONFIG, "gold");
     expect(can(gold, "sources.stats.summary")).toBe(true);
+    expect(can(gold, "consensus.grade")).toBe(true);
+    expect(can(gold, "consensus.timing")).toBe(true);
+    expect(can(gold, "consensus.mapping")).toBe(false);
     expect(can(gold, "ai.summary")).toBe(false);
     expect(gold.historyDays).toBe(180);
 
     const platinum = accessForPreview(DEFAULT_TIER_CONFIG, "platinum");
     expect(can(platinum, "ai.patterns")).toBe(true);
+    expect(can(platinum, "consensus.mapping")).toBe(true);
     expect(platinum.historyDays).toBeNull();
   });
 

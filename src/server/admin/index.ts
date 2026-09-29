@@ -16,6 +16,7 @@ import {
 } from "@/server/db/schema";
 import { getMarketDataSummary, getSyncState } from "@/server/market-data";
 import { listOutcomeHistory } from "@/server/outcomes/service";
+import { loadAdminConsensus } from "@/server/consensus/service";
 import { getSignalBundle } from "@/server/signals/queries";
 
 export async function getAdminOverview() {
@@ -119,15 +120,16 @@ export async function getAdminSignalDetail(signalId: string) {
   const bundle = await getSignalBundle(signalId);
   if (!bundle) return null;
   const [origin] = await db.select().from(rawEvents).where(eq(rawEvents.id, bundle.signal.originEventId));
-  const [adjustments, outcomes, analyses, audit, outcomeAudit] = await Promise.all([
+  const [adjustments, outcomes, analyses, audit, outcomeAudit, consensus] = await Promise.all([
     db.select().from(signalAdjustments).where(eq(signalAdjustments.signalId, signalId)).orderBy(asc(signalAdjustments.effectiveAt)),
     listOutcomeHistory(signalId),
     listAnalysisHistory(signalId),
     listAudit({ entityType: "signal", entityId: signalId, limit: 50 }),
     listAudit({ entityType: "signal_outcome", entityId: signalId, limit: 50 }),
+    loadAdminConsensus(signalId),
   ]);
   const combinedAudit = [...audit, ...outcomeAudit].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  return { ...bundle, origin, adjustments, outcomes, analyses, audit: combinedAudit };
+  return { ...bundle, origin, adjustments, outcomes, analyses, audit: combinedAudit, consensus };
 }
 
 export async function listJobs(f: { status?: string; type?: string }, limit = 100) {
