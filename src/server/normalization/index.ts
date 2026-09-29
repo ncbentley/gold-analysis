@@ -14,6 +14,8 @@ import {
 import { enqueueJob } from "@/server/jobs/queue";
 import { getPriceNear } from "@/server/market-data";
 import { parseEvent, REVIEW_THRESHOLD, type ParseOutput } from "@/server/parsing";
+import { isNonGoldMarketPost } from "@/server/parsing/gold-text";
+import { levelsToAttach } from "@/server/normalization/collate";
 import { INFERRED_DIRECTION_ISSUE, textHasDirectionWord } from "@/server/parsing/direction";
 import { loadParseLessons, recordParseLesson } from "@/server/parsing/learn";
 import { applyLessonsToParse, lessonFromPrices, pricesFromParsedSignal } from "@/server/parsing/lessons";
@@ -234,6 +236,13 @@ async function holdForReview(
   actor: Actor,
   learnPattern: boolean,
 ) {
+  if (isNonGoldMarketPost(event.rawText)) {
+    return storeParse(event, { ...out, eventType: "COMMENT", signal: null, confidence: 1 }, "ignored", signalId, [
+      ...extraIssues,
+      "News or FX post did not call gold.",
+    ]);
+  }
+
   if (learnPattern) {
     const matched = matchLearnedLesson(event.rawText, await loadParseLessons());
     const replay = matched ? replayLearnedLesson(event.rawText, matched) : null;
@@ -403,6 +412,50 @@ async function attachLevels(event: RawEvent, out: ParseOutput, signal: Signal, i
   return storeParse(event, out, "applied", signal.id, [...notes, ...(inferred ? ["Linked to latest open signal."] : [])]);
 }
 
+/**
+ * A later, fuller message on the same entry updates the source's open signal
+ * instead of publishing a second trade.
+ */
+async function collateSameSourceFollowUp(event: RawEvent, out: ParseOutput, input: SignalInput, actor: Actor) {
+  const db = await getDb();
+  const [latest] = await db
+    .select()
+    .from(signals)
+    .where(
+      and(
+        eq(signals.sourceId, event.sourceId),
+        inArray(signals.status, [...OPEN_STATUSES]),
+        lte(signals.signalTime, event.publishedAt),
+      ),
+    )
+    .orderBy(desc(signals.signalTime))
+    .limit(1);
+  if (!latest) return null;
+  const existingTargets = await db
+    .select({ id: signalTargets.id })
+    .from(signalTargets)
+    .where(eq(signalTargets.signalId, latest.id));
+  const attach = levelsToAttach(
+    {
+      instrument: latest.instrument,
+      direction: latest.direction,
+      entryMin: latest.entryMin,
+      entryMax: latest.entryMax,
+      stopLoss: latest.stopLoss,
+      targetCount: existingTargets.length,
+    },
+    input,
+  );
+  if (!attach) return null;
+  return attachLevels(
+    event,
+    { ...out, instruction: { fillLevels: { stopLoss: attach.stopLoss, targets: attach.targets } } },
+    latest,
+    true,
+    actor,
+  );
+}
+
 /** Parses a stored raw event and applies the result. Safe to call repeatedly. */
 export async function processRawEvent(rawEventId: string, actor: Actor = PIPELINE) {
   const db = await getDb();
@@ -459,6 +512,8 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
     if (!input || out.confidence < REVIEW_THRESHOLD) {
       return holdForReview(event, out, null, [], actor, true);
     }
+    const collated = await collateSameSourceFollowUp(event, out, input, actor);
+    if (collated) return collated;
     const market = await getPriceNear(event.publishedAt, input.instrument);
     const extra: string[] = [];
     if (market !== null && !quoteIsPlausible(market, input.entryMin, input.entryMax)) {
@@ -516,6 +571,12 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
       effectiveAt: event.publishedAt,
       payloadJson: { stop: out.instruction.moveStop.value },
     };
+    if (typeof out.instruction.moveStop.value === "number") {
+      await db
+        .update(signals)
+        .set({ stopLoss: out.instruction.moveStop.value, version: signal.version + 1 })
+        .where(eq(signals.id, signal.id));
+    }
   }
   if (!adjustment) return holdForReview(event, out, signal.id, ["Update could not be mapped to an instruction."], actor, false);
 

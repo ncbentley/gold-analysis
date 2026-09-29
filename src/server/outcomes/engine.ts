@@ -45,9 +45,9 @@ export interface OutcomeRules {
 }
 
 export const OUTCOME_RULES: OutcomeRules = {
-  version: "outcome-v4",
+  version: "outcome-v5",
   barMs: 60_000,
-  defaultExpiryMinutes: 24 * 60,
+  defaultExpiryMinutes: 6 * 60,
   /** A filled trade stays open until a stop, a target, or a source close. No clock exit. */
   maxHoldMinutes: Number.POSITIVE_INFINITY,
   breakevenBandR: 0.05,

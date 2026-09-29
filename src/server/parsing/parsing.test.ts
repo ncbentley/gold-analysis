@@ -110,6 +110,20 @@ describe("text-generic parser", () => {
     expect(out.instruction?.fillLevels).toEqual({ stopLoss: 4360, targets: [4380, 4390] });
   });
 
+  it("attaches an extended stop to the previous signal instead of starting a new one", () => {
+    const out = text("extend SL a little bit to @4130 last structure and trendline gold.");
+    expect(out.eventType).toBe("UPDATE");
+    expect(out.signal).toBeNull();
+    expect(out.instruction?.moveStop?.value).toBe(4130);
+  });
+
+  it("reads other short stop moves and does not invent a price", () => {
+    expect(text("move stop to 4100").instruction?.moveStop?.value).toBe(4100);
+    expect(text("SL to 4125").instruction?.moveStop?.value).toBe(4125);
+    expect(text("extend SL a little bit").instruction?.moveStop).toBeUndefined();
+    expect(text("GOLD BUY 4370").eventType).toBe("NEW_SIGNAL");
+  });
+
   it("recognises move-stop, close, cancel and target-hit instructions", () => {
     expect(text("Move SL to entry", { reply_to_message_id: "m1" }).instruction?.moveStop?.value).toBe("ENTRY");
     expect(text("Move stop to 3355", { reply_to_message_id: "m1" }).instruction?.moveStop?.value).toBe(3355);
@@ -214,6 +228,21 @@ describe("text-generic parser", () => {
 
   it("ignores non-gold instruments", () => {
     const out = text("EURUSD BUY 1.0850 SL 1.0800");
+    expect(out.eventType).toBe("COMMENT");
+    expect(out.signal).toBeNull();
+  });
+
+  it("does not turn a Canadian-dollar news price into a gold entry", () => {
+    const out = text(
+      "The Canadian Dollar round-trips as Fed officials differ on hike timing\n\nTuesday's two Canadian catalysts, a flat July for the economy and a later start to Bank of Canada (BoC) bond buying, didn't move USD/CAD. The pair went above 1.4200 for the first time since early July and fell back.",
+    );
+    expect(out.eventType).toBe("COMMENT");
+    expect(out.signal).toBeNull();
+    expect(out.issues.join(" ")).toMatch(/did not call gold/i);
+  });
+
+  it("does not scale an FX quote into a gold price", () => {
+    const out = text("The pair went above 1.4200");
     expect(out.eventType).toBe("COMMENT");
     expect(out.signal).toBeNull();
   });

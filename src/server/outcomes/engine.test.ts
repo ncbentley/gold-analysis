@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateSignal, type EngineBar, type EngineSignal } from "./engine";
+import { evaluateSignal, OUTCOME_RULES, type EngineBar, type EngineSignal } from "./engine";
 
 const T0 = Date.UTC(2026, 0, 5, 10, 0); // Monday 10:00 UTC
 const min = (n: number) => T0 + n * 60_000;
@@ -85,6 +85,21 @@ describe("entry", () => {
     );
     expect(out.entryTime).toBe(min(1));
     expect(out.entryPrice).toBe(101);
+  });
+
+  it("closes an unfilled order after 6 hours and leaves a filled trade open", () => {
+    expect(OUTCOME_RULES.defaultExpiryMinutes).toBe(6 * 60);
+    const unfilled = evaluateSignal(longZone, bars([103, 104, 101, 102]), [], T0 + 6 * 60 * 60_000);
+    expect(unfilled.entered).toBe(false);
+    expect(unfilled.status).toBe("EXPIRED");
+    const filled = evaluateSignal(
+      { ...longZone, stopLoss: null, targets: [] },
+      bars([100, 100, 99, 100], [100, 101, 99, 100]),
+      [],
+      T0 + 7 * 60 * 60_000,
+    );
+    expect(filled.entered).toBe(true);
+    expect(filled.status).toBe("ACTIVE");
   });
 
   it("expires when the signal is not filled before the expiry time", () => {

@@ -3,6 +3,7 @@ import { DEEPINFRA_DEFAULT_MODEL, DEEPINFRA_LARGE_REVIEW_MODEL, chatProvider, re
 import type { ParseOutput } from "./types";
 import { lessonFromModel, pricesAreGrounded, type PatternSignal } from "./pattern";
 import { inferDirectionFromPrices } from "./direction";
+import { isNonGoldMarketPost } from "./gold-text";
 import { geometryIsValid } from "./repair";
 import type { ParsedSignalFields } from "./types";
 import { pricesFromParsedSignal, type ParseLesson } from "./lessons";
@@ -70,6 +71,8 @@ Rules:
 - A two-price entry is entryType ZONE. A single entry price is LIMIT.
 - Do not invent a price that is not in the message. A one-digit typo may be repaired. Do not invent a missing stop.
 - A quoted entry more than $80 from the market price is not a live order. If marketPrice is null, judge the message on its own.
+- A news item or an FX pair (USD/CAD, EURUSD, GBPAUD, and the rest) that never calls gold or XAU is dismiss. Do not turn it into XAUUSD. A footer that only links to a gold channel does not make the post a gold trade.
+- A price written like 1.4200 is an FX quote. Do not drop the leading digits or the decimal point, and do not use 4200 as a gold entry.
 - Never tell anyone to take the trade.
 - Do not copy the example prices unless those exact numbers are in the message.
 
@@ -224,6 +227,7 @@ function asFields(signal: PatternSignal): ParsedSignalFields {
  */
 export function signalFromQueueReview(out: ParseOutput, review: QueueReview, rawText: string): PatternSignal | null {
   if (!queueDecisionIsActionable(review) || review.decision === "dismiss") return null;
+  if (isNonGoldMarketPost(rawText)) return null;
   const draft = out.signal;
   const entryType = review.entryType ?? draft?.entryType.value ?? null;
   let entryMin = review.entryMin ?? draft?.entryMin.value ?? null;
