@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { sources } from "@/server/db/schema";
-import { addJoinedTelegramChat, listJoinedTelegramChats } from "@/server/telegram";
+import { removeSourceFromList } from "@/server/admin";
+import { listSources } from "@/server/signals/queries";
+import { addJoinedTelegramChat, listJoinedTelegramChats, telegramStatus } from "@/server/telegram";
 import { joinedChatsFromDialogs, listJoinedChats, selectJoinedChat, chatWithLoadedAccessHash, type DialogEntityLike, type DialogLike } from "./dialogs";
 
 function dialog(entity: DialogEntityLike, extra: Partial<DialogLike> = {}): DialogLike {
@@ -151,5 +153,50 @@ describe("addJoinedTelegramChat", () => {
     expect(again).toMatchObject({ created: false, sourceId: created.sourceId, title: "Desk Alpha" });
     const rows = await db.select().from(sources).where(eq(sources.telegramChannelId, "100"));
     expect(rows).toHaveLength(1);
+  });
+
+  it("takes a channel off the list without dropping the row, and adding it again tracks the same source", async () => {
+    const db = await getDb();
+    const [row] = await db.select().from(sources).where(eq(sources.telegramChannelId, "100"));
+    expect(await removeSourceFromList(row.id, { userId: null, label: "test" })).toBe("Desk Alpha");
+    const listed = await listSources({ includeInactive: true, includeQa: true });
+    expect(listed.some((source) => source.id === row.id)).toBe(false);
+
+    const channel = selectJoinedChat(joinedChatsFromDialogs([desk]), "100");
+    const again = await addJoinedTelegramChat({ chat: channel, isQa: true, parserType: "text-generic", backfill: 0 }, { userId: null, label: "test" });
+    expect(again).toMatchObject({ created: false, sourceId: row.id });
+    const [back] = await db.select().from(sources).where(eq(sources.id, row.id));
+    expect(back.removedAt).toBeNull();
+    expect(back.active).toBe(true);
+    expect(await listSources({ includeInactive: true, includeQa: true })).toEqual(expect.arrayContaining([expect.objectContaining({ id: row.id })]));
+  });
+
+  it("treats the account as connected when the queue process holds the live session", async () => {
+    const previous = {
+      jobs: process.env.JOBS_WORKER,
+      url: process.env.QUEUE_URL,
+      secret: process.env.APP_SECRET,
+    };
+    process.env.JOBS_WORKER = "off";
+    process.env.QUEUE_URL = "http://queue.test";
+    process.env.APP_SECRET = "test-secret";
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe("http://queue.test/telegram/status");
+      return new Response(JSON.stringify({ connected: true, lastError: "ignored while connected" }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const status = await telegramStatus();
+      expect(status.connected).toBe(true);
+      expect(status.lastError).toBeNull();
+    } finally {
+      globalThis.fetch = original;
+      if (previous.jobs === undefined) delete process.env.JOBS_WORKER;
+      else process.env.JOBS_WORKER = previous.jobs;
+      if (previous.url === undefined) delete process.env.QUEUE_URL;
+      else process.env.QUEUE_URL = previous.url;
+      if (previous.secret === undefined) delete process.env.APP_SECRET;
+      else process.env.APP_SECRET = previous.secret;
+    }
   });
 });
