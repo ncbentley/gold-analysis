@@ -157,6 +157,16 @@ export async function retryJob(id: string, actor: Actor) {
 
 export type SourceInput = Pick<Source, "name" | "slug" | "sourceType" | "sourceUrl" | "description" | "active" | "timezone" | "parserType" | "showRawText" | "isQa">;
 
+/** Takes a source off the admin list and stops new capture. Past events and signals stay on the row. */
+export async function removeSourceFromList(id: string, actor: Actor) {
+  const db = await getDb();
+  const [before] = await db.select().from(sources).where(and(eq(sources.id, id), isNull(sources.removedAt)));
+  if (!before) throw new Error("Source not found");
+  await db.update(sources).set({ active: false, removedAt: new Date(), importStatus: null }).where(eq(sources.id, id));
+  await recordAudit({ actor, entityType: "source", entityId: id, action: "source.removed", before: { name: before.name, active: before.active } });
+  return before.name;
+}
+
 export async function upsertSource(id: string | null, input: SourceInput, actor: Actor) {
   const db = await getDb();
   if (id) {

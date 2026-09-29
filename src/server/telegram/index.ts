@@ -127,20 +127,60 @@ export function telegramErrorMessage(err: unknown) {
 /* Status and login                                                    */
 /* ------------------------------------------------------------------ */
 
+function queueOwnsTelegram() {
+  return process.env.JOBS_WORKER === "off" && Boolean(process.env.QUEUE_URL);
+}
+
+async function queueFetch(path: string, method = "GET") {
+  const secret = process.env.APP_SECRET;
+  if (!secret) throw new Error("APP_SECRET is not set, so this app cannot ask the queue service.");
+  const res = await fetch(new URL(path, process.env.QUEUE_URL), {
+    method,
+    headers: { "x-app-secret": secret },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("The queue service did not answer.");
+  return res.json() as Promise<{ connected?: boolean; lastError?: string | null }>;
+}
+
+/**
+ * The live Telegram client sits in the queue process. This process has no socket,
+ * so its own client is not a signal that the account is disconnected.
+ */
+async function queueConnection(): Promise<{ connected: boolean; lastError: string | null } | null> {
+  if (!queueOwnsTelegram()) return null;
+  try {
+    const body = await queueFetch("/telegram/status");
+    return { connected: Boolean(body.connected), lastError: body.lastError ?? null };
+  } catch (err) {
+    return { connected: false, lastError: err instanceof Error ? err.message : "The queue service did not answer." };
+  }
+}
+
 export async function telegramStatus() {
   const [api, session] = await Promise.all([getSetting<ApiCredentials>(SETTING_KEYS.telegramApi), getSetting<StoredSession>(SETTING_KEYS.telegramSession)]);
   const st = state();
+  const remote = await queueConnection();
   return {
     apiId: api?.apiId ?? null,
     hasApiCredentials: Boolean(api),
     signedIn: Boolean(session),
-    connected: Boolean(st.client?.connected),
+    connected: remote ? remote.connected : Boolean(st.client?.connected),
     me: st.me ?? session?.me ?? null,
-    lastError: st.lastError,
+    lastError: remote ? (remote.connected ? null : remote.lastError) : st.lastError,
     pending: st.pending
       ? { phone: st.pending.phone, viaApp: st.pending.viaApp, needsPassword: st.pending.needsPassword, passwordHint: st.pending.passwordHint }
       : null,
   };
+}
+
+/** Connects in whichever process owns the socket. The web process must not open a second session. */
+export async function reconnectTelegram() {
+  if (queueOwnsTelegram()) {
+    const body = await queueFetch("/telegram/connect", "POST");
+    return Boolean(body.connected);
+  }
+  return Boolean(await connectTelegram());
 }
 
 export async function startTelegramLogin(input: { apiId: number; apiHash: string; phone: string }, actor: Actor) {
@@ -401,7 +441,7 @@ async function saveLinkedTelegramSource(ch: ResolvedChannel, input: { name?: str
   if (existing) {
     await db
       .update(sources)
-      .set({ ...linked, active: true, isQa: input.isQa, name: input.name || existing.name, parserType: input.parserType, importStatus: "queued" })
+      .set({ ...linked, active: true, removedAt: null, isQa: input.isQa, name: input.name || existing.name, parserType: input.parserType, importStatus: "queued" })
       .where(eq(sources.id, existing.id));
     await recordAudit({ actor, entityType: "source", entityId: existing.id, action: "telegram.channel_relinked", after: { channel: ch.username ?? ch.channelId } });
     return { sourceId: existing.id, created: false, title: ch.title, importStatus: "queued" as const };

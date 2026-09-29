@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { rerunAiAction, saveSourceAction, telegramAddJoinedChatAction } from "@/app/actions/admin";
+import { removeSourceAction, rerunAiAction, saveSourceAction, telegramAddJoinedChatAction } from "@/app/actions/admin";
 import { Field, NativeSelect, Notice, StateBadge } from "@/components/admin-bits";
 import { AddSourceButton, ImportProgressRefresh } from "@/components/import-progress";
 import { TelegramChatMenu } from "@/components/telegram-chat-menu";
@@ -264,6 +264,12 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
                     <Link href={`/admin/sources?edit=${s.id}`} className="mr-3 text-xs text-primary hover:underline">
                       Edit
                     </Link>
+                    <form action={removeSourceAction} className="inline">
+                      <input type="hidden" name="id" value={s.id} />
+                      <button type="submit" className="mr-3 text-xs text-loss hover:underline">
+                        Remove
+                      </button>
+                    </form>
                     <form action={rerunAiAction} className="inline">
                       <input type="hidden" name="sourceId" value={s.id} />
                       <button type="submit" className="text-xs text-primary hover:underline">

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { retryJob, upsertSource } from "@/server/admin";
+import { removeSourceFromList, retryJob, upsertSource } from "@/server/admin";
 import { upsertAffiliateLink, PLACEMENTS, type Placement } from "@/server/affiliates";
 import { analyzeSignal, analyzeSourcePatterns } from "@/server/ai/service";
 import { PROMPTS } from "@/server/ai/prompts";
@@ -26,8 +26,8 @@ import {
   addJoinedTelegramChat,
   cancelTelegramLogin,
   completeTelegramLogin,
-  connectTelegram,
   listJoinedTelegramChats,
+  reconnectTelegram,
   selectJoinedChat,
   signOutTelegram,
   startTelegramLogin,
@@ -404,9 +404,17 @@ export async function telegramSignOutAction() {
 export async function telegramReconnectAction() {
   await requireAdmin();
   await attempt("/admin/telegram", async () => {
-    const client = await connectTelegram();
-    if (!client) throw new Error((await telegramStatus()).lastError ?? "Could not connect. Sign in again.");
+    const connected = await reconnectTelegram();
+    if (!connected) throw new Error((await telegramStatus()).lastError ?? "Could not connect. Sign in again.");
     return "Connected to Telegram.";
+  });
+}
+
+export async function removeSourceAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/sources", async () => {
+    const name = await removeSourceFromList(str(form, "id"), actor);
+    return `${name} was removed from the list. Past signals stay. Add the channel again to capture new posts.`;
   });
 }
 

@@ -155,6 +155,8 @@ export const sources = pgTable("sources", {
   syncError: text("sync_error"),
   /** queued, then importing, then caught_up or failed. Null on sources added before this column. */
   importStatus: text("import_status", { enum: ["queued", "importing", "caught_up", "failed"] }),
+  /** Set when an admin takes the source off the list. The row stays so past signals remain. */
+  removedAt: ts("removed_at"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

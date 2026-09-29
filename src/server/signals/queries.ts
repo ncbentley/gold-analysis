@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, ilike, inArray, lte, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, sql, type SQL } from "drizzle-orm";
 import { getCurrentAnalysis } from "@/server/ai/service";
 import { getDb } from "@/server/db";
 import {
@@ -224,7 +224,7 @@ export async function listSources(opts: { includeInactive?: boolean; includeQa?:
   return db
     .select()
     .from(sources)
-    .where(and(opts.includeInactive ? undefined : eq(sources.active, true), opts.includeQa ? undefined : eq(sources.isQa, false)))
+    .where(and(isNull(sources.removedAt), opts.includeInactive ? undefined : eq(sources.active, true), opts.includeQa ? undefined : eq(sources.isQa, false)))
     .orderBy(asc(sources.name));
 }
 

@@ -32,6 +32,32 @@ async function main() {
       res.end("unauthorized");
       return;
     }
+    if (req.method === "GET" && req.url === "/telegram/status") {
+      try {
+        const { connectTelegram, telegramStatus } = await import("@/server/telegram");
+        await connectTelegram();
+        const status = await telegramStatus();
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ connected: status.connected, lastError: status.lastError }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "text/plain" });
+        res.end(err instanceof Error ? err.message : "telegram status failed");
+      }
+      return;
+    }
+    if (req.method === "POST" && req.url === "/telegram/connect") {
+      try {
+        const { connectTelegram, telegramStatus } = await import("@/server/telegram");
+        await connectTelegram();
+        const status = await telegramStatus();
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ connected: status.connected, lastError: status.lastError }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "text/plain" });
+        res.end(err instanceof Error ? err.message : "telegram connect failed");
+      }
+      return;
+    }
     if (req.method === "GET" && req.url === "/telegram/dialogs") {
       try {
         const { listJoinedTelegramChats } = await import("@/server/telegram");
