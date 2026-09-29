@@ -3,10 +3,25 @@ import { digitEditsBetween, type DigitEdit } from "./repair";
 import type { ParseOutput, ParsedSignalFields } from "./types";
 import { finalizeSignal } from "./validate";
 
+export const LEARNED_ROLES = ["entry", "entryMin", "entryMax", "stop", "target"] as const;
+export type LearnedRole = (typeof LEARNED_ROLES)[number];
+
+/** Structural rule stored on a parse.learned row so a later post with the same shape skips the model. */
+export interface LearnedPattern {
+  /** Lowercased message with each gold price replaced by `{p}`. */
+  pattern: string;
+  /** What each `{p}`, in order, meant in the decision. Empty when the post was dismissed. */
+  roles: LearnedRole[];
+  direction: "LONG" | "SHORT" | null;
+  entryType: "MARKET" | "LIMIT" | "ZONE" | null;
+}
+
 export interface ParseLesson {
   edits: DigitEdit[];
   decision: "accept" | "dismiss" | "correct";
   noDirectionWord: boolean;
+  /** Set when a model decision taught a reusable text shape. Older manual lessons omit it. */
+  learned?: LearnedPattern | null;
 }
 
 export const HELD_DIRECTION_ISSUE =
@@ -26,7 +41,22 @@ export function parseLesson(value: unknown): ParseLesson | null {
       if (typeof from === "number" && typeof to === "number") edits.push({ from, to });
     }
   }
-  return { edits, decision, noDirectionWord: record.noDirectionWord === true };
+  return { edits, decision, noDirectionWord: record.noDirectionWord === true, learned: parseLearnedPattern(record.learned) };
+}
+
+function parseLearnedPattern(value: unknown): LearnedPattern | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.pattern !== "string" || record.pattern.length === 0) return null;
+  if (!Array.isArray(record.roles)) return null;
+  const roles: LearnedRole[] = [];
+  for (const role of record.roles) {
+    if (role === "entry" || role === "entryMin" || role === "entryMax" || role === "stop" || role === "target") roles.push(role);
+    else return null;
+  }
+  const direction = record.direction === "LONG" || record.direction === "SHORT" ? record.direction : null;
+  const entryType = record.entryType === "MARKET" || record.entryType === "LIMIT" || record.entryType === "ZONE" ? record.entryType : null;
+  return { pattern: record.pattern, roles, direction, entryType };
 }
 
 /** Two or more dismissals, and more dismissals than manual adds, hold the next inferred signal. */

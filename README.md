@@ -72,7 +72,7 @@ PGlite is single-process: stop the dev server before running `db:setup` or `db:r
 Telegram post ─▶ raw_events (immutable) ─▶ parse_results (versioned) ─▶ signals + targets + adjustments
                                                      │ low confidence
                                                      ▼
-                                               admin review queue
+                                          model review, then admin queue
 market_bars (1m) ─▶ outcome engine (outcome-v3) ─▶ signal_outcomes (versioned, override-able)
                                                      ▼
                          source_stats (stats-v1) · similar trades · ai_analyses (prompt-versioned)
@@ -82,7 +82,7 @@ market_bars (1m) ─▶ outcome engine (outcome-v3) ─▶ signal_outcomes (vers
 
 - **Telegram** (`src/server/telegram`) uses GramJS (MTProto). It handles sign-in, listing the channels and groups the account has joined, the live update handlers, and a catch-up sync that pages through history by message id.
 - **Raw events are never edited.** Every incoming message is stored with its timestamp and content hash, and is de-duplicated by external id or hash. Re-parsing creates a new parse result.
-- **Parsing** (`src/server/parsing`) extracts direction, entry (market, limit or zone), stop, targets, signal type and follow-up instructions such as move SL to breakeven, cancel, close, TP hit and SL hit. Anything below 80% confidence, or with a wrong-side stop or an implausible price, goes to `/admin/review` instead of being guessed.
+- **Parsing** (`src/server/parsing`) extracts direction, entry (market, limit or zone), stop, targets, signal type and follow-up instructions such as move SL to breakeven, cancel, close, TP hit and SL hit. Anything below 80% confidence, or with a wrong-side stop or an implausible price, is reviewed by the configured chat model first. The model applies, dismisses, or corrects it when it is at least 80% confident. Otherwise the post goes to `/admin/review`. A decision the model is sure about is stored as a text pattern, and the next post with that shape does not call the model again.
 - **Outcomes** (`src/server/outcomes/engine.ts`) are a pure function of the signal, its adjustments and minute bars. The rules are versioned (`outcome-v3`):
   - a market quote more than $80 from the bar is not a fill, and the same check keeps a new post off the live list;
   - fills are at the zone edge or the bar open, whichever is better for the trader;
@@ -95,7 +95,7 @@ market_bars (1m) ─▶ outcome engine (outcome-v3) ─▶ signal_outcomes (vers
 - **Statistics** (`src/server/statistics`) cover win rate, average R, expectancy, recent form, excursion, time-to-target, and breakdowns by hour, weekday, session, direction, signal type and entry type. Every figure carries its sample size.
 - **Consensus** (`src/server/consensus`) scores sources that publish the same XAU/USD entry zone inside 30 minutes. Historically accurate sources are the ones `stats-v1` already measures (sample size, win rate, expectancy). Silver sees the trade only. Gold sees the score and how the timing lines up. Platinum also sees how many of the top historical performers are on that zone. Channel names stay on the admin signal page.
 - **Similar trades** always match on source and direction, then on session, entry type, signal type, weekday and AI pattern tags. The least important criteria are dropped until at least five matches exist. Only trades that closed before the signal count.
-- **AI** only explains computed facts. Prompts are versioned, outputs are schema-validated, and analyses are stored separately from outcomes (`ai_analyses`). The AI never changes a result. The default provider is a deterministic mock; set `AI_PROVIDER=openai` to use a real model.
+- **AI** only explains computed facts. Prompts are versioned, outputs are schema-validated, and analyses are stored separately from outcomes (`ai_analyses`). The AI never changes an outcome. The same provider also reviews posts the parser could not accept: a confident decision is applied, and a low-confidence or unknown decision stays in the human queue. The default provider is a deterministic mock; set `AI_PROVIDER=openai` to use a real model.
 - **Entitlements** (`src/server/entitlements`) are configurable per tier in `/admin/entitlements`: a feature list plus a history window. They are enforced on the server in `src/server/presenters.ts`, so locked fields are never serialized to the browser or the API.
 - **Jobs** are durable rows in `jobs`, retried with exponential backoff. An in-process scheduler (`src/instrumentation.ts`) runs them. It handles market data sync every minute, Telegram catch-up sync every two minutes, market data backfill, open-trade recalculation, stats refresh, AI analysis and subscription reconciliation.
 - **Audit**: every manual change to a signal, outcome, source, entitlement, affiliate link or subscription is written to `audit_logs` with before and after values and a reason.
@@ -140,7 +140,7 @@ Every integration has a local fallback, so nothing is required to run locally. T
 - `DATABASE_URL`: use Postgres instead of embedded PGlite.
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_<TIER>_<PERIOD>`: real Stripe Checkout, Customer Portal and webhooks. Without them, mock checkout is used.
 - `MARKET_DATA_PROVIDER=twelvedata` plus `TWELVEDATA_API_KEY`: real XAU/USD minute bars, if you prefer env vars to `/admin/settings`.
-- `AI_PROVIDER=openai` plus `OPENAI_API_KEY` (and optionally `OPENAI_BASE_URL` and `AI_MODEL`): real AI analysis.
+- `AI_PROVIDER=deepinfra` plus `DEEPINFRA_API_KEY` (cheap Llama 3.1 8B by default), or `cloudflare` plus `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or `openai` plus `OPENAI_API_KEY`. Optional `AI_MODEL`. The same setting reviews the human queue.
 - `INGEST_TOKEN`: the webhook secret. It is required in production if you use webhook sources.
 - `APP_URL`: the public base URL for emails and Stripe redirects.
 

@@ -22,11 +22,11 @@ export default async function ReviewPage({ searchParams }: PageProps<"/admin/rev
     <>
       <PageHeader
         title="Review queue"
-        description="Messages the parser could not read with enough confidence. Create the signal with corrected fields, or dismiss the message. Every decision is audited."
+        description="The model reviews these posts first. A post stays here when the model is unsure or its confidence is under 80%. Create the signal with corrected fields, or dismiss the message. Every decision is audited."
       />
       <Notice searchParams={sp} />
       {items.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">The queue is empty. New low-confidence parses will appear here.</div>
+        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">The queue is empty. Posts the model cannot decide are listed here.</div>
       ) : (
         <div className="space-y-4">
           {items.map(({ event, source, parse }) => {

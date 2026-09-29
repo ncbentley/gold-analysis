@@ -17,8 +17,18 @@ import { parseEvent, REVIEW_THRESHOLD, type ParseOutput } from "@/server/parsing
 import { INFERRED_DIRECTION_ISSUE, textHasDirectionWord } from "@/server/parsing/direction";
 import { loadParseLessons, recordParseLesson } from "@/server/parsing/learn";
 import { applyLessonsToParse, lessonFromPrices, pricesFromParsedSignal } from "@/server/parsing/lessons";
+import { matchLearnedLesson, replayLearnedLesson, type PatternSignal } from "@/server/parsing/pattern";
 import { reviewFarQuote } from "@/server/parsing/price-review";
 import { distanceToQuote, quoteIsPlausible } from "@/server/parsing/quote-sanity";
+import {
+  getQueueReviewClient,
+  lessonForQueueReview,
+  modelReason,
+  QUEUE_REVIEW_MIN_CONFIDENCE,
+  queueDecisionIsActionable,
+  queueReviewInput,
+  signalFromQueueReview,
+} from "@/server/parsing/queue-review";
 import type { ParsedSignalFields } from "@/server/parsing/types";
 
 const OPEN_STATUSES = ["PENDING", "ACTIVE", "PARTIAL"] as const;
@@ -48,7 +58,7 @@ async function markPreviousParsesSuperseded(rawEventId: string) {
 async function storeParse(
   event: RawEvent,
   out: ParseOutput,
-  status: "applied" | "needs_review" | "failed" | "ignored",
+  status: "applied" | "needs_review" | "failed" | "ignored" | "resolved",
   signalId: string | null,
   extraIssues: string[] = [],
 ) {
@@ -166,6 +176,123 @@ function toSignalInput(out: ParseOutput, publishedAt: Date): SignalInput | null 
   };
 }
 
+async function signalForEditedMessage(sourceId: string, editOf: string) {
+  const db = await getDb();
+  const [origin] = await db
+    .select({ id: rawEvents.id })
+    .from(rawEvents)
+    .where(and(eq(rawEvents.sourceId, sourceId), eq(rawEvents.externalMessageId, editOf)));
+  if (!origin) return null;
+  const [signal] = await db.select().from(signals).where(eq(signals.originEventId, origin.id));
+  return signal ?? null;
+}
+
+async function publishReviewedSignal(event: RawEvent, fields: PatternSignal, confidence: number, actor: Actor, reason: string) {
+  const market = await getPriceNear(event.publishedAt, fields.instrument);
+  if (market !== null && !quoteIsPlausible(market, fields.entryMin, fields.entryMax)) return null;
+  const db = await getDb();
+  const [existing] = await db.select({ id: signals.id }).from(signals).where(eq(signals.originEventId, event.id));
+  if (existing) return null;
+  return createSignal(
+    event.sourceId,
+    event.id,
+    {
+      instrument: fields.instrument,
+      direction: fields.direction,
+      entryType: fields.entryType,
+      entryMin: fields.entryMin,
+      entryMax: fields.entryMax,
+      stopLoss: fields.stopLoss,
+      targets: fields.targets,
+      signalType: fields.signalType,
+      sourceConfidenceText: fields.sourceConfidenceText,
+      signalTime: event.publishedAt,
+      expiryTime: null,
+    },
+    confidence,
+    actor,
+    reason,
+  );
+}
+
+/**
+ * Last step before the human queue. A learned pattern decides a repeat of a shape the model
+ * already settled. Otherwise the configured chat model decides. Low confidence and unknown
+ * stay in the queue. A confident decision is stored as parse.learned so the next similar post
+ * does not call the model.
+ */
+async function holdForReview(
+  event: RawEvent,
+  out: ParseOutput,
+  signalId: string | null,
+  extraIssues: string[],
+  actor: Actor,
+  learnPattern: boolean,
+) {
+  if (learnPattern) {
+    const matched = matchLearnedLesson(event.rawText, await loadParseLessons());
+    const replay = matched ? replayLearnedLesson(event.rawText, matched) : null;
+    if (replay?.action === "dismiss") {
+      return storeParse(event, { ...out, confidence: 1 }, "ignored", signalId, [...extraIssues, "Dismissed by a learned pattern."]);
+    }
+    if (replay?.action === "signal") {
+      const signal = await publishReviewedSignal(event, replay.fields, QUEUE_REVIEW_MIN_CONFIDENCE, actor, "Applied from a learned pattern.");
+      if (signal) {
+        return storeParse(event, { ...out, confidence: QUEUE_REVIEW_MIN_CONFIDENCE }, "applied", signal.id, [
+          ...extraIssues,
+          "Applied from a learned pattern.",
+        ]);
+      }
+    }
+  }
+
+  const market = await getPriceNear(event.publishedAt, out.signal?.instrument.value ?? "XAUUSD");
+  const lessons = await loadParseLessons();
+  const review = await getQueueReviewClient().review(queueReviewInput(out, event.rawText, [...out.issues, ...extraIssues], market, lessons));
+  if (!queueDecisionIsActionable(review)) {
+    return storeParse(event, out, "needs_review", signalId, extraIssues);
+  }
+
+  if (review.decision === "dismiss") {
+    if (learnPattern) {
+      await recordParseLesson(actor, "raw_event", event.id, lessonForQueueReview(event.rawText, out, review, null), modelReason(review.reason));
+    }
+    return storeParse(event, { ...out, confidence: review.confidence }, "ignored", signalId, [...extraIssues, "Dismissed by the model."]);
+  }
+
+  const fields = signalFromQueueReview(out, review, event.rawText);
+  if (!fields || (market !== null && !quoteIsPlausible(market, fields.entryMin, fields.entryMax))) {
+    return storeParse(event, out, "needs_review", signalId, extraIssues);
+  }
+
+  const editOf = (event.rawPayloadJson as { edit_of?: unknown } | null)?.edit_of;
+  if (editOf != null) {
+    const original = await signalForEditedMessage(event.sourceId, String(editOf));
+    if (!original) return storeParse(event, out, "needs_review", null, extraIssues);
+    await correctSignal(original.id, fields, actor, modelReason(review.reason));
+    return storeParse(event, { ...out, confidence: review.confidence }, "resolved", original.id, [
+      ...extraIssues,
+      "Model corrected the original signal.",
+    ]);
+  }
+
+  if (signalId) {
+    await correctSignal(signalId, fields, actor, modelReason(review.reason));
+    if (learnPattern) {
+      await recordParseLesson(actor, "raw_event", event.id, lessonForQueueReview(event.rawText, out, review, fields), modelReason(review.reason));
+    }
+    return storeParse(event, { ...out, confidence: review.confidence }, "resolved", signalId, [...extraIssues, "Model corrected the signal."]);
+  }
+
+  const reason = review.decision === "correct" ? "Model corrected this signal." : "Model applied this signal.";
+  const signal = await publishReviewedSignal(event, fields, review.confidence, actor, modelReason(review.reason));
+  if (!signal) return storeParse(event, out, "needs_review", null, extraIssues);
+  if (learnPattern) {
+    await recordParseLesson(actor, "raw_event", event.id, lessonForQueueReview(event.rawText, out, review, fields), modelReason(review.reason));
+  }
+  return storeParse(event, { ...out, confidence: review.confidence }, "applied", signal.id, [...extraIssues, reason]);
+}
+
 /** Parses a stored raw event and applies the result. Safe to call repeatedly. */
 export async function processRawEvent(rawEventId: string, actor: Actor = PIPELINE) {
   const db = await getDb();
@@ -200,11 +327,17 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
 
   const editOf = (event.rawPayloadJson as { edit_of?: unknown } | null)?.edit_of;
   if (editOf != null) {
-    // Silent edits after posting are how track records get rewritten, so they never apply automatically.
+    // Silent edits can rewrite a track record. The model may correct or dismiss one it is sure about.
+    // Anything it does not know stays in the human queue, and the edit is not learned as a text pattern.
     if (out.eventType === "COMMENT") return storeParse(event, out, "ignored", null, [`Edit of message ${editOf}; comment ignored.`]);
-    return storeParse(event, out, "needs_review", null, [
-      `Source edited message ${editOf} after posting. Compare with the original before correcting the signal.`,
-    ]);
+    return holdForReview(
+      event,
+      out,
+      null,
+      [`Source edited message ${editOf} after posting. Compare with the original before correcting the signal.`],
+      actor,
+      false,
+    );
   }
 
   if (out.eventType === "NEW_SIGNAL") {
@@ -214,7 +347,7 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
     }
     let input = toSignalInput(out, event.publishedAt);
     if (!input || out.confidence < REVIEW_THRESHOLD) {
-      return storeParse(event, out, "needs_review", null);
+      return holdForReview(event, out, null, [], actor, true);
     }
     const market = await getPriceNear(event.publishedAt, input.instrument);
     const extra: string[] = [];
@@ -227,9 +360,9 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
         );
       } else {
         const away = distanceToQuote(market, input.entryMin, input.entryMax);
-        return storeParse(event, out, "needs_review", null, [
+        return holdForReview(event, out, null, [
           `Quoted entry ${input.entryMin}–${input.entryMax} is ${away.toFixed(0)} away from the market price ${market.toFixed(2)}. Not placed on the live list.`,
-        ]);
+        ], actor, true);
       }
     }
     const signal = await createSignal(event.sourceId, event.id, input, out.confidence, actor);
@@ -237,11 +370,12 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
   }
 
   if (out.eventType === "COMMENT") {
-    return storeParse(event, out, out.confidence < 0.7 ? "needs_review" : "ignored", null);
+    if (out.confidence < 0.7) return holdForReview(event, out, null, [], actor, true);
+    return storeParse(event, out, "ignored", null);
   }
 
   const { signal, inferred } = await findTargetSignal(event, out);
-  if (!signal) return storeParse(event, out, "needs_review", null, ["No matching open signal found for this instruction."]);
+  if (!signal) return holdForReview(event, out, null, ["No matching open signal found for this instruction."], actor, false);
 
   if (out.eventType === "TARGET_HIT" || out.eventType === "STOP_HIT") {
     // Source claims are recorded as evidence only; outcomes are computed from market data.
@@ -265,7 +399,7 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
       payloadJson: { stop: out.instruction.moveStop.value },
     };
   }
-  if (!adjustment) return storeParse(event, out, "needs_review", signal.id, ["Update could not be mapped to an instruction."]);
+  if (!adjustment) return holdForReview(event, out, signal.id, ["Update could not be mapped to an instruction."], actor, false);
 
   await db.insert(signalAdjustments).values(adjustment);
   await recordAudit({
