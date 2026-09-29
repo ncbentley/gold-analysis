@@ -55,19 +55,62 @@ export interface QueueReviewClient {
   review(input: QueueReviewInput): Promise<QueueReview>;
 }
 
-export const QUEUE_REVIEW_SYSTEM = `You review a gold (XAU/USD) post the deterministic parser could not accept on its own.
-Choose one decision:
-- apply: the draft is a real signal. Keep its prices unless a field is wrong.
-- dismiss: the post is not a tradable signal.
-- correct: the post is a signal, but a price or the direction in the message needs a fix.
-- unknown: you cannot tell.
-Set confidence from 0 to 1. Unknown, or confidence below 0.8, is left for a human.
+export const QUEUE_REVIEW_SYSTEM = `You review one gold (XAU/USD) post. The deterministic parser did not accept it. Read the message yourself. Parser issues are hints, not the decision. Emoji and punctuation may sit against the numbers (🎯4058, SL⛔️4038). Those numbers still count.
+
+Choose exactly one decision:
+- apply: the message is a new trade. It has an entry (one price or a zone), a stop, and at least one target, or the prices make those roles obvious. Copy every price from the message into the JSON. Do not leave them null.
+- dismiss: the message is not a new trade. A hit or profit update (TP hit, all targets, profit, pips, closed) with no new entry is dismiss. Chat, news, and ads are dismiss.
+- correct: it is a trade, but one price is a one-digit typo. Put the repaired number in that field. Do not invent a stop that is not in the message.
+- unknown: only when the message has no prices and no clear hit or profit wording, so you cannot tell. Do not pick unknown because the parser was unsure, and do not pick unknown for a hit update or a complete trade.
+
+Confidence is a number from 0 to 1, not a percent. When you choose apply, dismiss, or correct, set confidence to 0.9 or higher. Use a value below 0.8 only together with unknown.
+
 Rules:
-- When a stop or targets make the side obvious, direction comes from those prices. Do not dismiss a post only because it never says buy or sell.
+- When a stop or targets make the side obvious, direction comes from those prices. Do not dismiss a post only because it never says buy or sell. BUY, or targets above the entry with a stop below, is LONG. SELL, or the reverse, is SHORT.
+- A two-price entry is entryType ZONE. A single entry price is LIMIT.
 - Do not invent a price that is not in the message. A one-digit typo may be repaired. Do not invent a missing stop.
-- A quoted entry more than $80 from the market price is not a live order.
+- A quoted entry more than $80 from the market price is not a live order. If marketPrice is null, judge the message on its own.
 - Never tell anyone to take the trade.
-Respond with JSON matching the schema.`;
+- Do not copy the example prices unless those exact numbers are in the message.
+
+Return one JSON object and nothing else. Do not return a JSON Schema. Do not wrap the answer in type or properties. targets is an array of numbers. Use [] when there are none, never null.
+
+Example of apply (numbers must come from the message you were given):
+{"decision":"apply","confidence":0.95,"reason":"Buy zone with a stop and three targets.","entryType":"ZONE","direction":"LONG","entryMin":4043,"entryMax":4053,"stopLoss":4038,"targets":[4058,4063,4068]}
+
+Example of dismiss:
+{"decision":"dismiss","confidence":0.95,"reason":"Target-hit update, not a new trade.","entryType":null,"direction":null,"entryMin":null,"entryMax":null,"stopLoss":null,"targets":[]}`;
+
+/**
+ * Llama sometimes wraps a real answer in a schema shell, sends confidence as a
+ * string or a percent, or sets targets to null. This only repairs that shape.
+ * A copied schema, with decision still an object, is left unchanged and fails
+ * validation. Confidence is never raised except when a 1–100 percent is scaled
+ * into 0–1.
+ */
+export function coerceQueueReview(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+  let obj = raw as Record<string, unknown>;
+  const props = obj.properties;
+  if (props && typeof props === "object" && !Array.isArray(props)) {
+    const decision = (props as Record<string, unknown>).decision;
+    if (typeof decision === "string") obj = { ...(props as Record<string, unknown>) };
+  }
+  const out: Record<string, unknown> = { ...obj };
+  if (typeof out.decision === "string") out.decision = out.decision.trim().toLowerCase();
+  if (typeof out.confidence === "string") {
+    const parsed = Number(out.confidence);
+    if (Number.isFinite(parsed)) out.confidence = parsed;
+  }
+  if (typeof out.confidence === "number" && out.confidence > 1 && out.confidence <= 100) {
+    out.confidence = out.confidence / 100;
+  }
+  if (out.targets == null) out.targets = [];
+  for (const key of ["entryType", "direction", "entryMin", "entryMax", "stopLoss"] as const) {
+    if (out[key] === undefined) out[key] = null;
+  }
+  return out;
+}
 
 export function unknownQueueReview(reason: string): QueueReview {
   return {
@@ -208,7 +251,7 @@ export const defaultQueueReviewClient: QueueReviewClient = {
       const provider = chatProvider(backend);
       const raw = await provider.generate({
         analysisType: "queue_review",
-        promptVersion: "queue-review-v1",
+        promptVersion: "queue-review-v2",
         system: QUEUE_REVIEW_SYSTEM,
         facts: {
           message: input.rawText,
@@ -221,7 +264,7 @@ export const defaultQueueReviewClient: QueueReviewClient = {
         },
         jsonSchema: z.toJSONSchema(queueReviewSchema) as Record<string, unknown>,
       });
-      const parsed = queueReviewSchema.safeParse(raw);
+      const parsed = queueReviewSchema.safeParse(coerceQueueReview(raw));
       if (!parsed.success) return unknownQueueReview("Model response did not match the schema.");
       return parsed.data;
     } catch {

@@ -11,6 +11,19 @@ function parseContent(content: string) {
   return JSON.parse(fenced ? fenced[1] : trimmed);
 }
 
+/**
+ * Queue review used to paste the JSON Schema into the user message. Llama 3.1 8B
+ * copied that schema back, which failed validation and looked like "unknown".
+ * Other analysis types still receive the schema.
+ */
+export function chatUserContent(req: AiRequest) {
+  const facts = `Structured facts (JSON):\n${JSON.stringify(req.facts)}`;
+  if (req.analysisType === "queue_review") {
+    return `${facts}\n\nAnswer the post in message. Return one JSON object with the same keys as the filled examples in the system message. Do not return a JSON Schema, a type/properties wrapper, or markdown.`;
+  }
+  return `${facts}\n\nRespond with one JSON object matching this schema:\n${JSON.stringify(req.jsonSchema)}`;
+}
+
 /** OpenAI-compatible chat completions. Server-side only. The request body is not logged. */
 export function createOpenAiProvider(
   apiKey: string,
@@ -31,7 +44,7 @@ export function createOpenAiProvider(
             { role: "system", content: req.system },
             {
               role: "user",
-              content: `Structured facts (JSON):\n${JSON.stringify(req.facts)}\n\nRespond with one JSON object matching this schema:\n${JSON.stringify(req.jsonSchema)}`,
+              content: chatUserContent(req),
             },
           ],
           response_format: responseFormat(req, format),

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { parseEvent, REVIEW_THRESHOLD } from "./index";
 import { lessonFromModel, messagePattern, replayLearnedLesson } from "./pattern";
+import { chatUserContent } from "@/server/ai/providers/openai";
 import {
   QUEUE_REVIEW_MIN_CONFIDENCE,
   QUEUE_REVIEW_SYSTEM,
+  coerceQueueReview,
   queueDecisionIsActionable,
+  queueReviewSchema,
   signalFromQueueReview,
   unknownQueueReview,
   type QueueReview,
@@ -42,6 +45,51 @@ describe("queue review confidence", () => {
   it("does not tell the model to drop priced posts that lack a direction word", () => {
     expect(QUEUE_REVIEW_SYSTEM).not.toMatch(/treated as commentary/i);
     expect(QUEUE_REVIEW_SYSTEM).toMatch(/direction comes from those prices/i);
+  });
+
+  it("asks for a filled decision instead of a copied schema or a low default confidence", () => {
+    expect(QUEUE_REVIEW_SYSTEM).toMatch(/do not return a json schema/i);
+    expect(QUEUE_REVIEW_SYSTEM).toMatch(/hit or profit update/i);
+    expect(QUEUE_REVIEW_SYSTEM).toMatch(/set confidence to 0\.9 or higher/i);
+    expect(QUEUE_REVIEW_SYSTEM).not.toMatch(/below 0\.8, is left for a human/i);
+    const user = chatUserContent({
+      analysisType: "queue_review",
+      promptVersion: "queue-review-v2",
+      system: QUEUE_REVIEW_SYSTEM,
+      facts: { message: "TP1 hit" },
+      jsonSchema: { type: "object" },
+    });
+    expect(user).not.toMatch(/matching this schema/i);
+    expect(user).toMatch(/do not return a json schema/i);
+    const other = chatUserContent({
+      analysisType: "parse_review",
+      promptVersion: "parse-review-v1",
+      system: "review",
+      facts: { message: "x" },
+      jsonSchema: { type: "object", properties: { decision: { type: "string" } } },
+    });
+    expect(other).toMatch(/matching this schema/i);
+  });
+
+  it("repairs a wrapped answer and still rejects a copied schema", () => {
+    const wrapped = coerceQueueReview({
+      type: "object",
+      properties: {
+        decision: "dismiss",
+        confidence: "95",
+        reason: "Target-hit update.",
+        targets: null,
+      },
+    });
+    const parsed = queueReviewSchema.parse(wrapped);
+    expect(parsed).toMatchObject({ decision: "dismiss", confidence: 0.95, targets: [] });
+    expect(queueDecisionIsActionable(parsed)).toBe(true);
+
+    const echoed = coerceQueueReview({
+      type: "object",
+      properties: { decision: { type: "string", enum: ["apply", "dismiss", "correct", "unknown"] } },
+    });
+    expect(queueReviewSchema.safeParse(echoed).success).toBe(false);
   });
 });
 
