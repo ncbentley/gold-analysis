@@ -14,8 +14,12 @@ import {
 import { enqueueJob } from "@/server/jobs/queue";
 import { getPriceNear } from "@/server/market-data";
 import { parseEvent, REVIEW_THRESHOLD, type ParseOutput } from "@/server/parsing";
+import { INFERRED_DIRECTION_ISSUE, textHasDirectionWord } from "@/server/parsing/direction";
+import { loadParseLessons, recordParseLesson } from "@/server/parsing/learn";
+import { applyLessonsToParse, lessonFromPrices, pricesFromParsedSignal } from "@/server/parsing/lessons";
 import { reviewFarQuote } from "@/server/parsing/price-review";
 import { distanceToQuote, quoteIsPlausible } from "@/server/parsing/quote-sanity";
+import type { ParsedSignalFields } from "@/server/parsing/types";
 
 const OPEN_STATUSES = ["PENDING", "ACTIVE", "PARTIAL"] as const;
 
@@ -137,6 +141,10 @@ async function findTargetSignal(event: RawEvent, out: ParseOutput): Promise<{ si
   return { signal: latest ?? null, inferred: true };
 }
 
+function numberPrices(values: Array<number | null | undefined>) {
+  return values.filter((value): value is number => typeof value === "number");
+}
+
 function toSignalInput(out: ParseOutput, publishedAt: Date): SignalInput | null {
   const s = out.signal;
   if (!s || !s.direction.value || !s.entryType.value) return null;
@@ -180,6 +188,14 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
       confidence: 0,
     };
     return storeParse(event, failed, "failed", null);
+  }
+
+  if (out.eventType === "NEW_SIGNAL" && out.signal) {
+    const needsLessons =
+      out.signal.direction.value === null ||
+      out.issues.includes(INFERRED_DIRECTION_ISSUE) ||
+      out.issues.some((issue) => /wrong side/i.test(issue));
+    if (needsLessons) out = applyLessonsToParse(out, await loadParseLessons());
   }
 
   const editOf = (event.rawPayloadJson as { edit_of?: unknown } | null)?.edit_of;
@@ -271,11 +287,28 @@ export async function resolveReviewWithSignal(rawEventId: string, input: SignalI
   if (!event) throw new Error("Raw event not found");
   const [existing] = await db.select({ id: signals.id }).from(signals).where(eq(signals.originEventId, event.id));
   if (existing) throw new Error("A signal already exists for this event");
+  const [currentParse] = await db
+    .select()
+    .from(parseResults)
+    .where(and(eq(parseResults.rawEventId, rawEventId), eq(parseResults.isCurrent, true)));
   const signal = await createSignal(event.sourceId, event.id, input, 1, actor, reason);
   await db
     .update(parseResults)
     .set({ status: "resolved", signalId: signal.id })
     .where(and(eq(parseResults.rawEventId, rawEventId), eq(parseResults.isCurrent, true)));
+  const stored = currentParse?.outputJson as { signal?: ParsedSignalFields | null } | undefined;
+  await recordParseLesson(
+    actor,
+    "raw_event",
+    rawEventId,
+    lessonFromPrices(
+      pricesFromParsedSignal(stored?.signal),
+      numberPrices([input.entryMin, input.entryMax, input.stopLoss, ...input.targets]),
+      "accept",
+      !textHasDirectionWord(event.rawText),
+    ),
+    reason,
+  );
   return signal;
 }
 
@@ -288,6 +321,14 @@ export async function dismissReview(rawEventId: string, actor: Actor, reason: st
   if (!current) throw new Error("No parse result to dismiss");
   await db.update(parseResults).set({ status: "ignored" }).where(eq(parseResults.id, current.id));
   await recordAudit({ actor, entityType: "raw_event", entityId: rawEventId, action: "review.dismissed", before: { status: current.status }, reason });
+  const [event] = await db.select({ rawText: rawEvents.rawText }).from(rawEvents).where(eq(rawEvents.id, rawEventId));
+  await recordParseLesson(
+    actor,
+    "raw_event",
+    rawEventId,
+    { edits: [], decision: "dismiss", noDirectionWord: event ? !textHasDirectionWord(event.rawText) : false },
+    reason,
+  );
 }
 
 /** Admin correction. The previous values are preserved in the audit log; the signal version is bumped. */
@@ -296,6 +337,23 @@ export async function correctSignal(signalId: string, patch: Partial<SignalInput
   const [before] = await db.select().from(signals).where(eq(signals.id, signalId));
   if (!before) throw new Error("Signal not found");
   const beforeTargets = await db.select().from(signalTargets).where(eq(signalTargets.signalId, signalId));
+  const [origin] = before.originEventId
+    ? await db.select({ rawText: rawEvents.rawText }).from(rawEvents).where(eq(rawEvents.id, before.originEventId))
+    : [];
+  const beforePrices = numberPrices([
+    before.entryMin,
+    before.entryMax,
+    before.stopLoss,
+    ...beforeTargets.map((target) => target.price),
+  ]);
+  const afterTargets = patch.targets ?? beforeTargets.map((target) => target.price);
+  const afterPrices = numberPrices([
+    patch.entryMin ?? before.entryMin,
+    patch.entryMax ?? before.entryMax,
+    patch.stopLoss !== undefined ? patch.stopLoss : before.stopLoss,
+    ...afterTargets,
+  ]);
+  const learned = lessonFromPrices(beforePrices, afterPrices, "correct", origin ? !textHasDirectionWord(origin.rawText) : false);
 
   await db.transaction(async (tx) => {
     const { targets, ...fields } = patch;
@@ -321,6 +379,7 @@ export async function correctSignal(signalId: string, patch: Partial<SignalInput
       },
       tx,
     );
+    await recordParseLesson(actor, "signal", signalId, learned, reason, tx);
   });
   await enqueueJob("RECALC_OUTCOME", { signalId }, { dedupeKey: `recalc:${signalId}` });
 }
