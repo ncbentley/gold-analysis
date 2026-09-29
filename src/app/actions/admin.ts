@@ -23,12 +23,11 @@ import { createTwelveDataProvider } from "@/server/market-data/twelvedata-provid
 import { PARSER_TYPES } from "@/server/parsing";
 import { setSetting, SETTING_KEYS } from "@/server/settings";
 import {
-  addJoinedTelegramChat,
   cancelTelegramLogin,
   completeTelegramLogin,
-  listJoinedTelegramChats,
+  queueJoinedTelegramChats,
   reconnectTelegram,
-  selectJoinedChat,
+  type JoinedChat,
   signOutTelegram,
   startTelegramLogin,
   telegramStatus,
@@ -418,22 +417,39 @@ export async function removeSourceAction(form: FormData) {
   });
 }
 
+function joinedChatFromForm(value: FormDataEntryValue): JoinedChat {
+  if (typeof value !== "string") throw new Error("Choose a channel or group the connected account has joined.");
+  let raw: unknown;
+  try {
+    raw = JSON.parse(value);
+  } catch {
+    throw new Error("Choose a channel or group the connected account has joined.");
+  }
+  if (!raw || typeof raw !== "object") throw new Error("Choose a channel or group the connected account has joined.");
+  const row = raw as Record<string, unknown>;
+  const id = typeof row.id === "string" ? row.id : "";
+  const title = typeof row.title === "string" ? row.title.trim().slice(0, 80) : "";
+  const kind = row.kind === "channel" || row.kind === "group" ? row.kind : null;
+  const accessHash = typeof row.accessHash === "string" && /^-?[1-9][0-9]*$/.test(row.accessHash) ? row.accessHash : null;
+  const username = typeof row.username === "string" && row.username.trim() ? row.username.trim().slice(0, 64) : null;
+  if (!kind || !/^[1-9][0-9]*$/.test(id) || !title) throw new Error("Choose a channel or group the connected account has joined.");
+  return { id, accessHash, username, title, kind };
+}
+
 export async function telegramAddJoinedChatAction(form: FormData) {
   const { actor } = await requireAdmin();
   await attempt("/admin/sources", async () => {
-    const listed = await listJoinedTelegramChats();
-    if (!listed.connected) throw new Error("Telegram is not connected. Sign in on the Telegram page first.");
-    const chat = selectJoinedChat(listed.chats, str(form, "chatId"));
     const parserType = str(form, "parserType") || PARSER_TYPES[0];
     if (!(PARSER_TYPES as readonly string[]).includes(parserType)) throw new Error("Unknown parser.");
     const backfill = Math.trunc(num(form, "backfill") ?? 0);
     if (!Number.isFinite(backfill) || backfill < 0 || backfill > 1000) throw new Error("Backfill must be between 0 and 1000 messages.");
-    const isQa = form.get("isQa") === "on";
-    const res = await addJoinedTelegramChat({ chat, isQa, parserType, backfill }, actor);
-    await enqueueJob("TELEGRAM_SYNC", { sourceId: res.sourceId, backfill }, { dedupeKey: `telegram-sync:${res.sourceId}` });
-    const what = isQa ? "QA source" : "Source";
-    if (!res.created) return `${what} ${res.title} was already tracked. It is queued to catch up.`;
-    return `${what} ${res.title} is queued. This row shows queued, then importing, then caught up. Messages stay queued until they are read.`;
+    const chats = form.getAll("chat").map(joinedChatFromForm);
+    if (chats.length === 0) throw new Error("Choose at least one channel or group.");
+    const { queued, alreadyTracked } = await queueJoinedTelegramChats(chats, { isQa: form.get("isQa") === "on", parserType, backfill }, actor);
+    if (queued.length === 0) return "Those channels are already tracked.";
+    const names = queued.map((chat) => chat.title).join(", ");
+    const skipped = alreadyTracked.length ? ` ${alreadyTracked.length} already tracked ${alreadyTracked.length === 1 ? "was" : "were"} left unchanged.` : "";
+    return `Queued ${queued.length}: ${names}. Each row shows queued, then importing, then caught up or failed.${skipped}`;
   });
 }
 

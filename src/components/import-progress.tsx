@@ -20,7 +20,7 @@ export function AddSourceButton() {
   const { pending } = useFormStatus();
   return (
     <Button type="submit" disabled={pending}>
-      {pending ? "Adding…" : "Add source"}
+      {pending ? "Queuing…" : "Add"}
     </Button>
   );
 }
