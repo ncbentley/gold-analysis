@@ -52,8 +52,6 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
     }
   }
   const trackedIds = new Set(sources.map((s) => s.telegramChannelId).filter((id): id is string => Boolean(id)));
-  const channels = joinedChats.filter((c) => c.kind === "channel");
-  const groups = joinedChats.filter((c) => c.kind === "group");
   const editId = typeof sp.edit === "string" ? sp.edit : null;
   const editing = editId && editId !== "new" ? sources.find((s) => s.id === editId) ?? null : null;
   const showForm = editId === "new" || editing;
@@ -75,7 +73,7 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
       <Card className="mb-6 bg-card/60" id="add-telegram">
         <CardHeader>
           <CardTitle className="text-base">Add a Telegram source</CardTitle>
-          <CardDescription>Choose a channel or group the connected account is already in. The source name is that chat&apos;s title on Telegram.</CardDescription>
+          <CardDescription>Check the channels and groups to add, then click Add once. Each one is queued on its own. A channel already importing does not block the next add.</CardDescription>
         </CardHeader>
         <CardContent>
           {!connected && (
@@ -96,10 +94,17 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
           )}
           {connected && !listError && joinedChats.length > 0 && (
             <form action={telegramAddJoinedChatAction} className="grid gap-3 md:grid-cols-2">
-              <Field label="Channel or group" htmlFor="ch-pick" hint="Filter by name. Only chats this account has joined are listed. Select one, then add it with the parser and history settings below." className="md:col-span-2">
+              <Field label="Channels and groups" htmlFor="ch-pick" hint="Filter the list and check the ones to add. Already-tracked chats stay visible and are not added again." className="md:col-span-2">
                 <TelegramChatMenu
-                  channels={channels.map((c) => ({ id: c.id, label: chatOptionLabel(c, trackedIds.has(c.id)) }))}
-                  groups={groups.map((c) => ({ id: c.id, label: chatOptionLabel(c, trackedIds.has(c.id)) }))}
+                  chats={joinedChats.map((chat) => ({
+                    id: chat.id,
+                    accessHash: chat.accessHash,
+                    username: chat.username,
+                    title: chat.title,
+                    kind: chat.kind,
+                    label: chatOptionLabel(chat, trackedIds.has(chat.id)),
+                    tracked: trackedIds.has(chat.id),
+                  }))}
                 />
               </Field>
               <Field label="Parser" htmlFor="ch-parser">
