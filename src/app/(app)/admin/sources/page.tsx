@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { rerunAiAction, saveSourceAction, telegramAddJoinedChatAction } from "@/app/actions/admin";
-import { Field, NativeSelect, Notice } from "@/components/admin-bits";
+import { Field, NativeSelect, Notice, StateBadge } from "@/components/admin-bits";
+import { AddSourceButton, ImportProgressRefresh } from "@/components/import-progress";
 import { TelegramChatMenu } from "@/components/telegram-chat-menu";
 import { PageHeader } from "@/components/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -32,16 +33,20 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
     sourceEventCounts(),
     telegramStatus(),
   ]);
+  const queueOwnsTelegram = process.env.JOBS_WORKER === "off" && Boolean(process.env.QUEUE_URL);
   let telegram = initialTelegram;
-  if (telegram.signedIn && !telegram.connected && !telegram.pending) {
+  if (!queueOwnsTelegram && telegram.signedIn && !telegram.connected && !telegram.pending) {
     await Promise.race([connectTelegram(), new Promise((resolve) => setTimeout(resolve, 4000))]);
     telegram = await telegramStatus();
   }
   let joinedChats: JoinedChat[] = [];
   let listError: string | null = null;
-  if (telegram.connected) {
+  let connected = telegram.connected;
+  if (queueOwnsTelegram ? telegram.signedIn && !telegram.pending : telegram.connected) {
     try {
-      joinedChats = (await listJoinedTelegramChats()).chats;
+      const listed = await listJoinedTelegramChats();
+      connected = listed.connected;
+      joinedChats = listed.chats;
     } catch (err) {
       listError = (err as Error).message;
     }
@@ -57,13 +62,14 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
     <>
       <PageHeader
         title="Sources"
-        description="Every tracked signal provider. A Telegram source is chosen from the channels and groups the connected account has already joined. Webhook and manual sources are for integrations and backfills. Disabling a source stops ingestion but keeps its history."
+        description="Every tracked signal provider. A Telegram source is chosen from the channels and groups the connected account has already joined. Adding one queues the import: the row shows queued, then importing, then caught up or failed, and each message shows as queued until it is read. Webhook and manual sources are for integrations and backfills."
         actions={
           <Link href="/admin/sources?edit=new" className={buttonVariants({ size: "sm", variant: "outline" })}>
             Add webhook or manual source
           </Link>
         }
       />
+      <ImportProgressRefresh active={sources.some((s) => s.importStatus === "queued" || s.importStatus === "importing")} />
       <Notice searchParams={sp} />
 
       <Card className="mb-6 bg-card/60" id="add-telegram">
@@ -72,7 +78,7 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
           <CardDescription>Choose a channel or group the connected account is already in. The source name is that chat&apos;s title on Telegram.</CardDescription>
         </CardHeader>
         <CardContent>
-          {!telegram.connected && (
+          {!connected && (
             <div className="space-y-2 text-sm text-muted-foreground">
               <p>
                 Telegram is not connected.{" "}
@@ -84,11 +90,11 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
               {telegram.lastError && <p className="text-loss">{telegram.lastError}</p>}
             </div>
           )}
-          {telegram.connected && listError && <p className="text-sm text-loss">{listError}</p>}
-          {telegram.connected && !listError && joinedChats.length === 0 && (
+          {connected && listError && <p className="text-sm text-loss">{listError}</p>}
+          {connected && !listError && joinedChats.length === 0 && (
             <p className="text-sm text-muted-foreground">This account is not in any channels or groups. Join one in Telegram, then reload this page.</p>
           )}
-          {telegram.connected && !listError && joinedChats.length > 0 && (
+          {connected && !listError && joinedChats.length > 0 && (
             <form action={telegramAddJoinedChatAction} className="grid gap-3 md:grid-cols-2">
               <Field label="Channel or group" htmlFor="ch-pick" hint="Filter by name. Only chats this account has joined are listed. Select one, then add it with the parser and history settings below." className="md:col-span-2">
                 <TelegramChatMenu
@@ -105,14 +111,14 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
                   ))}
                 </NativeSelect>
               </Field>
-              <Field label="Import recent history" htmlFor="ch-backfill" hint="Messages to import now (0 to 1000). 0 captures new posts only.">
+              <Field label="Import recent history" htmlFor="ch-backfill" hint="Messages to queue now (0 to 1000). 0 captures new posts only. The row updates as soon as you add the source.">
                 <Input id="ch-backfill" name="backfill" type="number" min={0} max={1000} defaultValue={200} />
               </Field>
               <div className="flex items-end justify-between gap-3 md:col-span-2">
                 <label className="flex items-center gap-2 pb-2 text-sm">
                   <input type="checkbox" name="isQa" className="accent-primary" /> QA source (admins only)
                 </label>
-                <Button type="submit">Add source</Button>
+                <AddSourceButton />
               </div>
             </form>
           )}
@@ -192,6 +198,7 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
             <TableRow>
               <TableHead>Source</TableHead>
               <TableHead>Type</TableHead>
+              <TableHead>Import</TableHead>
               <TableHead>Parser</TableHead>
               <TableHead className="text-right">Events</TableHead>
               <TableHead className="text-right">Signals</TableHead>
@@ -203,9 +210,9 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
           <TableBody>
             {sources.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
                   No sources yet.{" "}
-                  {telegram.connected ? (
+                  {connected ? (
                     "Choose a channel or group above."
                   ) : (
                     <>
@@ -227,6 +234,7 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
                     <div className="text-xs text-muted-foreground">
                       {s.active ? "active" : "disabled"}
                       {s.isQa && " · QA, admins only"}
+                      {(c?.queued ?? 0) > 0 && ` · ${c?.queued} queued`}
                     </div>
                   </TableCell>
                   <TableCell className="text-xs">
@@ -237,6 +245,10 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
                     ) : (
                       s.sourceType
                     )}
+                  </TableCell>
+                  <TableCell>
+                    {s.importStatus ? <StateBadge state={s.importStatus} /> : <span className="text-xs text-muted-foreground">—</span>}
+                    {s.importStatus === "failed" && s.syncError && <div className="mt-1 max-w-56 text-xs text-loss">{s.syncError}</div>}
                   </TableCell>
                   <TableCell className="font-mono text-xs">{s.parserType}</TableCell>
                   <TableCell className="text-right tabular-nums">{c?.events ?? 0}</TableCell>

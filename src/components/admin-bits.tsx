@@ -63,6 +63,8 @@ const PARSE_STYLE: Record<string, string> = {
   ignored: "text-muted-foreground",
   superseded: "text-muted-foreground",
   queued: "text-sky-300 border-sky-400/30",
+  importing: "text-primary border-primary/40",
+  caught_up: "text-win border-win/30",
   running: "text-primary border-primary/40",
   succeeded: "text-win border-win/30",
 };

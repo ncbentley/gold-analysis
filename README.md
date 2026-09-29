@@ -25,7 +25,7 @@ Signals are read from Telegram channels through a Telegram **user account**. A b
 1. On [my.telegram.org/apps](https://my.telegram.org/apps), sign in with that account's phone number and create an application. Any name works. Note the **api_id** and **api_hash**.
 2. In the app, open **Admin, then Telegram** (`/admin/telegram`). Enter the api_id, api_hash and phone number, then click **Send login code**.
 3. Enter the code Telegram sends to the account. If the account has two-step verification, you are asked for its password next.
-4. Join the channel or group in the Telegram app with that account. Then open **Admin, then Sources** (`/admin/sources`). The page lists the channels and groups the account is already in. Choose one, pick a parser and how many recent messages to import (up to 1000), and click **Add source**. The source name is the chat's Telegram title. If Telegram is not connected, Sources says so and links back to the Telegram page.
+4. Join the channel or group in the Telegram app with that account. Then open **Admin, then Sources** (`/admin/sources`). The page lists the channels and groups the account is already in. Choose one, pick a parser and how many recent messages to import (up to 1000), and click **Add source**. The source name is the chat's Telegram title. The row updates immediately: **queued**, then **importing**, then **caught up** or **failed**. Messages show as **queued** on Raw events until a review job reads them. If Telegram is not connected, Sources says so and links back to the Telegram page.
 
 The session is stored encrypted in the database (see `APP_SECRET`), so you only sign in once. New posts arrive live over Telegram's update stream. A catch-up sync also runs every two minutes, so nothing is missed while the server was down: on restart it fetches everything after the last message it saw.
 
@@ -97,7 +97,7 @@ market_bars (1m) ─▶ outcome engine (outcome-v3) ─▶ signal_outcomes (vers
 - **Similar trades** always match on source and direction, then on session, entry type, signal type, weekday and AI pattern tags. The least important criteria are dropped until at least five matches exist. Only trades that closed before the signal count.
 - **AI** only explains computed facts. Prompts are versioned, outputs are schema-validated, and analyses are stored separately from outcomes (`ai_analyses`). The AI never changes an outcome. The same provider also reviews posts the parser could not accept: a confident decision is applied, and a low-confidence or unknown decision stays in the human queue. The default provider is a deterministic mock; set `AI_PROVIDER=openai` to use a real model.
 - **Entitlements** (`src/server/entitlements`) are configurable per tier in `/admin/entitlements`: a feature list plus a history window. They are enforced on the server in `src/server/presenters.ts`, so locked fields are never serialized to the browser or the API.
-- **Jobs** are durable rows in `jobs`, retried with exponential backoff. An in-process scheduler (`src/instrumentation.ts`) runs them. It handles market data sync every minute, Telegram catch-up sync every two minutes, market data backfill, open-trade recalculation, stats refresh, AI analysis and subscription reconciliation.
+- **Jobs** are durable rows in `jobs`, retried with exponential backoff. Docker Compose runs them in a `queue` service beside the app, using the same Postgres, so an app restart does not drop the queue. Review jobs run at most 200 at a time. Telegram history fetches and live updates share a cap of 2. Without Docker, the scheduler in `src/instrumentation.ts` does the same work in-process. It handles market data sync every minute, Telegram catch-up sync every two minutes, market data backfill, open-trade recalculation, stats refresh, AI analysis and subscription reconciliation.
 - **Audit**: every manual change to a signal, outcome, source, entitlement, affiliate link or subscription is written to `audit_logs` with before and after values and a reason.
 
 ## Pages
@@ -146,7 +146,9 @@ Every integration has a local fallback, so nothing is required to run locally. T
 
 ## Deploying
 
-The Telegram client holds a long-lived connection and runs background jobs in-process, so deploy it as a **persistent Node process**: a VPS, Railway, Fly.io, Render or a Docker host. Serverless platforms such as Vercel stop the process between requests, which drops the Telegram connection. Use `DATABASE_URL` with a managed Postgres, set `APP_SECRET`, `APP_URL` and `SEED_ADMIN_PASSWORD`, then run `pnpm build && pnpm start`. The server must be allowed to make outbound connections to Telegram's servers.
+The Telegram client holds a long-lived connection, so deploy it as a **persistent Node process**: a VPS or Docker host. Serverless platforms such as Vercel stop the process between requests, which drops the Telegram connection.
+
+`docker compose up --build` starts Postgres, the app, and the queue service. The queue process is what talks to Telegram and runs jobs. `JOBS_WORKER=off` on the app, so restarting the app leaves queued jobs in Postgres. `APP_SECRET` is generated into a shared volume the first time it is missing and reused after that. It is never rotated. Set `SEED_ADMIN_PASSWORD` (12+ characters) before the first production start. The host must be allowed to make outbound connections to Telegram's servers.
 
 ## Project layout
 

@@ -15,6 +15,7 @@ import { getTierConfig, saveTierConfig } from "@/server/entitlements/service";
 import { ingestRawEvent } from "@/server/ingestion";
 import { enqueueJob, JOB_TYPES, type JobType } from "@/server/jobs/queue";
 import { processJobs, scheduleRecurring } from "@/server/jobs/runner";
+import { markTelegramImportQueued } from "@/server/telegram/import-status";
 import { correctSignal, dismissReview, processRawEvent, resolveReviewWithSignal, type SignalInput } from "@/server/normalization";
 import { clearOverride, overrideOutcome, recalculateOutcome } from "@/server/outcomes/service";
 import { getMarketDataConfig, resetMarketData } from "@/server/market-data";
@@ -30,7 +31,6 @@ import {
   selectJoinedChat,
   signOutTelegram,
   startTelegramLogin,
-  syncTelegramSource,
   telegramStatus,
 } from "@/server/telegram";
 
@@ -59,6 +59,12 @@ const safeReturn = (form: FormData, fallback: string) => {
   return r.startsWith("/admin") ? r : fallback;
 };
 
+/** The queue service runs jobs when JOBS_WORKER=off. The app must not take them. */
+async function runQueued(limit: number) {
+  if (process.env.JOBS_WORKER === "off") return 0;
+  return processJobs(limit);
+}
+
 async function attempt(path: string, fn: () => Promise<string | void>) {
   let message: string | void;
   try {
@@ -76,7 +82,8 @@ export async function runJobsAction(form: FormData) {
   await requireAdmin();
   const path = safeReturn(form, "/admin/jobs");
   await attempt(path, async () => {
-    const n = await processJobs(300);
+    if (process.env.JOBS_WORKER === "off") return "The queue service will run these jobs. Restarting the app does not drop them.";
+    const n = await runQueued(300);
     return `Processed ${n} job${n === 1 ? "" : "s"}.`;
   });
 }
@@ -92,7 +99,7 @@ export async function enqueueJobAction(form: FormData) {
       await enqueueJob(type as JobType, {});
     } else throw new Error("Unknown job type");
     await recordAudit({ actor, entityType: "job", entityId: type, action: "job.enqueued" });
-    await processJobs(300);
+    await runQueued(300);
     return `Queued and ran ${type}.`;
   });
 }
@@ -102,7 +109,7 @@ export async function retryJobAction(form: FormData) {
   await attempt("/admin/jobs", async () => {
     const job = await retryJob(str(form, "id"), actor);
     if (!job) throw new Error("Only failed jobs can be retried.");
-    await processJobs(50);
+    await runQueued(50);
     return `Retried ${job.type}.`;
   });
 }
@@ -169,7 +176,7 @@ export async function ingestManualEventAction(form: FormData) {
     const res = await ingestRawEvent(sourceId, { externalMessageId: str(form, "externalMessageId") || null, rawText, payload, publishedAt });
     if (res.status === "duplicate") return "Duplicate: this event was already recorded.";
     await recordAudit({ actor, entityType: "raw_event", entityId: res.rawEventId, action: "event.manual_ingest" });
-    await processJobs(100);
+    await runQueued(100);
     return "Event recorded and parsed.";
   });
 }
@@ -180,7 +187,7 @@ export async function reparseEventAction(form: FormData) {
   await attempt(safeReturn(form, `/admin/events/${id}`), async () => {
     await processRawEvent(id, actor);
     await recordAudit({ actor, entityType: "raw_event", entityId: id, action: "event.reparsed" });
-    await processJobs(50);
+    await runQueued(50);
     return "Event re-parsed.";
   });
 }
@@ -229,7 +236,7 @@ export async function resolveReviewAction(form: FormData) {
     const reason = reasonOf(form);
     const publishedAt = new Date(str(form, "publishedAt"));
     const signal = await resolveReviewWithSignal(str(form, "rawEventId"), signalInputFrom(form, publishedAt), actor, reason);
-    await processJobs(50);
+    await runQueued(50);
     return `Signal created (${signal.id.slice(0, 8)}).`;
   });
 }
@@ -256,7 +263,7 @@ export async function correctSignalAction(form: FormData) {
     delete patch.instrument;
     if (status === "INVALID") patch.status = "INVALID";
     await correctSignal(id, patch, actor, reason);
-    await processJobs(50);
+    await runQueued(50);
     return status === "INVALID" ? "Signal marked invalid." : "Signal corrected. Outcome recalculated.";
   });
 }
@@ -267,7 +274,7 @@ export async function recalcOutcomeAction(form: FormData) {
   await attempt(`/admin/signals/${id}`, async () => {
     await recalculateOutcome(id, { force: form.get("force") === "on", actor });
     await recordAudit({ actor, entityType: "signal_outcome", entityId: id, action: "outcome.recalculated" });
-    await processJobs(50);
+    await runQueued(50);
     return "Outcome recalculated.";
   });
 }
@@ -283,7 +290,7 @@ export async function overrideOutcomeAction(form: FormData) {
     if (Number.isNaN(r)) throw new Error("R result must be a number.");
     const exit = str(form, "exitTime");
     await overrideOutcome(id, { classification: classification as "WON", rResult: r, exitTime: exit ? new Date(`${exit}Z`) : null }, actor, reason);
-    await processJobs(50);
+    await runQueued(50);
     return "Outcome overridden.";
   });
 }
@@ -293,7 +300,7 @@ export async function clearOverrideAction(form: FormData) {
   const id = str(form, "signalId");
   await attempt(`/admin/signals/${id}`, async () => {
     await clearOverride(id, actor, reasonOf(form));
-    await processJobs(50);
+    await runQueued(50);
     return "Override cleared; computed outcome restored.";
   });
 }
@@ -416,10 +423,9 @@ export async function telegramAddJoinedChatAction(form: FormData) {
     const isQa = form.get("isQa") === "on";
     const res = await addJoinedTelegramChat({ chat, isQa, parserType, backfill }, actor);
     await enqueueJob("TELEGRAM_SYNC", { sourceId: res.sourceId, backfill }, { dedupeKey: `telegram-sync:${res.sourceId}` });
-    await processJobs(backfill + 50);
     const what = isQa ? "QA source" : "Source";
-    if (!res.created) return `${what} ${res.title} was already tracked; it is linked and active again.`;
-    return backfill ? `${what} ${res.title} added. Imported up to ${backfill} recent messages.` : `${what} ${res.title} added. New posts will be captured from now on.`;
+    if (!res.created) return `${what} ${res.title} was already tracked. It is queued to catch up.`;
+    return `${what} ${res.title} is queued. This row shows queued, then importing, then caught up. Messages stay queued until they are read.`;
   });
 }
 
@@ -427,9 +433,9 @@ export async function telegramSyncSourceAction(form: FormData) {
   await requireAdmin();
   await attempt("/admin/telegram", async () => {
     const id = str(form, "sourceId");
-    const res = await syncTelegramSource(id);
-    await processJobs(200);
-    return "ingested" in res ? `Synced: ${res.ingested} new message${res.ingested === 1 ? "" : "s"}.` : "Channel is disabled.";
+    await markTelegramImportQueued(id);
+    await enqueueJob("TELEGRAM_SYNC", { sourceId: id }, { dedupeKey: `telegram-sync:${id}` });
+    return "Sync is queued. The row will show queued, then importing, then caught up.";
   });
 }
 
@@ -457,7 +463,7 @@ export async function saveMarketDataAction(form: FormData) {
       await resetMarketData();
       await enqueueJob("MARKET_DATA_BACKFILL", {}, { dedupeKey: "market-backfill" });
       await enqueueJob("RECALC_ALL_SIGNALS", {}, { dedupeKey: "recalc-all" });
-      void processJobs(500).catch(() => {});
+      void runQueued(500).catch(() => {});
       return "Provider switched. Stored prices were cleared; history is being re-fetched and every outcome recalculated in the background.";
     }
     return "Market data settings saved.";

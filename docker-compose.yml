@@ -1,0 +1,54 @@
+# On-device stack. The queue service uses the same Postgres as the app, so
+# restarting the app leaves queued jobs in place. Not a cloud queue.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gold
+      POSTGRES_PASSWORD: gold
+      POSTGRES_DB: gold
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gold -d gold"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://gold:gold@postgres:5432/gold
+      APP_URL: http://localhost:4317
+      JOBS_WORKER: "off"
+      QUEUE_URL: http://queue:4320
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-local-admin-password}
+    volumes:
+      - app-secret:/data
+    ports:
+      - "4317:4317"
+    restart: unless-stopped
+
+  queue:
+    build: .
+    command: ["pnpm", "exec", "tsx", "scripts/queue-worker.ts"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://gold:gold@postgres:5432/gold
+      JOBS_WORKER: "on"
+      QUEUE_PORT: "4320"
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-local-admin-password}
+    volumes:
+      - app-secret:/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  app-secret:

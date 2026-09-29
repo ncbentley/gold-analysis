@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { listAudit, recordAudit, type Actor } from "@/server/audit";
 import { listAnalysisHistory } from "@/server/ai/service";
 import { getDb } from "@/server/db";
@@ -72,7 +72,8 @@ export async function listRawEvents(f: EventFilters, opts: { limit?: number; off
   const db = await getDb();
   const conds: SQL[] = [];
   if (f.sourceId) conds.push(eq(rawEvents.sourceId, f.sourceId));
-  if (f.status) conds.push(eq(parseResults.status, f.status as never));
+  if (f.status === "queued") conds.push(isNull(parseResults.id));
+  else if (f.status) conds.push(eq(parseResults.status, f.status as never));
   if (f.eventType) conds.push(eq(rawEvents.eventType, f.eventType as never));
   const where = conds.length ? and(...conds) : undefined;
   const q = db
@@ -181,6 +182,13 @@ export async function sourceEventCounts() {
     .from(rawEvents)
     .groupBy(rawEvents.sourceId);
   const sig = await db.select({ sourceId: signals.sourceId, n: sql<number>`count(*)::int` }).from(signals).groupBy(signals.sourceId);
+  const queued = await db
+    .select({ sourceId: rawEvents.sourceId, n: sql<number>`count(*)::int` })
+    .from(rawEvents)
+    .leftJoin(parseResults, and(eq(parseResults.rawEventId, rawEvents.id), eq(parseResults.isCurrent, true)))
+    .where(isNull(parseResults.id))
+    .groupBy(rawEvents.sourceId);
   const sigMap = new Map(sig.map((s) => [s.sourceId, s.n]));
-  return new Map(rows.map((r) => [r.sourceId, { events: r.events, last: r.last ? new Date(r.last) : null, signals: sigMap.get(r.sourceId) ?? 0 }]));
+  const queuedMap = new Map(queued.map((r) => [r.sourceId, r.n]));
+  return new Map(rows.map((r) => [r.sourceId, { events: r.events, last: r.last ? new Date(r.last) : null, signals: sigMap.get(r.sourceId) ?? 0, queued: queuedMap.get(r.sourceId) ?? 0 }]));
 }

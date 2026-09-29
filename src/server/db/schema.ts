@@ -153,6 +153,8 @@ export const sources = pgTable("sources", {
   lastMessageId: integer("last_message_id"),
   lastSyncedAt: ts("last_synced_at"),
   syncError: text("sync_error"),
+  /** queued, then importing, then caught_up or failed. Null on sources added before this column. */
+  importStatus: text("import_status", { enum: ["queued", "importing", "caught_up", "failed"] }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

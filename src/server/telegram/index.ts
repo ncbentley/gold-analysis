@@ -12,9 +12,13 @@ const { computeCheck } = tgPassword;
 import { recordAudit, type Actor } from "@/server/audit";
 import { getDb } from "@/server/db";
 import { sources, type Source } from "@/server/db/schema";
-import { ingestRawEvent } from "@/server/ingestion";
+import { storeRawEvent, type IncomingEvent } from "@/server/ingestion";
+import { withTelegramSlot } from "@/server/jobs/limits";
+import { enqueueJob } from "@/server/jobs/queue";
 import { deleteSetting, getSetting, setSetting, SETTING_KEYS } from "@/server/settings";
-import { listJoinedChats, selectJoinedChat, accessHashOf, chatWithLoadedAccessHash, type JoinedChat } from "./dialogs";
+import { listJoinedChats, accessHashOf, chatWithLoadedAccessHash, type JoinedChat } from "./dialogs";
+import { readHistoryPages } from "./history";
+import { finishImportIfIdle, markTelegramImportFailed, markTelegramImporting } from "./import-status";
 import { parseChannelInput, toIncomingEvent } from "./mapping";
 
 export { selectJoinedChat } from "./dialogs";
@@ -195,11 +199,18 @@ export async function completeTelegramLogin(input: { code?: string; password?: s
   const me = describeUser(user);
   await setSetting(SETTING_KEYS.telegramSession, { session: (p.client.session as StringSession).save(), me } satisfies StoredSession);
   if (st.client && st.client !== p.client) await st.client.destroy().catch(() => {});
-  st.client = p.client;
   st.pending = null;
   st.me = me;
   st.lastError = null;
-  installHandlers(p.client);
+  // The queue service owns the live session. Keeping a second client here can
+  // invalidate the auth key, so the app drops its socket after the session is saved.
+  if (process.env.JOBS_WORKER === "off") {
+    await p.client.destroy().catch(() => {});
+    st.client = null;
+  } else {
+    st.client = p.client;
+    installHandlers(p.client);
+  }
   await recordAudit({ actor, entityType: "telegram", entityId: "account", action: "telegram.signed_in", after: { user: me.username ?? me.id } });
   return { needsPassword: false as const, me };
 }
@@ -293,6 +304,17 @@ async function requireClient() {
 
 /** Channels and groups the connected account is already in. Empty when Telegram is not connected. */
 export async function listJoinedTelegramChats(): Promise<{ connected: true; chats: JoinedChat[] } | { connected: false; chats: [] }> {
+  if (process.env.QUEUE_URL && process.env.JOBS_WORKER === "off") {
+    const secret = process.env.APP_SECRET;
+    if (!secret) throw new Error("APP_SECRET is not set, so this app cannot ask the queue service for Telegram chats.");
+    const res = await fetch(new URL("/telegram/dialogs", process.env.QUEUE_URL), {
+      headers: { "x-app-secret": secret },
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error("The queue service could not list Telegram chats.");
+    const body = (await res.json()) as { connected: boolean; chats: JoinedChat[] };
+    return body.connected ? { connected: true, chats: body.chats } : { connected: false, chats: [] };
+  }
   const client = await connectTelegram();
   if (!client) return { connected: false, chats: [] };
   try {
@@ -379,10 +401,10 @@ async function saveLinkedTelegramSource(ch: ResolvedChannel, input: { name?: str
   if (existing) {
     await db
       .update(sources)
-      .set({ ...linked, active: true, isQa: input.isQa, name: input.name || existing.name, parserType: input.parserType })
+      .set({ ...linked, active: true, isQa: input.isQa, name: input.name || existing.name, parserType: input.parserType, importStatus: "queued" })
       .where(eq(sources.id, existing.id));
     await recordAudit({ actor, entityType: "source", entityId: existing.id, action: "telegram.channel_relinked", after: { channel: ch.username ?? ch.channelId } });
-    return { sourceId: existing.id, created: false, title: ch.title };
+    return { sourceId: existing.id, created: false, title: ch.title, importStatus: "queued" as const };
   }
   const name = (input.name || ch.title).trim().slice(0, 80);
   const [row] = await db
@@ -399,6 +421,7 @@ async function saveLinkedTelegramSource(ch: ResolvedChannel, input: { name?: str
       isQa: input.isQa,
       active: true,
       showRawText: true,
+      importStatus: "queued",
     })
     .returning({ id: sources.id });
   await recordAudit({
@@ -408,7 +431,7 @@ async function saveLinkedTelegramSource(ch: ResolvedChannel, input: { name?: str
     action: "telegram.channel_added",
     after: { channel: ch.username ?? ch.channelId, title: ch.title, isQa: input.isQa, backfill: input.backfill },
   });
-  return { sourceId: row.id, created: true, title: ch.title };
+  return { sourceId: row.id, created: true, title: ch.title, importStatus: "queued" as const };
 }
 
 /**
@@ -498,29 +521,50 @@ const MAX_CATCH_UP = 1000;
 
 async function fetchMessages(client: TelegramClient, source: Source, opts: { minId?: number; limit: number }) {
   const peer = inputPeer(source);
-  const out: Api.Message[] = [];
-  let offsetId = 0;
-  while (out.length < opts.limit) {
-    const batch = await withTimeout(client.getMessages(peer, { limit: Math.min(PAGE, opts.limit - out.length), minId: opts.minId ?? 0, offsetId }));
-    const msgs = batch.filter((m): m is Api.Message => m instanceof Api.Message);
-    out.push(...msgs);
-    if (batch.length < PAGE || !batch.length) break;
-    offsetId = batch[batch.length - 1].id;
-  }
-  return out.sort((a, b) => a.id - b.id);
+  let remaining = opts.limit;
+  const msgs = await readHistoryPages(async (offsetId) => {
+    const ask = Math.min(PAGE, remaining);
+    const batch = await withTimeout(client.getMessages(peer, { limit: ask, minId: opts.minId ?? 0, offsetId }));
+    const items = batch.filter((m): m is Api.Message => m instanceof Api.Message);
+    remaining -= items.length;
+    const nextOffset = batch.length < ask || batch.length === 0 ? null : batch[batch.length - 1].id;
+    return { items, nextOffset };
+  }, opts.limit);
+  return msgs.sort((a, b) => a.id - b.id);
 }
 
-async function ingestMessage(source: Source, msg: Api.Message, edited: boolean) {
-  const event = toIncomingEvent(msg, { channelId: source.telegramChannelId!, username: source.telegramUsername }, { edited });
-  const result = event ? await ingestRawEvent(source.id, event) : null;
+export interface LoadedTelegramMessage {
+  id: number;
+  text: string;
+  date: Date;
+}
+
+let historyLoader: ((source: Source, opts: { backfill?: number }) => Promise<LoadedTelegramMessage[]>) | null = null;
+
+/** Tests supply messages here so a source can be queued without calling Telegram. */
+export function useTelegramHistoryLoader(loader: typeof historyLoader) {
+  historyLoader = loader;
+}
+
+async function queueIncoming(source: Source, event: IncomingEvent | null, messageId: number, edited: boolean) {
   if (!edited) {
     const db = await getDb();
     await db
       .update(sources)
-      .set({ lastMessageId: sql`greatest(coalesce(${sources.lastMessageId}, 0), ${msg.id})`, lastSyncedAt: new Date(), syncError: null })
+      .set({ lastMessageId: sql`greatest(coalesce(${sources.lastMessageId}, 0), ${messageId})`, lastSyncedAt: new Date(), syncError: null })
       .where(eq(sources.id, source.id));
   }
-  return result;
+  if (!event) return null;
+  const stored = await storeRawEvent(source.id, event);
+  if (stored.status === "stored") {
+    await enqueueJob("PROCESS_EVENT", { rawEventId: stored.rawEventId, sourceId: source.id }, { dedupeKey: `event:${stored.rawEventId}` });
+  }
+  return stored;
+}
+
+async function queueTelegramMessage(source: Source, msg: Api.Message, edited: boolean) {
+  const event = toIncomingEvent(msg, { channelId: source.telegramChannelId!, username: source.telegramUsername }, { edited });
+  return queueIncoming(source, event, msg.id, edited);
 }
 
 /**
@@ -532,8 +576,25 @@ export async function syncTelegramSource(sourceId: string, opts: { backfill?: nu
   const [source] = await db.select().from(sources).where(eq(sources.id, sourceId));
   if (!source || source.sourceType !== "telegram") throw new Error("Not a Telegram source");
   if (!source.active) return { ingested: 0, skipped: "inactive" as const };
-  const client = await requireClient();
+  const track = source.importStatus === "queued" || source.importStatus === "importing";
+  if (source.importStatus === "queued") await markTelegramImporting(source.id);
   try {
+    if (historyLoader) {
+      const loaded = await historyLoader(source, opts);
+      let queued = 0;
+      for (const message of loaded) {
+        const stored = await queueIncoming(
+          source,
+          { externalMessageId: String(message.id), rawText: message.text, publishedAt: message.date, payload: { message_id: message.id } },
+          message.id,
+          false,
+        );
+        if (stored?.status === "stored") queued += 1;
+      }
+      if (track) await finishImportIfIdle(source.id);
+      return { ingested: queued, queued };
+    }
+    const client = await requireClient();
     let msgs: Api.Message[];
     if (source.lastMessageId == null) {
       const backfill = Math.max(0, Math.min(opts.backfill ?? 0, MAX_CATCH_UP));
@@ -541,21 +602,24 @@ export async function syncTelegramSource(sourceId: string, opts: { backfill?: nu
       if (backfill === 0) {
         const newest = msgs[msgs.length - 1]?.id ?? 0;
         await db.update(sources).set({ lastMessageId: newest, lastSyncedAt: new Date(), syncError: null }).where(eq(sources.id, source.id));
-        return { ingested: 0 };
+        if (track) await finishImportIfIdle(source.id);
+        return { ingested: 0, queued: 0 };
       }
     } else {
       msgs = await fetchMessages(client, source, { minId: source.lastMessageId, limit: MAX_CATCH_UP });
     }
-    let ingested = 0;
+    let queued = 0;
     for (const m of msgs) {
-      const r = await ingestMessage(source, m, false);
-      if (r?.status === "stored") ingested++;
+      const r = await queueTelegramMessage(source, m, false);
+      if (r?.status === "stored") queued += 1;
     }
-    await db.update(sources).set({ lastSyncedAt: new Date(), syncError: null }).where(eq(sources.id, source.id));
-    return { ingested };
+    if (track) await finishImportIfIdle(source.id);
+    else await db.update(sources).set({ lastSyncedAt: new Date(), syncError: null }).where(eq(sources.id, source.id));
+    return { ingested: queued, queued };
   } catch (err) {
     const message = telegramErrorMessage(err);
     await db.update(sources).set({ syncError: message }).where(eq(sources.id, source.id));
+    if (track) await markTelegramImportFailed(source.id, message);
     throw new Error(message);
   }
 }
@@ -566,13 +630,15 @@ export async function syncAllTelegramSources() {
   const db = await getDb();
   const rows = await db.select({ id: sources.id }).from(sources).where(and(eq(sources.sourceType, "telegram"), eq(sources.active, true)));
   const results: Record<string, number | string> = {};
-  for (const r of rows) {
-    try {
-      results[r.id] = (await syncTelegramSource(r.id)).ingested;
-    } catch (err) {
-      results[r.id] = (err as Error).message;
-    }
-  }
+  await Promise.all(
+    rows.map(async (r) => {
+      try {
+        results[r.id] = (await syncTelegramSource(r.id)).ingested;
+      } catch (err) {
+        results[r.id] = (err as Error).message;
+      }
+    }),
+  );
   return results;
 }
 
@@ -597,17 +663,21 @@ function messagePeerId(msg: Api.Message) {
 
 async function onLiveMessage(msg: Api.Message, edited: boolean) {
   try {
-    const channelId = messagePeerId(msg);
-    if (!channelId) return;
-    const db = await getDb();
-    const [source] = await db
-      .select()
-      .from(sources)
-      .where(and(eq(sources.telegramChannelId, channelId), eq(sources.sourceType, "telegram"), eq(sources.active, true)));
-    if (!source || source.lastMessageId == null) return;
-    await ingestMessage(source, msg, edited);
-    const { processJobs } = await import("@/server/jobs/runner");
-    void processJobs(100).catch(() => {});
+    await withTelegramSlot(async () => {
+      const channelId = messagePeerId(msg);
+      if (!channelId) return;
+      const db = await getDb();
+      const [source] = await db
+        .select()
+        .from(sources)
+        .where(and(eq(sources.telegramChannelId, channelId), eq(sources.sourceType, "telegram"), eq(sources.active, true)));
+      if (!source || source.lastMessageId == null) return;
+      await queueTelegramMessage(source, msg, edited);
+    });
+    if (process.env.JOBS_WORKER !== "off") {
+      const { processJobs } = await import("@/server/jobs/runner");
+      void processJobs(100).catch(() => {});
+    }
   } catch (err) {
     console.error("[telegram] live message failed:", (err as Error).message);
   }

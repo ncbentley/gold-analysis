@@ -14,7 +14,7 @@ Known gaps and next steps after the MVP, roughly in priority order.
 - [ ] **Connect real market data** in `/admin/settings` before members see results. Synthetic prices are for development only.
 - [ ] **Telegram account hygiene.** Use a dedicated account, enable two-step verification on it, and keep it in only the channels you track.
 - [ ] **Shared rate limiting.** Move to Redis or a platform limiter before running more than one instance.
-- [ ] **Dedicated worker.** Run a separate worker process and set `JOBS_WORKER=off` on web instances.
+- [x] **Dedicated worker.** `docker compose` runs the `queue` service and sets `JOBS_WORKER=off` on the app. Jobs stay in Postgres.
 
 ## Product
 

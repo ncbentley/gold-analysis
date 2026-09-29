@@ -15,6 +15,13 @@
       "when": 1790726400000,
       "tag": "0001_consensus_entitlements",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790812800000,
+      "tag": "0002_import_status",
+      "breakpoints": true
     }
   ]
 }
