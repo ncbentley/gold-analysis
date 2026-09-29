@@ -8,7 +8,7 @@ import { getDb, closeDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { auditLogs, parseResults, signalTargets, signals, sources } from "@/server/db/schema";
 import { ingestRawEvent } from "@/server/ingestion";
-import { useQueueReviewClient, type QueueReview, type QueueReviewInput } from "./queue-review";
+import { queueDecisionIsActionable, useQueueReviewClient, type QueueReview, type QueueReviewInput } from "./queue-review";
 
 const T = new Date("2026-04-02T12:00:00Z");
 const FIRST = "buy and sell gold 3350 sl 3340 tp 3360";
@@ -31,6 +31,11 @@ function answer(patch: Partial<QueueReview>): QueueReview {
   };
 }
 
+function answered(patch: Partial<QueueReview>) {
+  const review = answer(patch);
+  return { review, sentToLarger: false, smallDeclined: !queueDecisionIsActionable(review) };
+}
+
 beforeAll(async () => {
   await runMigrations();
   const db = await getDb();
@@ -44,7 +49,7 @@ beforeAll(async () => {
       calls.push(input.rawText);
       if (input.rawText === SIMILAR) throw new Error("model called for a post the learned pattern should handle");
       if (input.rawText === FIRST) {
-        return answer({
+        return answered({
           decision: "apply",
           confidence: 0.93,
           reason: "Limit entry with a stop and a target.",
@@ -52,8 +57,8 @@ beforeAll(async () => {
           entryType: "LIMIT",
         });
       }
-      if (input.rawText.includes("tp 3410")) return answer({ decision: "apply", confidence: 0.42, reason: "Stop is missing." });
-      if (input.rawText.includes("confirm")) return answer({ decision: "unknown", confidence: 0.99, reason: "Cannot tell." });
+      if (input.rawText.includes("tp 3410")) return answered({ decision: "apply", confidence: 0.42, reason: "Stop is missing." });
+      if (input.rawText.includes("confirm")) return answered({ decision: "unknown", confidence: 0.99, reason: "Cannot tell." });
       throw new Error(`unexpected model call: ${input.rawText}`);
     },
   });

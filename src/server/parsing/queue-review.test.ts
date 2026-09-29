@@ -2,15 +2,20 @@ import { describe, expect, it } from "vitest";
 import { parseEvent, REVIEW_THRESHOLD } from "./index";
 import { lessonFromModel, messagePattern, replayLearnedLesson } from "./pattern";
 import { chatUserContent } from "@/server/ai/providers/openai";
+import { DEEPINFRA_DEFAULT_MODEL, DEEPINFRA_LARGE_REVIEW_MODEL } from "@/server/ai/backend";
 import {
   QUEUE_REVIEW_MIN_CONFIDENCE,
   QUEUE_REVIEW_SYSTEM,
+  SMALL_MODEL_DECLINED,
   coerceQueueReview,
   queueDecisionIsActionable,
   queueReviewSchema,
+  reviewWithEscalation,
   signalFromQueueReview,
+  smallModelAlreadyAnswered,
   unknownQueueReview,
   type QueueReview,
+  type QueueReviewInput,
 } from "./queue-review";
 
 const at = new Date("2026-03-02T12:00:00Z");
@@ -90,6 +95,88 @@ describe("queue review confidence", () => {
       properties: { decision: { type: "string", enum: ["apply", "dismiss", "correct", "unknown"] } },
     });
     expect(queueReviewSchema.safeParse(echoed).success).toBe(false);
+  });
+});
+
+const escalationInput: QueueReviewInput = {
+  rawText: "GOLD BUY 4370",
+  eventType: "NEW_SIGNAL",
+  parserConfidence: 0.9,
+  issues: [],
+  draft: null,
+  marketPrice: 4370,
+  learnedPatterns: [],
+};
+
+describe("larger model review", () => {
+  it("asks the 70B model when the small model does not decide", async () => {
+    const calls: string[] = [];
+    const result = await reviewWithEscalation(
+      escalationInput,
+      async (model) => {
+        calls.push(model);
+        if (model === DEEPINFRA_DEFAULT_MODEL) return unknownQueueReview("unsure");
+        return review({ decision: "dismiss", confidence: 0.95, reason: "Not a trade." });
+      },
+      { smallAlreadyAnswered: false },
+    );
+    expect(DEEPINFRA_LARGE_REVIEW_MODEL).toMatch(/70B/);
+    expect(calls).toEqual([DEEPINFRA_DEFAULT_MODEL, DEEPINFRA_LARGE_REVIEW_MODEL]);
+    expect(result.sentToLarger).toBe(true);
+    expect(result.review.decision).toBe("dismiss");
+  });
+
+  it("goes straight to the larger model when the small model already answered", async () => {
+    const calls: string[] = [];
+    const result = await reviewWithEscalation(
+      escalationInput,
+      async (model) => {
+        calls.push(model);
+        return review({ decision: "apply", confidence: 0.2, reason: "Still unsure." });
+      },
+      { smallAlreadyAnswered: true },
+    );
+    expect(calls).toEqual([DEEPINFRA_LARGE_REVIEW_MODEL]);
+    expect(result.sentToLarger).toBe(true);
+    expect(result.smallDeclined).toBe(true);
+    expect(queueDecisionIsActionable(result.review)).toBe(false);
+  });
+
+  it("keeps a decisive small-model answer and does not call the larger model", async () => {
+    const calls: string[] = [];
+    const result = await reviewWithEscalation(
+      escalationInput,
+      async (model) => {
+        calls.push(model);
+        return review({ decision: "dismiss", confidence: 0.91, reason: "Chat." });
+      },
+      { smallAlreadyAnswered: false },
+    );
+    expect(calls).toEqual([DEEPINFRA_DEFAULT_MODEL]);
+    expect(result.sentToLarger).toBe(false);
+  });
+
+  it("remembers that the small model already declined", () => {
+    expect(smallModelAlreadyAnswered([SMALL_MODEL_DECLINED])).toBe(true);
+    expect(smallModelAlreadyAnswered(["Direction is missing or contradictory."])).toBe(false);
+  });
+
+  it("lets a bare entry stay a signal with an empty stop and no targets", () => {
+    expect(QUEUE_REVIEW_SYSTEM).toMatch(/bare entry/i);
+    expect(QUEUE_REVIEW_SYSTEM).toMatch(/do not invent a stop or target/i);
+    const parsed = parseEvent("text-generic", { rawText: "GOLD BUY 4370", payload: null, publishedAt: at });
+    const fields = signalFromQueueReview(
+      parsed,
+      review({
+        reason: "Bare buy at 4370.",
+        entryMin: 4370,
+        entryMax: 4370,
+        stopLoss: null,
+        targets: [],
+      }),
+      "GOLD BUY 4370",
+    );
+    expect(fields).toMatchObject({ direction: "LONG", entryMin: 4370, entryMax: 4370, stopLoss: null, targets: [] });
   });
 });
 

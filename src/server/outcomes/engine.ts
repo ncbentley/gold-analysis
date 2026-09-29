@@ -45,10 +45,11 @@ export interface OutcomeRules {
 }
 
 export const OUTCOME_RULES: OutcomeRules = {
-  version: "outcome-v3",
+  version: "outcome-v4",
   barMs: 60_000,
   defaultExpiryMinutes: 24 * 60,
-  maxHoldMinutes: 7 * 24 * 60,
+  /** A filled trade stays open until a stop, a target, or a source close. No clock exit. */
+  maxHoldMinutes: Number.POSITIVE_INFINITY,
   breakevenBandR: 0.05,
   breakevenBandPrice: 0.1,
   maxQuoteDistance: 80,
@@ -250,7 +251,7 @@ export function evaluateSignal(
   let currentStop = base.finalStop;
   const risk = signal.stopLoss !== null && Math.abs(entry - signal.stopLoss) > 0 ? Math.abs(entry - signal.stopLoss) : null;
   if (signal.stopLoss === null) notes.push("No stop loss: R metrics are not computed for this signal.");
-  if (signal.targets.length === 0) notes.push("No targets: the trade exits only on stop, source close, or timeout.");
+  if (signal.targets.length === 0) notes.push("No targets: the trade stays open until a stop or a source close.");
 
   const portionCount = Math.max(signal.targets.length, 1);
   const weight = 1 / portionCount;
@@ -308,7 +309,7 @@ export function evaluateSignal(
         }
       }
       if (remaining === 0) break;
-      if (bar.t >= maxHoldUntil) {
+      if (Number.isFinite(rules.maxHoldMinutes) && bar.t >= maxHoldUntil) {
         timeline.push({ t: bar.t, type: "TIMEOUT", price: round(bar.o) });
         closeRemaining(bar.o, bar.t, "TIMEOUT");
         break;

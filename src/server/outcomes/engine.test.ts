@@ -208,6 +208,16 @@ describe("source adjustments", () => {
 });
 
 describe("missing fields", () => {
+  it("keeps a filled trade open when bars have not hit a stop, target, or source close", () => {
+    const out = evaluateSignal(
+      { ...longZone, stopLoss: null, targets: [] },
+      bars([100, 100, 99, 100], [100, 102, 99, 101], [101, 103, 100, 102]),
+    );
+    expect(out.entered).toBe(true);
+    expect(out.status).toBe("ACTIVE");
+    expect(out.exitReason).toBeNull();
+  });
+
   it("evaluates signals without a stop but leaves R metrics empty", () => {
     const out = evaluateSignal(
       { ...longZone, stopLoss: null, targets: [105] },

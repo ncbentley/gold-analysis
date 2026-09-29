@@ -61,7 +61,7 @@ describe("adding a telegram source", () => {
       { id: 11, text: "XAUUSD BUY 3350\nSL 3340\nTP 3360", date: new Date("2026-04-02T12:00:00Z") },
       { id: 12, text: "morning note, no trade", date: new Date("2026-04-02T12:01:00Z") },
     ]);
-    useQueueReviewClient({ async review() { return unknown(); } });
+    useQueueReviewClient({ async review() { return { review: unknown(), sentToLarger: false, smallDeclined: true }; } });
 
     await enqueueJob("TELEGRAM_SYNC", { sourceId: created.sourceId, backfill: 2 }, { dedupeKey: `telegram-sync:${created.sourceId}` });
     await processJobs(10, ["TELEGRAM_SYNC"]);
