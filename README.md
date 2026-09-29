@@ -103,7 +103,7 @@ market_bars (1m) ─▶ outcome engine (outcome-v3) ─▶ signal_outcomes (vers
 ## Pages
 
 - **Public:** `/`, `/pricing`, `/login`, `/signup`, `/forgot-password`, `/terms`, `/privacy`
-- **Members:** `/dashboard`, `/signals`, `/signals/:id`, `/sources`, `/sources/:slug`, `/billing`, `/account`
+- **Members:** `/dashboard`, `/signals`, `/signals/:id`, `/billing`, `/account`
 - **Admin:** `/admin`, `/admin/telegram`, `/admin/review`, `/admin/events`, `/admin/signals`, `/admin/sources`, `/admin/jobs`, `/admin/entitlements`, `/admin/affiliates`, `/admin/audit`, `/admin/settings`
 
 ## API

@@ -1,4 +1,5 @@
 import type { EventType } from "@/server/db/schema";
+import { withInferredDirection } from "../direction";
 import { expandShortTail } from "../quote-sanity";
 import type { FieldValue, ParseInput, ParseOutput, ParsedSignalFields, SignalParser } from "../types";
 import { finalizeSignal } from "../validate";
@@ -119,6 +120,28 @@ function detectEntry(text: string) {
     // "BUY 3350" could mean a market order or a resting limit; flag for review.
     return { entryType: f<"MARKET" | "LIMIT" | "ZONE">("LIMIT", 0.6), entryMin: f(p, 0.7), entryMax: f(p, 0.7) };
   }
+  return leadingEntry(text);
+}
+
+/** First gold price before a stop or target label, for posts that never say buy or sell. */
+function leadingEntry(text: string) {
+  const head = text.split(/\b(?:tp\d?|t\/p|targets?|take\s*profits?|sl|s\/l|stop(?:\s*loss)?)\b/i)[0] ?? text;
+  const zoned = pairZone(head);
+  if (zoned) {
+    const [a, b] = zoned;
+    return {
+      entryType: f<"MARKET" | "LIMIT" | "ZONE">("ZONE", 0.95),
+      entryMin: f(Math.min(a, b), 0.95),
+      entryMax: f(Math.max(a, b), 0.95),
+    };
+  }
+  const bare = head.match(new RegExp(NUM));
+  if (bare) {
+    const price = num(bare[1]);
+    if (isGoldLevel(price)) {
+      return { entryType: f<"MARKET" | "LIMIT" | "ZONE">("LIMIT", 0.9), entryMin: f(price, 0.9), entryMax: f(price, 0.9) };
+    }
+  }
   return { entryType: f<"MARKET" | "LIMIT" | "ZONE">(null, 0), entryMin: f<number>(null, 0), entryMax: f<number>(null, 0) };
 }
 
@@ -179,7 +202,7 @@ function detectInstructionEvent(text: string): ParseOutput["instruction"] & { ev
 
 export const textGenericParser: SignalParser = {
   type: "text-generic",
-  version: "text-generic-v3",
+  version: "text-generic-v4",
   parse(input: ParseInput): ParseOutput {
     const text = input.rawText.normalize("NFKC");
     const referencesExternalId =
@@ -206,7 +229,7 @@ export const textGenericParser: SignalParser = {
       return { ...base, eventType: "COMMENT", signal: null, instruction: null, issues: ["No entry price; treated as commentary."], confidence: 1 };
     }
 
-    // A message without a trade direction is an instruction or commentary.
+    // A message without a trade direction is an instruction, a price-implied signal, or commentary.
     if (direction.value === null && direction.confidence === 0) {
       if (instruction.eventType) {
         const { eventType, ...rest } = instruction;
@@ -216,14 +239,19 @@ export const textGenericParser: SignalParser = {
         return { ...base, eventType, signal: null, instruction: rest, issues, confidence };
       }
       const tradeLabels = /\b(?:sl|s\/l|stop\s*loss|take\s*profit|tp\s*\d)\b/i.test(text) && hasGoldPrice(text);
-      return {
-        ...base,
-        eventType: "COMMENT",
-        signal: null,
-        instruction: null,
-        issues: tradeLabels ? ["Contains prices but no direction; treated as commentary."] : [],
-        confidence: tradeLabels ? 0.6 : 1,
-      };
+      if (tradeLabels) {
+        const inferred = withInferredDirection(signalFields(text, direction));
+        const { signal, issues, confidence } = finalizeSignal(inferred.fields);
+        return {
+          ...base,
+          eventType: "NEW_SIGNAL",
+          signal,
+          instruction: null,
+          issues: [...inferred.notes, ...issues],
+          confidence,
+        };
+      }
+      return { ...base, eventType: "COMMENT", signal: null, instruction: null, issues: [], confidence: 1 };
     }
 
     if (instruction.eventType && instruction.eventType !== "TARGET_HIT" && !detectStop(text).value) {
@@ -231,26 +259,30 @@ export const textGenericParser: SignalParser = {
       return { ...base, eventType: eventType!, signal: null, instruction: rest, issues: [], confidence: 0.9 };
     }
 
-    const entry = detectEntry(text);
-    let targets = detectTargets(text);
-    const pips = detectPipDistances(text);
-    if ((targets.value?.length ?? 0) === 0 && pips && entry.entryMin.value !== null && entry.entryMax.value !== null && direction.value) {
-      const anchor = direction.value === "LONG" ? entry.entryMax.value : entry.entryMin.value;
-      const sign = direction.value === "LONG" ? 1 : -1;
-      targets = f(pips.map((pipsAway) => Math.round((anchor + sign * pipsAway * GOLD_PIP) * 100) / 100), 0.9);
-    }
-    const fields: ParsedSignalFields = {
-      instrument: detectInstrument(text),
-      direction,
-      entryType: entry.entryType,
-      entryMin: entry.entryMin,
-      entryMax: entry.entryMax,
-      stopLoss: detectStop(text),
-      targets,
-      signalType: detectSignalType(text),
-      sourceConfidenceText: detectConfidenceText(text),
-    };
+    const fields = signalFields(text, direction);
     const { signal, issues, confidence } = finalizeSignal(fields);
     return { ...base, eventType: "NEW_SIGNAL", signal, instruction: null, issues, confidence };
   },
 };
+
+function signalFields(text: string, direction: FieldValue<"LONG" | "SHORT">): ParsedSignalFields {
+  const entry = detectEntry(text);
+  let targets = detectTargets(text);
+  const pips = detectPipDistances(text);
+  if ((targets.value?.length ?? 0) === 0 && pips && entry.entryMin.value !== null && entry.entryMax.value !== null && direction.value) {
+    const anchor = direction.value === "LONG" ? entry.entryMax.value : entry.entryMin.value;
+    const sign = direction.value === "LONG" ? 1 : -1;
+    targets = f(pips.map((pipsAway) => Math.round((anchor + sign * pipsAway * GOLD_PIP) * 100) / 100), 0.9);
+  }
+  return {
+    instrument: detectInstrument(text),
+    direction,
+    entryType: entry.entryType,
+    entryMin: entry.entryMin,
+    entryMax: entry.entryMax,
+    stopLoss: detectStop(text),
+    targets,
+    signalType: detectSignalType(text),
+    sourceConfidenceText: detectConfidenceText(text),
+  };
+}

@@ -698,8 +698,6 @@ Member:
 - `/dashboard`
 - `/signals`
 - `/signals/:id`
-- `/sources`
-- `/sources/:id`
 - `/account`
 - `/billing`
 

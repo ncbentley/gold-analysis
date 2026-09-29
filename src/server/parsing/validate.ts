@@ -1,3 +1,4 @@
+import { repairWrongSidePrices, type DigitEdit } from "./repair";
 import type { ParsedSignalFields } from "./types";
 
 const PLAUSIBLE_GOLD = { min: 500, max: 20_000 };
@@ -6,9 +7,11 @@ const PLAUSIBLE_GOLD = { min: 500, max: 20_000 };
  * Validates required fields and price geometry. Never fills in missing prices;
  * it only lowers confidence and records issues so the event can go to manual review.
  */
-export function finalizeSignal(fields: ParsedSignalFields) {
+export function finalizeSignal(fields: ParsedSignalFields, lessons: DigitEdit[] = []) {
   const issues: string[] = [];
-  const s: ParsedSignalFields = JSON.parse(JSON.stringify(fields));
+  const repaired = repairWrongSidePrices(fields, lessons);
+  const s = repaired.fields;
+  issues.push(...repaired.notes);
 
   if (s.direction.value === null) issues.push("Direction is missing or contradictory.");
   if (s.entryMin.value === null || s.entryMax.value === null) {

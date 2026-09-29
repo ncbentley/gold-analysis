@@ -112,6 +112,50 @@ describe("text-generic parser", () => {
     expect(text("WINNER ANNOUNCED $20,000 GIVEAWAY UID 45200739").confidence).toBeGreaterThanOrEqual(0.7);
   });
 
+  it("derives direction from prices when the post never says buy or sell", () => {
+    const out = text("GOLD 4290/4287 TP 4300 TP 4305 SL 4280");
+    expect(out.eventType).toBe("NEW_SIGNAL");
+    expect(out.signal?.direction.value).toBe("LONG");
+    expect(out.signal?.entryType.value).toBe("ZONE");
+    expect(out.signal?.entryMin.value).toBe(4287);
+    expect(out.signal?.entryMax.value).toBe(4290);
+    expect(out.signal?.stopLoss.value).toBe(4280);
+    expect(out.signal?.targets.value).toEqual([4300, 4305]);
+    expect(out.issues.join(" ")).not.toMatch(/treated as commentary/);
+    expect(out.issues.join(" ")).toMatch(/Direction inferred from prices/);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("derives a short when the stop is above the zone and the target is below it", () => {
+    const out = text("GOLD 4190/4192 TP 4180 SL 4200");
+    expect(out.eventType).toBe("NEW_SIGNAL");
+    expect(out.signal?.direction.value).toBe("SHORT");
+    expect(out.signal?.entryMin.value).toBe(4190);
+    expect(out.signal?.stopLoss.value).toBe(4200);
+    expect(out.signal?.targets.value).toEqual([4180]);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("repairs a one-digit target sitting on the wrong side of a short", () => {
+    const out = text("GOLD SELL LIMIT 4190\nTP 4280\nSL 4210");
+    expect(out.signal?.direction.value).toBe("SHORT");
+    expect(out.signal?.entryMin.value).toBe(4190);
+    expect(out.signal?.stopLoss.value).toBe(4210);
+    expect(out.signal?.targets.value).toEqual([4180]);
+    expect(out.issues.join(" ")).toMatch(/Repaired target 4280 to 4180/);
+    expect(out.issues.join(" ")).not.toMatch(/wrong side/);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("keeps contradictory prices as a signal instead of commentary", () => {
+    const out = text("GOLD 4190 TP 4300 SL 4200");
+    expect(out.eventType).toBe("NEW_SIGNAL");
+    expect(out.signal).not.toBeNull();
+    expect(out.issues.join(" ")).not.toMatch(/treated as commentary/);
+    expect(out.issues.join(" ")).toMatch(/Direction is missing or contradictory/);
+    expect(out.confidence).toBeLessThan(REVIEW_THRESHOLD);
+  });
+
   it("ignores non-gold instruments", () => {
     const out = text("EURUSD BUY 1.0850 SL 1.0800");
     expect(out.eventType).toBe("COMMENT");
