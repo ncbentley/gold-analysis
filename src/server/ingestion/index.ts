@@ -12,6 +12,10 @@ export interface IncomingEvent {
   publishedAt?: Date;
 }
 
+export type StoredEvent =
+  | { status: "duplicate"; rawEventId: string; reason: "external_id" | "content_hash" }
+  | { status: "stored"; rawEventId: string };
+
 export type IngestResult =
   | { status: "duplicate"; rawEventId: string; reason: "external_id" | "content_hash" }
   | { status: "stored"; rawEventId: string; parse: Awaited<ReturnType<typeof processRawEvent>> };
@@ -21,10 +25,11 @@ export function contentHashFor(sourceId: string, e: { rawText: string; payload: 
 }
 
 /**
- * Stores a raw source event exactly as received (after stripping control characters),
- * rejects duplicates by external id or content hash, then parses and normalizes it.
+ * Stores a raw source event exactly as received (after stripping control characters)
+ * and rejects duplicates by external id or content hash. Parsing is separate, so a
+ * Telegram import can show the message as queued before a review job reads it.
  */
-export async function ingestRawEvent(sourceId: string, incoming: IncomingEvent): Promise<IngestResult> {
+export async function storeRawEvent(sourceId: string, incoming: IncomingEvent): Promise<StoredEvent> {
   const db = await getDb();
   const [source] = await db.select().from(sources).where(eq(sources.id, sourceId));
   if (!source) throw new Error("Unknown source");
@@ -55,9 +60,8 @@ export async function ingestRawEvent(sourceId: string, incoming: IncomingEvent):
     eventType = null;
   }
 
-  let event: RawEvent;
   try {
-    [event] = await db
+    const [event] = await db
       .insert(rawEvents)
       .values({
         sourceId,
@@ -68,7 +72,8 @@ export async function ingestRawEvent(sourceId: string, incoming: IncomingEvent):
         eventType,
         contentHash,
       })
-      .returning();
+      .returning({ id: rawEvents.id });
+    return { status: "stored", rawEventId: event.id };
   } catch (err) {
     // A concurrent insert of the same event lost the race on the unique index.
     const [existing] = await db
@@ -78,7 +83,12 @@ export async function ingestRawEvent(sourceId: string, incoming: IncomingEvent):
     if (existing) return { status: "duplicate", rawEventId: existing.id, reason: "content_hash" };
     throw err;
   }
+}
 
-  const parse = await processRawEvent(event.id);
-  return { status: "stored", rawEventId: event.id, parse };
+/** Stores a raw event, then parses and normalizes it in this process. */
+export async function ingestRawEvent(sourceId: string, incoming: IncomingEvent): Promise<IngestResult> {
+  const stored = await storeRawEvent(sourceId, incoming);
+  if (stored.status === "duplicate") return stored;
+  const parse = await processRawEvent(stored.rawEventId);
+  return { status: "stored", rawEventId: stored.rawEventId, parse };
 }

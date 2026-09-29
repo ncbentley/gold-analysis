@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ingestManualEventAction } from "@/app/actions/admin";
 import { Field, NativeSelect, Notice, StateBadge } from "@/components/admin-bits";
+import { ImportProgressRefresh } from "@/components/import-progress";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,10 +12,11 @@ import { fmtDateTime } from "@/lib/format";
 import { listRawEvents } from "@/server/admin";
 import { requireAdmin } from "@/server/auth/guards";
 import { listSources } from "@/server/signals/queries";
+import { messageQueueState } from "@/server/telegram/import-status";
 
 export const metadata = { title: "Raw events" };
 
-const STATUSES = ["applied", "needs_review", "failed", "ignored", "resolved"];
+const STATUSES = ["queued", "applied", "needs_review", "failed", "ignored", "resolved"];
 const PAGE = 50;
 
 export default async function EventsPage({ searchParams }: PageProps<"/admin/events">) {
@@ -32,6 +34,7 @@ export default async function EventsPage({ searchParams }: PageProps<"/admin/eve
   return (
     <>
       <PageHeader title="Raw events" description="Every message exactly as received. Raw events are never edited; re-parsing creates a new parse result." />
+      <ImportProgressRefresh active={sources.some((s) => s.importStatus === "queued" || s.importStatus === "importing") || filters.status === "queued"} />
       <Notice searchParams={sp} />
 
       <form className="mb-4 flex flex-wrap items-end gap-2">
@@ -91,7 +94,7 @@ export default async function EventsPage({ searchParams }: PageProps<"/admin/eve
                 </TableCell>
                 <TableCell className="text-xs">{parse?.eventType ?? event.eventType ?? "—"}</TableCell>
                 <TableCell>
-                  <StateBadge state={parse?.status} />
+                  <StateBadge state={messageQueueState(parse?.status)} />
                 </TableCell>
               </TableRow>
             ))}

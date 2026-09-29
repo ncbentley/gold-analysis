@@ -1,0 +1,57 @@
+/**
+ * On-device queue service. Jobs live in Postgres, so restarting the app
+ * does not drop them. This process keeps running beside the app.
+ */
+import "dotenv/config";
+import { timingSafeEqual } from "node:crypto";
+import { createServer } from "node:http";
+import { runMigrations } from "@/server/db/migrate";
+import { startWorker } from "@/server/jobs/worker";
+
+function authorized(header: string | string[] | undefined, secret: string) {
+  const value = Array.isArray(header) ? header[0] : header;
+  if (!value) return false;
+  const got = Buffer.from(value);
+  const expected = Buffer.from(secret);
+  if (got.length !== expected.length) return false;
+  return timingSafeEqual(got, expected);
+}
+
+async function main() {
+  await runMigrations();
+  const port = Number(process.env.QUEUE_PORT ?? 4320);
+  const secret = process.env.APP_SECRET ?? "";
+  createServer(async (req, res) => {
+    if (req.url === "/health") {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("ok");
+      return;
+    }
+    if (!secret || !authorized(req.headers["x-app-secret"], secret)) {
+      res.writeHead(401, { "content-type": "text/plain" });
+      res.end("unauthorized");
+      return;
+    }
+    if (req.method === "GET" && req.url === "/telegram/dialogs") {
+      try {
+        const { listJoinedTelegramChats } = await import("@/server/telegram");
+        const listed = await listJoinedTelegramChats();
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ connected: listed.connected, chats: listed.chats }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "text/plain" });
+        res.end(err instanceof Error ? err.message : "telegram list failed");
+      }
+      return;
+    }
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("not found");
+  }).listen(port, "0.0.0.0");
+  console.log(`[queue] listening on ${port}`);
+  startWorker();
+}
+
+main().catch((err) => {
+  console.error("[queue] failed to start:", err instanceof Error ? err.message : "error");
+  process.exit(1);
+});

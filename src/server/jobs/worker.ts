@@ -15,14 +15,14 @@ export function startWorker() {
   const safe = (label: string, fn: () => Promise<unknown>) => () => {
     fn().catch((err) => console.error(`[worker] ${label} failed:`, (err as Error).message));
   };
-  const tick = safe("process", () => processJobs(200));
+  const tick = safe("process", () => processJobs(1000));
   const minute = safe("minute", async () => {
     await scheduleRecurring("minute");
-    await processJobs(200);
+    await processJobs(1000);
   });
   const telegram = safe("telegram", async () => {
     await scheduleRecurring("telegram");
-    await processJobs(200);
+    await processJobs(1000);
   });
   const hourly = safe("hourly", () => scheduleRecurring("hourly"));
 
@@ -32,10 +32,10 @@ export function startWorker() {
     await connectTelegram();
     await scheduleRecurring("telegram");
     await scheduleRecurring("hourly");
-    await processJobs(200);
+    await processJobs(1000);
   })();
 
-  setInterval(tick, 15_000).unref();
+  setInterval(tick, 2_000).unref();
   setInterval(minute, 60_000).unref();
   setInterval(telegram, 2 * 60_000).unref();
   setInterval(hourly, 60 * 60_000).unref();

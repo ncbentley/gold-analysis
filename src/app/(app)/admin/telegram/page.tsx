@@ -7,7 +7,8 @@ import {
   telegramSyncSourceAction,
   telegramVerifyAction,
 } from "@/app/actions/admin";
-import { Field, Notice } from "@/components/admin-bits";
+import { Field, Notice, StateBadge } from "@/components/admin-bits";
+import { ImportProgressRefresh } from "@/components/import-progress";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -27,7 +28,8 @@ export default async function AdminTelegramPage({ searchParams }: PageProps<"/ad
   await requireAdmin();
   const sp = await searchParams;
   let status = await telegramStatus();
-  if (status.signedIn && !status.connected && !status.pending) {
+  const queueOwnsTelegram = process.env.JOBS_WORKER === "off" && Boolean(process.env.QUEUE_URL);
+  if (!queueOwnsTelegram && status.signedIn && !status.connected && !status.pending) {
     await Promise.race([connectTelegram(), new Promise((r) => setTimeout(r, 4000))]);
     status = await telegramStatus();
   }
@@ -41,6 +43,7 @@ export default async function AdminTelegramPage({ searchParams }: PageProps<"/ad
         title="Telegram"
         description="Signals are captured through a Telegram user account. Connect it here. Channels and groups it has already joined are added from Sources."
       />
+      <ImportProgressRefresh active={channels.some((s) => s.importStatus === "queued" || s.importStatus === "importing")} />
       <Notice searchParams={sp} />
 
       <div className="grid gap-4 lg:grid-cols-5">
@@ -207,6 +210,7 @@ export default async function AdminTelegramPage({ searchParams }: PageProps<"/ad
                       {s.name}
                       {s.isQa && <Badge variant="secondary">QA</Badge>}
                       {!s.active && <Badge variant="outline">disabled</Badge>}
+                      {s.importStatus && <StateBadge state={s.importStatus} />}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {s.telegramUsername ? (
