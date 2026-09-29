@@ -36,7 +36,14 @@ export default async function AdminSignalsPage({ searchParams }: PageProps<"/adm
         </Suspense>
       </div>
       <div className="mb-2 text-xs text-muted-foreground">{result.total.toLocaleString()} signals</div>
-      <SignalList items={result.items} hrefBase="/admin/signals" />
+      <SignalList
+        items={result.items.map((item) => {
+          const source = sources.find((s) => s.id === item.source.id);
+          return source ? { ...item, source: { ...item.source, name: source.name, isQa: source.isQa } } : item;
+        })}
+        hrefBase="/admin/signals"
+        showSource
+      />
       <div className="mt-3 flex justify-between text-sm">
         {page > 1 ? <Link href={pageHref(page - 1)} className="text-primary hover:underline">Previous</Link> : <span />}
         {page * PAGE < result.total && <Link href={pageHref(page + 1)} className="text-primary hover:underline">Next</Link>}

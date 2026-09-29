@@ -1,4 +1,3 @@
-import { ArrowRight } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AffiliateStrip } from "@/components/affiliate-strip";
@@ -6,7 +5,6 @@ import { LockedPanel } from "@/components/locked";
 import { PageHeader } from "@/components/page-header";
 import { RValue, Stat } from "@/components/signal-bits";
 import { SignalList } from "@/components/signal-list";
-import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtAge, fmtPct, fmtPrice } from "@/lib/format";
 import { can, lowestTierWith } from "@/server/entitlements/access";
@@ -107,12 +105,7 @@ export default async function DashboardPage() {
           {sourceCards.map(({ source, stats }) => (
             <Card key={source.id} className="bg-card/60">
               <CardHeader>
-                <CardTitle className="flex items-center justify-between text-base">
-                  How this source performed
-                  <Link href={`/sources/${source.id}`} className={buttonVariants({ variant: "ghost", size: "icon-sm" })} aria-label="Open this source">
-                    <ArrowRight />
-                  </Link>
-                </CardTitle>
+                <CardTitle className="text-base">How this source performed</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-xs text-muted-foreground">

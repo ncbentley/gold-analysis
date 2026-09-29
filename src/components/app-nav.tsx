@@ -31,7 +31,6 @@ import { cn } from "@/lib/utils";
 const MEMBER = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/signals", label: "Signals", icon: Activity },
-  { href: "/sources", label: "Sources", icon: Radio },
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/account", label: "Account", icon: User },
 ];
