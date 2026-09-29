@@ -16,11 +16,12 @@ import { requireAdmin } from "@/server/auth/guards";
 import { PARSER_TYPES } from "@/server/parsing";
 import { listSources } from "@/server/signals/queries";
 import { connectTelegram, listJoinedTelegramChats, telegramStatus, type JoinedChat } from "@/server/telegram";
+import { joinableTelegramChats } from "@/server/telegram/joinable";
 
-function chatOptionLabel(chat: JoinedChat, tracked: boolean) {
+function chatOptionLabel(chat: JoinedChat) {
   const kind = chat.kind === "channel" ? "Channel" : "Group";
   const handle = chat.username ? ` (@${chat.username})` : "";
-  return `${chat.title}${handle} · ${kind}${tracked ? " · already tracked" : ""}`;
+  return `${chat.title}${handle} · ${kind}`;
 }
 
 export const metadata = { title: "Sources" };
@@ -52,6 +53,7 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
     }
   }
   const trackedIds = new Set(sources.map((s) => s.telegramChannelId).filter((id): id is string => Boolean(id)));
+  const availableChats = joinableTelegramChats(joinedChats, trackedIds);
   const editId = typeof sp.edit === "string" ? sp.edit : null;
   const editing = editId && editId !== "new" ? sources.find((s) => s.id === editId) ?? null : null;
   const showForm = editId === "new" || editing;
@@ -92,18 +94,20 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
           {connected && !listError && joinedChats.length === 0 && (
             <p className="text-sm text-muted-foreground">This account is not in any channels or groups. Join one in Telegram, then reload this page.</p>
           )}
-          {connected && !listError && joinedChats.length > 0 && (
+          {connected && !listError && joinedChats.length > 0 && availableChats.length === 0 && (
+            <p className="text-sm text-muted-foreground">Every channel and group this account is in is already a source.</p>
+          )}
+          {connected && !listError && availableChats.length > 0 && (
             <form action={telegramAddJoinedChatAction} className="grid gap-3 md:grid-cols-2">
-              <Field label="Channels and groups" htmlFor="ch-pick" hint="Filter the list and check the ones to add. Already-tracked chats stay visible and are not added again." className="md:col-span-2">
+              <Field label="Channels and groups" htmlFor="ch-pick" hint="Filter the list and check the ones to add. Channels that are already sources are left off this list." className="md:col-span-2">
                 <TelegramChatMenu
-                  chats={joinedChats.map((chat) => ({
+                  chats={availableChats.map((chat) => ({
                     id: chat.id,
                     accessHash: chat.accessHash,
                     username: chat.username,
                     title: chat.title,
                     kind: chat.kind,
-                    label: chatOptionLabel(chat, trackedIds.has(chat.id)),
-                    tracked: trackedIds.has(chat.id),
+                    label: chatOptionLabel(chat),
                   }))}
                 />
               </Field>
