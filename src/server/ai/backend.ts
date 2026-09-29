@@ -3,6 +3,8 @@ import type { AiProvider } from "./types";
 
 /** Cheap instruction model on DeepInfra. About two cents per million tokens. */
 export const DEEPINFRA_DEFAULT_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct";
+/** Same key, larger model. Used when the 8B review does not decide. */
+export const DEEPINFRA_LARGE_REVIEW_MODEL = "meta-llama/Meta-Llama-3.1-70B-Instruct";
 export const CLOUDFLARE_DEFAULT_MODEL = "@cf/meta/llama-3.1-8b-instruct";
 export const OPENAI_DEFAULT_MODEL = "gpt-4o-mini";
 

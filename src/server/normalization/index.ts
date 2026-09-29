@@ -21,6 +21,9 @@ import { matchLearnedLesson, replayLearnedLesson, type PatternSignal } from "@/s
 import { reviewFarQuote } from "@/server/parsing/price-review";
 import { distanceToQuote, quoteIsPlausible } from "@/server/parsing/quote-sanity";
 import {
+  DEEPINFRA_LARGE_REVIEW_MODEL,
+} from "@/server/ai/backend";
+import {
   getQueueReviewClient,
   lessonForQueueReview,
   modelReason,
@@ -28,6 +31,8 @@ import {
   queueDecisionIsActionable,
   queueReviewInput,
   signalFromQueueReview,
+  SMALL_MODEL_DECLINED,
+  smallModelAlreadyAnswered,
 } from "@/server/parsing/queue-review";
 import type { ParsedSignalFields } from "@/server/parsing/types";
 
@@ -248,30 +253,51 @@ async function holdForReview(
 
   const market = await getPriceNear(event.publishedAt, out.signal?.instrument.value ?? "XAUUSD");
   const lessons = await loadParseLessons();
-  const review = await getQueueReviewClient().review(queueReviewInput(out, event.rawText, [...out.issues, ...extraIssues], market, lessons));
+  const db = await getDb();
+  const [currentParse] = await db
+    .select({ issues: parseResults.issues })
+    .from(parseResults)
+    .where(and(eq(parseResults.rawEventId, event.id), eq(parseResults.isCurrent, true)));
+  const result = await getQueueReviewClient().review(queueReviewInput(out, event.rawText, [...out.issues, ...extraIssues], market, lessons), {
+    smallAlreadyAnswered: smallModelAlreadyAnswered(currentParse?.issues ?? []),
+  });
+  const review = result.review;
+  const trace = [
+    ...(result.smallDeclined ? [SMALL_MODEL_DECLINED] : []),
+    ...(result.sentToLarger ? [`Sent to larger model ${DEEPINFRA_LARGE_REVIEW_MODEL}.`] : []),
+  ];
   if (!queueDecisionIsActionable(review)) {
-    return storeParse(event, out, "needs_review", signalId, extraIssues);
+    return storeParse(event, out, "needs_review", signalId, [
+      ...extraIssues,
+      ...trace,
+      ...(result.sentToLarger ? ["Larger model did not decide."] : []),
+    ]);
   }
 
   if (review.decision === "dismiss") {
     if (learnPattern) {
       await recordParseLesson(actor, "raw_event", event.id, lessonForQueueReview(event.rawText, out, review, null), modelReason(review.reason));
     }
-    return storeParse(event, { ...out, confidence: review.confidence }, "ignored", signalId, [...extraIssues, "Dismissed by the model."]);
+    return storeParse(event, { ...out, confidence: review.confidence }, "ignored", signalId, [...extraIssues, ...trace, "Dismissed by the model."]);
   }
 
   const fields = signalFromQueueReview(out, review, event.rawText);
   if (!fields || (market !== null && !quoteIsPlausible(market, fields.entryMin, fields.entryMax))) {
-    return storeParse(event, out, "needs_review", signalId, extraIssues);
+    return storeParse(event, out, "needs_review", signalId, [
+      ...extraIssues,
+      ...trace,
+      ...(result.sentToLarger ? ["Larger model did not decide."] : []),
+    ]);
   }
 
   const editOf = (event.rawPayloadJson as { edit_of?: unknown } | null)?.edit_of;
   if (editOf != null) {
     const original = await signalForEditedMessage(event.sourceId, String(editOf));
-    if (!original) return storeParse(event, out, "needs_review", null, extraIssues);
+    if (!original) return storeParse(event, out, "needs_review", null, [...extraIssues, ...trace]);
     await correctSignal(original.id, fields, actor, modelReason(review.reason));
     return storeParse(event, { ...out, confidence: review.confidence }, "resolved", original.id, [
       ...extraIssues,
+      ...trace,
       "Model corrected the original signal.",
     ]);
   }
@@ -281,16 +307,16 @@ async function holdForReview(
     if (learnPattern) {
       await recordParseLesson(actor, "raw_event", event.id, lessonForQueueReview(event.rawText, out, review, fields), modelReason(review.reason));
     }
-    return storeParse(event, { ...out, confidence: review.confidence }, "resolved", signalId, [...extraIssues, "Model corrected the signal."]);
+    return storeParse(event, { ...out, confidence: review.confidence }, "resolved", signalId, [...extraIssues, ...trace, "Model corrected the signal."]);
   }
 
   const reason = review.decision === "correct" ? "Model corrected this signal." : "Model applied this signal.";
   const signal = await publishReviewedSignal(event, fields, review.confidence, actor, modelReason(review.reason));
-  if (!signal) return storeParse(event, out, "needs_review", null, extraIssues);
+  if (!signal) return storeParse(event, out, "needs_review", null, [...extraIssues, ...trace]);
   if (learnPattern) {
     await recordParseLesson(actor, "raw_event", event.id, lessonForQueueReview(event.rawText, out, review, fields), modelReason(review.reason));
   }
-  return storeParse(event, { ...out, confidence: review.confidence }, "applied", signal.id, [...extraIssues, reason]);
+  return storeParse(event, { ...out, confidence: review.confidence }, "applied", signal.id, [...extraIssues, ...trace, reason]);
 }
 
 function nearPrice(a: number, b: number) {

@@ -90,14 +90,12 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
     return { skipped: "no_market_data" as const };
   }
 
-  const horizonMs = (OUTCOME_RULES.defaultExpiryMinutes + OUTCOME_RULES.maxHoldMinutes + 24 * 60) * 60_000;
+  const syncedThrough = sync.syncedThrough.getTime();
+  const horizonMs = Number.isFinite(OUTCOME_RULES.maxHoldMinutes)
+    ? (OUTCOME_RULES.defaultExpiryMinutes + OUTCOME_RULES.maxHoldMinutes + 24 * 60) * 60_000
+    : Math.max(0, syncedThrough - signal.signalTime.getTime());
   const from = new Date(signal.signalTime.getTime() - 60_000);
-  const until = new Date(
-    Math.min(
-      (signal.expiryTime?.getTime() ?? signal.signalTime.getTime()) + horizonMs,
-      sync?.syncedThrough.getTime() ?? Date.now(),
-    ),
-  );
+  const until = new Date(Math.min((signal.expiryTime?.getTime() ?? signal.signalTime.getTime()) + horizonMs, syncedThrough));
   const engineAdjustments: EngineAdjustment[] = adjustments.map((a) =>
     a.type === "MOVE_STOP"
       ? { type: "MOVE_STOP", effectiveAt: a.effectiveAt.getTime(), stop: a.payloadJson.stop as number | "ENTRY" }
@@ -114,13 +112,20 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
     expiryTime: signal.expiryTime?.getTime() ?? null,
   };
 
-  // Most trades resolve within hours, so try a short window before loading the full horizon.
+  // Unfilled orders resolve inside two days. A filled trade keeps walking stored bars until it closes.
   const shortUntil = new Date(Math.min(until.getTime(), from.getTime() + 2 * 86_400_000));
-  let out = evaluateSignal(engineSignal, await getEngineBars(from, shortUntil, signal.instrument), engineAdjustments, shortUntil.getTime());
-  if ((out.classification === "OPEN" || out.classification === "PENDING") && shortUntil < until) {
-    out = evaluateSignal(engineSignal, await getEngineBars(from, until, signal.instrument), engineAdjustments, sync?.syncedThrough.getTime() ?? null);
-  } else if (shortUntil.getTime() === until.getTime()) {
-    out.dataThrough = sync?.syncedThrough.getTime() ?? null;
+  let cursor = shortUntil;
+  let bars = await getEngineBars(from, cursor, signal.instrument);
+  let out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(cursor.getTime(), syncedThrough));
+  while (out.classification === "OPEN" && cursor.getTime() < syncedThrough) {
+    const next = new Date(Math.min(cursor.getTime() + 14 * 86_400_000, syncedThrough));
+    bars.push(...(await getEngineBars(cursor, next, signal.instrument)));
+    cursor = next;
+    out = evaluateSignal(engineSignal, bars, engineAdjustments, syncedThrough);
+  }
+  if (out.classification === "PENDING" && cursor.getTime() < until.getTime()) {
+    bars = await getEngineBars(from, until, signal.instrument);
+    out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(until.getTime(), syncedThrough));
   }
 
   const row = toRow(signal, out);
