@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { fmtDateTime, fmtEntry, fmtPrice } from "@/lib/format";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getAdminSignalDetail } from "@/server/admin";
 import { DEFAULT_PROMPT, promptsFor } from "@/server/ai/prompts";
 import { requireAdmin } from "@/server/auth/guards";
@@ -44,6 +45,58 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
         }
       />
       <Notice searchParams={sp} />
+
+      {d.consensus && (
+        <Card className="mb-4 bg-card/60">
+          <CardHeader>
+            <CardTitle className="text-base">Cross-trader consensus</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="text-lg font-semibold">{d.consensus.grade.label}</div>
+            {d.consensus.grade.riskNote && <p className="text-amber-200">{d.consensus.grade.riskNote}</p>}
+            <p className="text-muted-foreground">{d.consensus.mapping.sentence}</p>
+            {d.consensus.mapping.oppositionSentence && <p className="text-muted-foreground">{d.consensus.mapping.oppositionSentence}</p>}
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Direction</TableHead>
+                    <TableHead>Zone</TableHead>
+                    <TableHead>Offset</TableHead>
+                    <TableHead>Record</TableHead>
+                    <TableHead>Role</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {d.consensus.participants.map((row) => (
+                    <TableRow key={row.signalId}>
+                      <TableCell>
+                        <div className="font-medium">{row.sourceName}</div>
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          {row.slug}
+                          {row.telegramUsername ? ` · @${row.telegramUsername}` : ""}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <DirectionBadge direction={row.direction} />
+                      </TableCell>
+                      <TableCell className="font-mono">{fmtEntry(row.entryMin, row.entryMax)}</TableCell>
+                      <TableCell className="font-mono">{row.offsetMinutes === 0 ? "this signal" : `${row.offsetMinutes > 0 ? "+" : ""}${row.offsetMinutes} min`}</TableCell>
+                      <TableCell className="text-xs">
+                        {row.historicallyAccurate ? "Historically accurate" : "Not rated accurate"}
+                        {row.topPerformerRank ? ` · rank ${row.topPerformerRank}` : ""}
+                      </TableCell>
+                      <TableCell className="text-xs">{row.role}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <p className="text-xs text-muted-foreground">Member pages never receive these names. This list follows the same cluster the score uses.</p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="bg-card/60 xl:col-span-2">

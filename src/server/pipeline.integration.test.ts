@@ -104,9 +104,17 @@ describe("pipeline", () => {
     expect(platinum.kind).toBe("ok");
     if (silver.kind !== "ok" || platinum.kind !== "ok") return;
     expect(silver.detail.ai.summary.locked).toBe(true);
+    expect(silver.detail.consensus.grade.locked).toBe(true);
     expect(JSON.stringify(silver.detail)).not.toContain("setupClassification");
+    expect(JSON.stringify(silver.detail.consensus)).not.toContain("Consensus Score");
     expect(platinum.detail.ai.classification.locked).toBe(false);
     expect(platinum.detail.ai.meta?.promptVersion).toBe("signal-setup-v1");
+    expect(platinum.detail.consensus.grade.locked).toBe(false);
+    expect(platinum.detail.consensus.mapping.locked).toBe(false);
+    if (!platinum.detail.consensus.grade.locked) {
+      expect(platinum.detail.consensus.grade.data?.label).toMatch(/^Consensus Score: \d+\/100 - Grade [A-F]$/);
+    }
+    expect(JSON.stringify(platinum.detail)).not.toContain("Test Desk");
   });
 
   it("locks signals older than the tier's history window", async () => {

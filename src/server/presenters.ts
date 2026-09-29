@@ -5,6 +5,7 @@
 import type { AiAnalysis, Signal, SignalOutcome, SignalTarget, Source, Tier } from "@/server/db/schema";
 import { gate, type Access, type Gated } from "@/server/entitlements/access";
 import type { TierConfig } from "@/server/entitlements/config";
+import type { MemberConsensus } from "@/server/consensus/rules";
 import type { SourceStatistics } from "@/server/statistics/compute";
 import type { SimilarTradesResult } from "@/server/similar";
 
@@ -72,6 +73,7 @@ export interface SignalDetailInput extends SignalBundle {
   sourceStats: SourceStatistics | null;
   similar: SimilarTradesResult | null;
   analysis: AiAnalysis | null;
+  consensus?: MemberConsensus | null;
 }
 
 export function presentSignalDetail(input: SignalDetailInput, access: Access, config: Config) {
@@ -179,6 +181,11 @@ export function presentSignalDetail(input: SignalDetailInput, access: Access, co
             }
           : null,
       ),
+    },
+    consensus: {
+      grade: gate(access, "consensus.grade", config, () => input.consensus?.grade ?? null),
+      timing: gate(access, "consensus.timing", config, () => input.consensus?.timing ?? null),
+      mapping: gate(access, "consensus.mapping", config, () => input.consensus?.mapping ?? null),
     },
   };
 }

@@ -46,6 +46,16 @@ The PRD asks for deterministic, documented rules. The choices:
 - **No stop.** R is null and classification uses price PnL. These trades count in win rate but not in R statistics, and the rated sample size shows the difference.
 - **MFE and MAE** are measured from entry to exit. On the exit bar, only prices up to the exit price are included.
 
+## Cross-trader consensus (`consensus-v1`)
+
+Computed when a signal is read. It is not stored, and it does not use a hand-picked channel list.
+
+- **Same zone.** A signal stores an inclusive entry interval, `[entryMin, entryMax]`. A market or limit price is a zero-width interval. Two XAU signals share a zone when those intervals overlap, or when the gap between them is at most $2. Overlap is the primary rule, so a published zone matches any entry inside it. The $2 band only joins ranges that do not quite touch. It is tighter than the zones the parser usually records and much tighter than the $80 quote-sanity gate. `XAU/USD` and `XAUUSD` are the same instrument.
+- **Window.** Other signals count when their publish time is within 30 minutes of the signal on screen, inclusive. One source casts one vote: the post closest in time. Invalid, cancelled, and manual-review signals are ignored. QA channels are left out of the member score.
+- **Historically accurate.** Taken from `stats-v1`, not from a list: at least 8 rated trades, win rate at least 55%, and expectancy above 0. The top historical performers are the sources that clear the sample minimum, ordered by expectancy, then win rate, then sample size. Platinum talks about at most the first 10.
+- **Score.** Starts at 50. Each other agreeing source adds 2, or 5 when that source is historically accurate. Each opposing source subtracts 4, or 12 when it is historically accurate. The result is clamped to 0–100. Grades are A ≥ 85, B ≥ 70, C ≥ 50, D ≥ 30, otherwise F. Seven other accurate sources on the same side reach 85, Grade A. Risk is high when two or more accurate sources are the other way, or when the accurate sources on the other side outnumber the accurate sources on this side. Any other disagreement is elevated risk.
+- **Tiers.** Silver receives the trade (direction, zone, stop, targets) and neither the score nor the alignment. Gold receives the score, the risk note, and the timing breakdown (counts and minute offsets only). Platinum also receives the anonymized line, for example “7 of our top 10 historical performers are currently aligned on this exact entry zone.” Member payloads never include channel titles, Telegram usernames, slugs, or “Source #” labels. Admin signal pages still list the real names for the same cluster. View-as uses these feature keys, so a Silver preview does not receive the score.
+
 ## Entitlements
 
 - **Features are string keys in a per-tier config** (`tier_entitlements`), editable at `/admin/entitlements`, plus a history window in days (`null` means unlimited). The defaults follow PRD section 5: Silver 30 days, Gold 180 days, Platinum unlimited.

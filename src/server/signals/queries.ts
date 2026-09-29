@@ -15,6 +15,7 @@ import type { Viewer } from "@/server/entitlements/service";
 import { presentSignalDetail, presentSignalListItem, type SignalBundle } from "@/server/presenters";
 import { OUTCOME_RULES } from "@/server/outcomes/engine";
 import { getSimilarTradesForSignal } from "@/server/similar/service";
+import { loadMemberConsensus } from "@/server/consensus/service";
 import { getSourceStats } from "@/server/statistics/service";
 
 export interface SignalFilters {
@@ -173,11 +174,13 @@ export async function getSignalDetailForViewer(signalId: string, viewer: Viewer)
 
   const needSimilar = can(access, "similar.summary") || can(access, "similar.details");
   const needAi = can(access, "ai.classification") || can(access, "ai.summary") || can(access, "ai.patterns");
+  const needConsensus = can(access, "consensus.grade") || can(access, "consensus.timing") || can(access, "consensus.mapping");
 
-  const [stats, similar, analysis] = await Promise.all([
+  const [stats, similar, analysis, consensus] = await Promise.all([
     getSourceStats(bundle.signal.sourceId),
     needSimilar ? getSimilarTradesForSignal(signalId) : Promise.resolve(null),
     needAi ? getCurrentAnalysis({ signalId, analysisType: "signal_setup" }) : Promise.resolve(null),
+    needConsensus ? loadMemberConsensus(signalId) : Promise.resolve(null),
   ]);
 
   const detail = presentSignalDetail(
@@ -188,6 +191,7 @@ export async function getSignalDetailForViewer(signalId: string, viewer: Viewer)
       sourceStats: stats,
       similar,
       analysis,
+      consensus,
     },
     access,
     config,
