@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { rerunAiAction, saveSourceAction, telegramAddJoinedChatAction } from "@/app/actions/admin";
 import { Field, NativeSelect, Notice } from "@/components/admin-bits";
+import { TelegramChatMenu } from "@/components/telegram-chat-menu";
 import { PageHeader } from "@/components/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,28 +90,11 @@ export default async function AdminSourcesPage({ searchParams }: PageProps<"/adm
           )}
           {telegram.connected && !listError && joinedChats.length > 0 && (
             <form action={telegramAddJoinedChatAction} className="grid gap-3 md:grid-cols-2">
-              <Field label="Channel or group" htmlFor="ch-pick" hint="Only chats this account has joined are listed." className="md:col-span-2">
-                <NativeSelect id="ch-pick" name="chatId" required defaultValue="">
-                  <option value="">Choose a channel or group</option>
-                  {channels.length > 0 && (
-                    <optgroup label="Channels">
-                      {channels.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {chatOptionLabel(c, trackedIds.has(c.id))}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {groups.length > 0 && (
-                    <optgroup label="Groups">
-                      {groups.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {chatOptionLabel(c, trackedIds.has(c.id))}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </NativeSelect>
+              <Field label="Channel or group" htmlFor="ch-pick" hint="Filter by name. Only chats this account has joined are listed. Select one, then add it with the parser and history settings below." className="md:col-span-2">
+                <TelegramChatMenu
+                  channels={channels.map((c) => ({ id: c.id, label: chatOptionLabel(c, trackedIds.has(c.id)) }))}
+                  groups={groups.map((c) => ({ id: c.id, label: chatOptionLabel(c, trackedIds.has(c.id)) }))}
+                />
               </Field>
               <Field label="Parser" htmlFor="ch-parser">
                 <NativeSelect id="ch-parser" name="parserType" defaultValue={PARSER_TYPES[0]}>

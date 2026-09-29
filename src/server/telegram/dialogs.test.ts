@@ -4,7 +4,7 @@ import { closeDb, getDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { sources } from "@/server/db/schema";
 import { addJoinedTelegramChat, listJoinedTelegramChats } from "@/server/telegram";
-import { joinedChatsFromDialogs, listJoinedChats, selectJoinedChat, type DialogEntityLike, type DialogLike } from "./dialogs";
+import { joinedChatsFromDialogs, listJoinedChats, selectJoinedChat, chatWithLoadedAccessHash, type DialogEntityLike, type DialogLike } from "./dialogs";
 
 function dialog(entity: DialogEntityLike, extra: Partial<DialogLike> = {}): DialogLike {
   const className = entity.className ?? "";
@@ -75,6 +75,20 @@ describe("joined telegram dialogs", () => {
       },
     });
     expect(chats.map((c) => c.title)).toEqual(["Desk Alpha"]);
+  });
+
+  it("keeps a negative access hash from the dialog payload", () => {
+    const [chat] = joinedChatsFromDialogs([
+      dialog({ className: "Channel", id: "100", title: "GTS VIP", accessHash: { toString: () => "-900" }, broadcast: true }),
+    ]);
+    expect(chat.accessHash).toBe("-900");
+  });
+
+  it("fills a missing channel access hash from a later lookup and does not ask anyone to open Telegram", () => {
+    const listed = { id: "100", accessHash: null, username: null, title: "GTS VIP 🏆", kind: "channel" as const };
+    expect(chatWithLoadedAccessHash(listed, "-42").accessHash).toBe("-42");
+    expect(() => chatWithLoadedAccessHash(listed, null)).toThrow(/Couldn't load the Telegram access hash/);
+    expect(() => chatWithLoadedAccessHash(listed, "0")).toThrow(/Couldn't load the Telegram access hash/);
   });
 
   it("dedupes a chat that appears in both folders and prefers an access hash", () => {

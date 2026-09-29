@@ -52,11 +52,20 @@ function rawId(value: DialogEntityLike["id"]): string | null {
   return s;
 }
 
-function accessHashOf(value: DialogEntityLike["accessHash"]): string | null {
+/** Telegram access hashes are signed 64-bit values. Zero means the payload omitted one. */
+export function accessHashOf(value: DialogEntityLike["accessHash"]): string | null {
   if (value == null || value === "") return null;
-  const s = typeof value === "object" ? value.toString() : String(value);
-  if (!/^[1-9][0-9]*$/.test(s)) return null;
+  const s = (typeof value === "object" ? value.toString() : String(value)).trim();
+  if (!/^-?[1-9][0-9]*$/.test(s)) return null;
   return s;
+}
+
+/** A listed channel with no hash still has one in the connected session. Load that, then add it. */
+export function chatWithLoadedAccessHash(chat: JoinedChat, loaded: string | null): JoinedChat {
+  if (chat.kind !== "channel" || chat.accessHash) return chat;
+  const accessHash = accessHashOf(loaded);
+  if (!accessHash) throw new Error(`Couldn't load the Telegram access hash for ${chat.title.trim() || "this chat"}.`);
+  return { ...chat, accessHash };
 }
 
 function usernameOf(entity: DialogEntityLike): string | null {
