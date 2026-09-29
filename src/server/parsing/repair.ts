@@ -144,6 +144,7 @@ export function repairWrongSidePrices(fields: ParsedSignalFields, lessons: Digit
   const targets = next.targets.value ?? [];
   let targetsChanged = false;
   const rewritten = targets.map((target) => {
+    if (target === null) return null;
     const repaired = pickRepair(target, "target", direction, lo, hi, lessons);
     if (!repaired) return target;
     notes.push(`Repaired target ${formatPrice(target)} to ${formatPrice(repaired.value)} (one-digit typo).`);
@@ -152,8 +153,15 @@ export function repairWrongSidePrices(fields: ParsedSignalFields, lessons: Digit
     return repaired.value;
   });
   if (targetsChanged) next.targets = { value: rewritten, confidence: 0.88 };
-  next.targets.value = [...(next.targets.value ?? [])].sort((a, b) => (direction === "LONG" ? a - b : b - a));
+  next.targets.value = orderTargets(next.targets.value ?? [], direction);
   return { fields: next, notes, usedLesson };
+}
+
+/** Priced targets stay in trade order. A target with no price stays after them. */
+export function orderTargets(targets: Array<number | null>, direction: "LONG" | "SHORT") {
+  const priced = targets.filter((target): target is number => target !== null);
+  priced.sort((a, b) => (direction === "LONG" ? a - b : b - a));
+  return [...priced, ...targets.filter((target) => target === null)];
 }
 
 export function geometryIsValid(fields: ParsedSignalFields) {
@@ -163,5 +171,5 @@ export function geometryIsValid(fields: ParsedSignalFields) {
   if (!direction || lo === null || hi === null) return false;
   const stop = fields.stopLoss.value;
   if (stop !== null && !onValidSide("stop", direction, stop, lo, hi)) return false;
-  return (fields.targets.value ?? []).every((target) => onValidSide("target", direction, target, lo, hi));
+  return (fields.targets.value ?? []).every((target) => target === null || onValidSide("target", direction, target, lo, hi));
 }

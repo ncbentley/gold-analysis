@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte } from "drizzle-orm";
 import { PIPELINE, recordAudit, type Actor } from "@/server/audit";
 import { getDb } from "@/server/db";
 import {
@@ -40,7 +40,7 @@ export interface SignalInput {
   entryMin: number;
   entryMax: number;
   stopLoss: number | null;
-  targets: number[];
+  targets: Array<number | null>;
   signalType: string | null;
   sourceConfidenceText: string | null;
   signalTime: Date;
@@ -293,6 +293,90 @@ async function holdForReview(
   return storeParse(event, { ...out, confidence: review.confidence }, "applied", signal.id, [...extraIssues, reason]);
 }
 
+function nearPrice(a: number, b: number) {
+  return Math.abs(a - b) < 0.001;
+}
+
+function stopFits(signal: Signal, stop: number) {
+  return signal.direction === "LONG" ? stop < signal.entryMin : stop > signal.entryMax;
+}
+
+function targetFits(signal: Signal, target: number) {
+  return signal.direction === "LONG" ? target > signal.entryMax : target < signal.entryMin;
+}
+
+/**
+ * A later message that only states a stop or targets fills the empty fields on the
+ * latest open signal from that source. Prices already published are left as they are.
+ */
+async function attachLevels(event: RawEvent, out: ParseOutput, signal: Signal, inferred: boolean, actor: Actor) {
+  const fill = out.instruction?.fillLevels;
+  if (!fill) return storeParse(event, out, "ignored", signal.id);
+  const db = await getDb();
+  const existing = await db
+    .select()
+    .from(signalTargets)
+    .where(eq(signalTargets.signalId, signal.id))
+    .orderBy(asc(signalTargets.targetIndex));
+  const incoming = fill.targets;
+  const incomingPriced = incoming.filter((price): price is number => price !== null);
+  const existingPriced = existing.flatMap((row) => (row.price === null ? [] : [row.price]));
+  const fresh = incomingPriced.filter((price) => !existingPriced.some((have) => nearPrice(have, price)));
+  const openRows = existing.filter((row) => row.price === null);
+  const canSetStop = signal.stopLoss === null && fill.stopLoss !== null;
+  const stopConflict = signal.stopLoss !== null && fill.stopLoss !== null && !nearPrice(signal.stopLoss, fill.stopLoss);
+  const canInsertTargets = existing.length === 0 && incoming.length > 0;
+  const canFillOpen = openRows.length > 0 && fresh.length > 0 && fresh.length <= openRows.length;
+  const targetConflict =
+    existing.length > 0 && incomingPriced.length > 0 && !canFillOpen && fresh.length > 0;
+
+  if (stopConflict || targetConflict) {
+    return holdForReview(event, out, signal.id, ["Later message states levels that differ from the open signal."], actor, false);
+  }
+  const stop = canSetStop ? fill.stopLoss : null;
+  const targetsToCheck = canInsertTargets ? incomingPriced : canFillOpen ? fresh : [];
+  if ((stop !== null && !stopFits(signal, stop)) || targetsToCheck.some((price) => !targetFits(signal, price))) {
+    return holdForReview(event, out, signal.id, ["Later message states a level on the wrong side of entry."], actor, false);
+  }
+  if (!canSetStop && !canInsertTargets && !canFillOpen) {
+    return storeParse(event, out, "ignored", signal.id, ["Open signal already has these levels."]);
+  }
+
+  const notes: string[] = [];
+  await db.transaction(async (tx) => {
+    await tx
+      .update(signals)
+      .set({ ...(canSetStop && stop !== null ? { stopLoss: stop } : {}), version: signal.version + 1 })
+      .where(eq(signals.id, signal.id));
+    if (canSetStop && stop !== null) notes.push("Attached the stop from a later message.");
+    if (canInsertTargets) {
+      await tx.insert(signalTargets).values(
+        incoming.map((price, i) => ({ signalId: signal.id, targetIndex: i + 1, price })),
+      );
+      notes.push("Attached targets from a later message.");
+    } else if (canFillOpen) {
+      const rows = [...openRows];
+      for (let i = 0; i < fresh.length; i++) {
+        await tx.update(signalTargets).set({ price: fresh[i] }).where(eq(signalTargets.id, rows[i].id));
+      }
+      notes.push("Attached targets from a later message.");
+    }
+    await recordAudit(
+      {
+        actor,
+        entityType: "signal",
+        entityId: signal.id,
+        action: "signal.levels_attached",
+        after: { stopLoss: stop, targets: canInsertTargets ? incoming : fresh },
+        reason: inferred ? "Later message on this source" : `Source event ${event.id}`,
+      },
+      tx,
+    );
+  });
+  await enqueueJob("RECALC_OUTCOME", { signalId: signal.id }, { dedupeKey: `recalc:${signal.id}` });
+  return storeParse(event, out, "applied", signal.id, [...notes, ...(inferred ? ["Linked to latest open signal."] : [])]);
+}
+
 /** Parses a stored raw event and applies the result. Safe to call repeatedly. */
 export async function processRawEvent(rawEventId: string, actor: Actor = PIPELINE) {
   const db = await getDb();
@@ -352,7 +436,11 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
     const market = await getPriceNear(event.publishedAt, input.instrument);
     const extra: string[] = [];
     if (market !== null && !quoteIsPlausible(market, input.entryMin, input.entryMax)) {
-      const revised = await reviewFarQuote(event.rawText, input, market);
+      const revised = await reviewFarQuote(
+        event.rawText,
+        { ...input, targets: input.targets.filter((price): price is number => price !== null) },
+        market,
+      );
       if (revised && quoteIsPlausible(market, revised.entryMin, revised.entryMax)) {
         input = { ...input, ...revised };
         extra.push(
@@ -376,6 +464,10 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
 
   const { signal, inferred } = await findTargetSignal(event, out);
   if (!signal) return holdForReview(event, out, null, ["No matching open signal found for this instruction."], actor, false);
+
+  if (out.instruction?.fillLevels) {
+    return attachLevels(event, out, signal, inferred, actor);
+  }
 
   if (out.eventType === "TARGET_HIT" || out.eventType === "STOP_HIT") {
     // Source claims are recorded as evidence only; outcomes are computed from market data.

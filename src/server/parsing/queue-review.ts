@@ -139,7 +139,7 @@ function draftFacts(out: ParseOutput): QueueReviewInput["draft"] {
     entryMin: signal.entryMin.value,
     entryMax: signal.entryMax.value,
     stopLoss: signal.stopLoss.value,
-    targets: signal.targets.value ?? [],
+    targets: (signal.targets.value ?? []).filter((target): target is number => target !== null),
   };
 }
 
@@ -194,7 +194,9 @@ export function signalFromQueueReview(out: ParseOutput, review: QueueReview, raw
   let entryMin = review.entryMin ?? draft?.entryMin.value ?? null;
   let entryMax = review.entryMax ?? draft?.entryMax.value ?? null;
   const stopLoss = review.stopLoss === null ? (draft?.stopLoss.value ?? null) : review.stopLoss;
-  const targets = review.targets.length ? review.targets : (draft?.targets.value ?? []);
+  const targets = (review.targets.length ? review.targets : (draft?.targets.value ?? [])).filter(
+    (target): target is number => typeof target === "number",
+  );
   if (entryMin === null || entryMax === null || !entryType) return null;
   if (entryMin > entryMax) [entryMin, entryMax] = [entryMax, entryMin];
   const direction =
@@ -202,7 +204,6 @@ export function signalFromQueueReview(out: ParseOutput, review: QueueReview, raw
     draft?.direction.value ??
     inferDirectionFromPrices({ entryMin, entryMax, stopLoss, targets }).direction;
   if (!direction) return null;
-  if (stopLoss === null && targets.length === 0) return null;
   const prices = [entryMin, entryMax, ...(stopLoss === null ? [] : [stopLoss]), ...targets];
   if (!pricesAreGrounded(rawText, prices)) return null;
   const signal: PatternSignal = {

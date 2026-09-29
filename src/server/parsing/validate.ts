@@ -1,11 +1,11 @@
-import { repairWrongSidePrices, type DigitEdit } from "./repair";
+import { orderTargets, repairWrongSidePrices, type DigitEdit } from "./repair";
 import type { ParsedSignalFields } from "./types";
 
 const PLAUSIBLE_GOLD = { min: 500, max: 20_000 };
 
 /**
- * Validates required fields and price geometry. Never fills in missing prices;
- * it only lowers confidence and records issues so the event can go to manual review.
+ * Validates required fields and price geometry. Never fills in a stop or target
+ * the message did not state. An empty stop or target list is a finished reading.
  */
 export function finalizeSignal(fields: ParsedSignalFields, lessons: DigitEdit[] = []) {
   const issues: string[] = [];
@@ -17,11 +17,6 @@ export function finalizeSignal(fields: ParsedSignalFields, lessons: DigitEdit[] 
   if (s.entryMin.value === null || s.entryMax.value === null) {
     if (s.entryType.value !== "MARKET") issues.push("Entry price is missing.");
   }
-  if (s.stopLoss.value === null) {
-    issues.push("Stop loss is missing.");
-    s.stopLoss.confidence = 0.5;
-  }
-  if (s.targets.value?.length === 0) issues.push("No targets stated.");
   if (s.instrument.confidence < 1) issues.push(`Instrument not stated; assumed ${s.instrument.value}.`);
   if (s.entryType.confidence < 0.8) issues.push("Entry type is unclear (market vs. limit).");
 
@@ -43,12 +38,12 @@ export function finalizeSignal(fields: ParsedSignalFields, lessons: DigitEdit[] 
       s.stopLoss.confidence = 0.3;
     }
     const tps = s.targets.value ?? [];
-    const wrongSide = tps.filter((t) => (dir === "LONG" ? t <= hi : t >= lo));
+    const wrongSide = tps.filter((t): t is number => t !== null && (dir === "LONG" ? t <= hi : t >= lo));
     if (wrongSide.length) {
       issues.push("One or more targets are on the wrong side of entry.");
       s.targets.confidence = 0.3;
     }
-    s.targets.value = [...tps].sort((a, b) => (dir === "LONG" ? a - b : b - a));
+    s.targets.value = orderTargets(tps, dir);
   }
 
   const required = [s.direction, s.entryType, s.entryMin, s.entryMax, s.stopLoss, s.targets, s.instrument];

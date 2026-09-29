@@ -11,8 +11,8 @@ import { ingestRawEvent } from "@/server/ingestion";
 import { useQueueReviewClient, type QueueReview, type QueueReviewInput } from "./queue-review";
 
 const T = new Date("2026-04-02T12:00:00Z");
-const FIRST = "XAUUSD BUY 3350\nSL 3340\nTP 3360";
-const SIMILAR = "XAUUSD BUY 3360\nSL 3350\nTP 3370";
+const FIRST = "buy and sell gold 3350 sl 3340 tp 3360";
+const SIMILAR = "buy and sell gold 3360 sl 3350 tp 3370";
 let sourceId = "";
 const calls: string[] = [];
 
@@ -87,7 +87,7 @@ describe("model review in front of the human queue", () => {
     };
     expect(learned.decision).toBe("accept");
     expect(learned.learned).toEqual({
-      pattern: "xauusd buy {p} sl {p} tp {p}",
+      pattern: "buy and sell gold {p} sl {p} tp {p}",
       roles: ["entry", "stop", "target"],
       direction: "LONG",
       entryType: "LIMIT",
@@ -115,12 +115,12 @@ describe("model review in front of the human queue", () => {
     const db = await getDb();
     const low = await ingestRawEvent(sourceId, {
       externalMessageId: "llm-low",
-      rawText: "Gold buy 3400 tp 3410",
+      rawText: "Gold buy 3400 sl 3404 tp 3410",
       publishedAt: new Date(T.getTime() + 120_000),
     });
     const unknown = await ingestRawEvent(sourceId, {
       externalMessageId: "llm-unknown",
-      rawText: "Gold buy 3600 tp 3610 confirm",
+      rawText: "Gold buy 3600 sl 3604 tp 3610 confirm",
       publishedAt: new Date(T.getTime() + 180_000),
     });
     expect(low.status).toBe("stored");

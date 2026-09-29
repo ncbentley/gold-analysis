@@ -5,6 +5,10 @@ import type { FieldValue, ParseInput, ParseOutput, ParsedSignalFields, SignalPar
 import { finalizeSignal } from "../validate";
 
 const NUM = String.raw`(\d{3,5}(?:[.,]\d{1,3})?)`;
+/** Emoji, punctuation, and the word "limit" may sit between a label and its price. */
+const GAP = String.raw`(?:\s|[^A-Za-z0-9\n])*(?:limit)?(?:\s|[^A-Za-z0-9\n])*`;
+const TARGET_LABEL = String.raw`\b(?:tp|t\/p|target)\s*(?:\d(?!\d))?${GAP}(?:${NUM}(?:\s*[/|,]\s*${NUM})*|\bopen\b)`;
+const STOP_LABEL = String.raw`\b(?:sl|s\/l|stop\s*loss|stop)\b${GAP}${NUM}`;
 const num = (s: string) => Number(s.replace(",", "."));
 const f = <T,>(value: T | null, confidence: number): FieldValue<T> => ({ value, confidence });
 
@@ -99,10 +103,18 @@ function detectEntry(text: string) {
       entryMax: f(Math.max(a, b), 1),
     };
   }
-  const market = text.match(new RegExp(String.raw`\b(?:now|market|cmp)\b\s*(?:@|at|price)?\s*:?\s*${NUM}?`, "i"));
+  const market = text.match(new RegExp(String.raw`\b(?:now|market|cmp)\b[^\d\n]{0,24}${NUM}`, "i"));
   const at = text.match(new RegExp(String.raw`@\s*${NUM}`));
-  if (market) {
-    const p = market[1] ? num(market[1]) : at ? num(at[1]) : null;
+  if (market && isGoldLevel(num(market[1]))) {
+    const p = num(market[1]);
+    return {
+      entryType: f<"MARKET" | "LIMIT" | "ZONE">("MARKET", 0.95),
+      entryMin: f(p, 0.95),
+      entryMax: f(p, 0.95),
+    };
+  }
+  if (/\b(?:now|market|cmp)\b/i.test(text)) {
+    const p = at && isGoldLevel(num(at[1])) ? num(at[1]) : null;
     return {
       entryType: f<"MARKET" | "LIMIT" | "ZONE">("MARKET", 0.95),
       entryMin: f(p, p === null ? 0.5 : 0.95),
@@ -117,8 +129,7 @@ function detectEntry(text: string) {
   const bare = firstLine.match(new RegExp(String.raw`\b(?:buy|sell|long|short)\b[^\d\n]{0,20}${NUM}`, "i")) ?? at;
   if (bare) {
     const p = num(bare[1]);
-    // "BUY 3350" could mean a market order or a resting limit; flag for review.
-    return { entryType: f<"MARKET" | "LIMIT" | "ZONE">("LIMIT", 0.6), entryMin: f(p, 0.7), entryMax: f(p, 0.7) };
+    return { entryType: f<"MARKET" | "LIMIT" | "ZONE">("LIMIT", 0.9), entryMin: f(p, 0.9), entryMax: f(p, 0.9) };
   }
   return leadingEntry(text);
 }
@@ -146,8 +157,8 @@ function leadingEntry(text: string) {
 }
 
 function detectStop(text: string): FieldValue<number> {
-  const m = text.match(new RegExp(String.raw`\b(?:sl|s\/l|stop\s*loss|stop)\b\s*[:@=\-]?\s*${NUM}`, "i"));
-  return m ? f(num(m[1]), 1) : f<number>(null, 0);
+  const m = text.match(new RegExp(STOP_LABEL, "i"));
+  return m ? f(num(m[1]), 1) : f<number>(null, 1);
 }
 
 /** These channels quote gold pips as 0.10 (100 pips = $10). */
@@ -159,17 +170,32 @@ function detectPipDistances(text: string): number[] | null {
   return [Number(m[1]), Number(m[2])];
 }
 
-function detectTargets(text: string): FieldValue<number[]> {
-  const labelled = [...text.matchAll(new RegExp(String.raw`\b(?:tp|t\/p|target)\s*(?:\d(?!\d))?\s*[:@=\-]?\s*${NUM}`, "gi"))]
-    .map((m) => num(m[1]))
-    .filter(isGoldLevel);
+function detectTargets(text: string): FieldValue<Array<number | null>> {
+  const labelled = [...text.matchAll(new RegExp(TARGET_LABEL, "gi"))].flatMap((m) => {
+    const prices = [...m[0].matchAll(new RegExp(NUM, "g"))].map((hit) => num(hit[1])).filter(isGoldLevel);
+    if (prices.length) return prices;
+    return /\bopen\b/i.test(m[0]) ? [null] : [];
+  });
   if (labelled.length) return f(labelled, 1);
   const list = text.match(new RegExp(String.raw`\b(?:take\s*profits?|targets?|tps?)\b\s*[:@=\-]?\s*((?:${NUM}\s*[,/|&]?\s*)+)`, "i"));
   if (list) {
     const values = [...list[1].matchAll(new RegExp(NUM, "g"))].map((m) => num(m[1])).filter(isGoldLevel);
     if (values.length) return f(values, 0.95);
   }
-  return f<number[]>([], 0.9);
+  return f<Array<number | null>>([], 1);
+}
+
+/** A follow-up that only labels a stop or targets, with no entry price of its own. */
+function isLevelsOnly(text: string) {
+  if (/\b(?:buy(?:ing)?|sell(?:ing)?|long|short|bullish|bearish)\b/i.test(text)) return false;
+  const stop = detectStop(text).value;
+  const targets = detectTargets(text).value ?? [];
+  if (stop === null && targets.length === 0) return false;
+  const rest = text
+    .replace(new RegExp(TARGET_LABEL, "gi"), " ")
+    .replace(new RegExp(STOP_LABEL, "gi"), " ")
+    .replace(new RegExp(String.raw`\b(?:take\s*profits?|targets?|tps?)\b\s*[:@=\-]?\s*(?:${NUM}\s*[,/|&]?\s*)+`, "gi"), " ");
+  return !hasGoldPrice(rest);
 }
 
 function detectSignalType(text: string): FieldValue<string> {
@@ -202,7 +228,7 @@ function detectInstructionEvent(text: string): ParseOutput["instruction"] & { ev
 
 export const textGenericParser: SignalParser = {
   type: "text-generic",
-  version: "text-generic-v4",
+  version: "text-generic-v5",
   parse(input: ParseInput): ParseOutput {
     const text = input.rawText.normalize("NFKC");
     const referencesExternalId =
@@ -238,6 +264,16 @@ export const textGenericParser: SignalParser = {
         const issues = needsRef && !referencesExternalId ? ["Instruction does not reference a message; linked to latest open signal."] : [];
         return { ...base, eventType, signal: null, instruction: rest, issues, confidence };
       }
+      if (isLevelsOnly(text)) {
+        return {
+          ...base,
+          eventType: "UPDATE",
+          signal: null,
+          instruction: { fillLevels: { stopLoss: detectStop(text).value, targets: detectTargets(text).value ?? [] } },
+          issues: [],
+          confidence: 0.95,
+        };
+      }
       const tradeLabels = /\b(?:sl|s\/l|stop\s*loss|take\s*profit|tp\s*\d)\b/i.test(text) && hasGoldPrice(text);
       if (tradeLabels) {
         const inferred = withInferredDirection(signalFields(text, direction));
@@ -269,7 +305,8 @@ function signalFields(text: string, direction: FieldValue<"LONG" | "SHORT">): Pa
   const entry = detectEntry(text);
   let targets = detectTargets(text);
   const pips = detectPipDistances(text);
-  if ((targets.value?.length ?? 0) === 0 && pips && entry.entryMin.value !== null && entry.entryMax.value !== null && direction.value) {
+  const pricedTargets = (targets.value ?? []).filter((target): target is number => target !== null);
+  if (pricedTargets.length === 0 && pips && entry.entryMin.value !== null && entry.entryMax.value !== null && direction.value) {
     const anchor = direction.value === "LONG" ? entry.entryMax.value : entry.entryMin.value;
     const sign = direction.value === "LONG" ? 1 : -1;
     targets = f(pips.map((pipsAway) => Math.round((anchor + sign * pipsAway * GOLD_PIP) * 100) / 100), 0.9);

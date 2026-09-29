@@ -12,7 +12,8 @@ export interface ParsedSignalFields {
   entryMin: FieldValue<number>;
   entryMax: FieldValue<number>;
   stopLoss: FieldValue<number>;
-  targets: FieldValue<number[]>;
+  /** Priced targets, with null for a target the source left open. */
+  targets: FieldValue<Array<number | null>>;
   signalType: FieldValue<string>;
   sourceConfidenceText: FieldValue<string>;
 }
@@ -22,6 +23,8 @@ export interface ParsedInstruction {
   closeAll?: boolean;
   cancel?: boolean;
   targetHitIndex?: number | null;
+  /** Stop and targets from a follow-up that does not state a new entry. */
+  fillLevels?: { stopLoss: number | null; targets: Array<number | null> };
 }
 
 export interface ParseInput {

@@ -109,7 +109,7 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
     entryMin: signal.entryMin,
     entryMax: signal.entryMax,
     stopLoss: signal.stopLoss,
-    targets: targets.map((t) => t.price),
+    targets: targets.flatMap((t) => (t.price === null ? [] : [t.price])),
     signalTime: signal.signalTime.getTime(),
     expiryTime: signal.expiryTime?.getTime() ?? null,
   };

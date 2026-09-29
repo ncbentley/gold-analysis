@@ -8,7 +8,7 @@ import type { SignalListItem } from "@/server/presenters";
 import { nowMs } from "@/lib/clock";
 
 function Targets({ targets }: { targets: SignalListItem["targets"] }) {
-  if (!targets.length) return <span className="text-muted-foreground">None stated</span>;
+  if (!targets.length) return <span className="text-muted-foreground">—</span>;
   return (
     <span className="flex flex-wrap gap-x-2 gap-y-0.5">
       {targets.map((t) => (
