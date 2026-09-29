@@ -286,7 +286,7 @@ export const signalTargets = pgTable(
       .notNull()
       .references(() => signals.id, { onDelete: "cascade" }),
     targetIndex: integer("target_index").notNull(),
-    price: doublePrecision("price").notNull(),
+    price: doublePrecision("price"),
     hitAt: ts("hit_at"),
     status: text("status", { enum: ["OPEN", "HIT", "MISSED", "AMBIGUOUS"] }).notNull().default("OPEN"),
   },

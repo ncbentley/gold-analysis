@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getDb, closeDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
-import { auditLogs, marketBars, parseResults, rawEvents, signalOutcomes, signals, sources, tierEntitlements, TIERS } from "@/server/db/schema";
+import { auditLogs, marketBars, parseResults, rawEvents, signalOutcomes, signals, signalTargets, sources, tierEntitlements, TIERS } from "@/server/db/schema";
 import { buildAccess } from "@/server/entitlements/access";
 import { DEFAULT_TIER_CONFIG } from "@/server/entitlements/config";
 import type { Viewer } from "@/server/entitlements/service";
@@ -80,7 +80,7 @@ describe("pipeline", () => {
 
   it("sends low-confidence parses to manual review without creating a signal", async () => {
     const db = await getDb();
-    const res = await ingestRawEvent(sourceId, { externalMessageId: "m2", rawText: "Gold buy 3400 tp 3410", publishedAt: new Date(T.getTime() + 3_600_000) });
+    const res = await ingestRawEvent(sourceId, { externalMessageId: "m2", rawText: "Gold buy 3400 sl 3404 tp 3410", publishedAt: new Date(T.getTime() + 3_600_000) });
     expect(res.status).toBe("stored");
     if (res.status !== "stored") return;
     const [pr] = await db.select().from(parseResults).where(eq(parseResults.rawEventId, res.rawEventId));
@@ -202,5 +202,43 @@ describe("pipeline", () => {
     expect((await listSources({ includeQa: true })).map((s) => s.id)).toContain(qa.id);
     expect(await getSourceBySlugOrId("qa-channel")).toBeNull();
     expect(await getSourceBySlugOrId("qa-channel", { includeQa: true })).not.toBeNull();
+  });
+
+  it("records a bare entry and attaches a later stop and targets", async () => {
+    const db = await getDb();
+    const when = new Date(T.getTime() + 5 * 3_600_000);
+    const [bar] = await db.select().from(marketBars).where(eq(marketBars.timestamp, new Date(when.getTime() - 60_000)));
+    const p = bar.close;
+    const quoted = Number(p.toFixed(2));
+    const bare = await ingestRawEvent(sourceId, {
+      externalMessageId: "bare-1",
+      rawText: `GOLD BUY ${quoted.toFixed(2)}`,
+      publishedAt: when,
+    });
+    expect(bare.status).toBe("stored");
+    if (bare.status !== "stored") return;
+    const [created] = await db.select().from(signals).where(eq(signals.originEventId, bare.rawEventId));
+    expect(created).toMatchObject({ direction: "LONG", entryMin: quoted, stopLoss: null });
+    expect(await db.select().from(signalTargets).where(eq(signalTargets.signalId, created.id))).toHaveLength(0);
+    const [bareParse] = await db.select().from(parseResults).where(eq(parseResults.rawEventId, bare.rawEventId));
+    expect(bareParse.status).toBe("applied");
+    expect(bareParse.issues.join(" ")).not.toMatch(/Stop loss is missing|No targets stated/);
+
+    const follow = await ingestRawEvent(sourceId, {
+      externalMessageId: "bare-2",
+      rawText: `SL ${(p - 6).toFixed(2)}\nTP1 ${(p + 8).toFixed(2)}\nTP2 OPEN`,
+      publishedAt: new Date(when.getTime() + 60_000),
+    });
+    expect(follow.status).toBe("stored");
+    if (follow.status !== "stored") return;
+    const [updated] = await db.select().from(signals).where(eq(signals.id, created.id));
+    expect(updated.stopLoss).toBe(Number((p - 6).toFixed(2)));
+    const targets = await db.select().from(signalTargets).where(eq(signalTargets.signalId, created.id));
+    const ordered = [...targets].sort((a, b) => a.targetIndex - b.targetIndex);
+    expect(ordered.map((target) => target.price)).toEqual([Number((p + 8).toFixed(2)), null]);
+    const [followParse] = await db.select().from(parseResults).where(eq(parseResults.rawEventId, follow.rawEventId));
+    expect(followParse.status).toBe("applied");
+    expect(followParse.signalId).toBe(created.id);
+    expect(await db.select().from(signals).where(eq(signals.originEventId, follow.rawEventId))).toHaveLength(0);
   });
 });

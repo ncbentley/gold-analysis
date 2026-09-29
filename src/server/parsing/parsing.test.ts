@@ -29,11 +29,13 @@ describe("text-generic parser", () => {
     expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
   });
 
-  it("sends a signal without a stop to manual review and does not invent one", () => {
+  it("publishes a target without inventing a stop", () => {
     const out = text("XAU/USD buy limit 3340\nTP 3350");
     expect(out.signal?.stopLoss.value).toBeNull();
-    expect(out.confidence).toBeLessThan(REVIEW_THRESHOLD);
-    expect(out.issues).toContain("Stop loss is missing.");
+    expect(out.signal?.targets.value).toEqual([3350]);
+    expect(out.issues).not.toContain("Stop loss is missing.");
+    expect(out.issues).not.toContain("No targets stated.");
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
   });
 
   it("does not mistake the first price digit for a target index", () => {
@@ -48,10 +50,64 @@ describe("text-generic parser", () => {
     expect(out.issues.join(" ")).toMatch(/wrong side/);
   });
 
-  it("flags a bare price as an unclear entry type", () => {
+  it("publishes a bare price with its stop and target", () => {
     const out = text("Gold buy 3340 sl 3334 tp 3350");
     expect(out.signal?.entryType.value).toBe("LIMIT");
-    expect(out.confidence).toBeLessThan(REVIEW_THRESHOLD);
+    expect(out.signal?.entryMin.value).toBe(3340);
+    expect(out.signal?.stopLoss.value).toBe(3334);
+    expect(out.signal?.targets.value).toEqual([3350]);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("parses an emoji sell with an open final target", () => {
+    const out = text("Gold（XAUUSD）📊\nSELL🔴4330-4335\nTP1 🎯4325\nTP2 🎯4320\nTP3 🎯4315\nTP4🎯 OPEN\nSL⛔️4350");
+    expect(out.eventType).toBe("NEW_SIGNAL");
+    expect(out.signal?.direction.value).toBe("SHORT");
+    expect(out.signal?.entryType.value).toBe("ZONE");
+    expect(out.signal?.entryMin.value).toBe(4330);
+    expect(out.signal?.entryMax.value).toBe(4335);
+    expect(out.signal?.targets.value).toEqual([4325, 4320, 4315, null]);
+    expect(out.signal?.stopLoss.value).toBe(4350);
+    expect(out.issues.join(" ")).not.toMatch(/Stop loss is missing|No targets stated/);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("reads a stop when words sit between the label and the price", () => {
+    const out = text("#XAUUSD SELL NOW 4352\n🔹➡️TP1      4349\n🔹➡️TP2 4344\n🚫STOP LOSS LIMIT...4365");
+    expect(out.signal?.direction.value).toBe("SHORT");
+    expect(out.signal?.entryMin.value).toBe(4352);
+    expect(out.signal?.stopLoss.value).toBe(4365);
+    expect(out.signal?.targets.value).toEqual([4349, 4344]);
+    expect(out.issues.join(" ")).not.toMatch(/Stop loss is missing|No targets stated/);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("keeps the price on a sell-now line that adds another word", () => {
+    const out = text("GOLD SELL NOW AGAIN 4275");
+    expect(out.signal?.direction.value).toBe("SHORT");
+    expect(out.signal?.entryType.value).toBe("MARKET");
+    expect(out.signal?.entryMin.value).toBe(4275);
+    expect(out.signal?.stopLoss.value).toBeNull();
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("publishes a bare entry and leaves stop and targets empty", () => {
+    const out = text("GOLD BUY 4370");
+    expect(out.eventType).toBe("NEW_SIGNAL");
+    expect(out.signal?.direction.value).toBe("LONG");
+    expect(out.signal?.entryMin.value).toBe(4370);
+    expect(out.signal?.entryMax.value).toBe(4370);
+    expect(out.signal?.stopLoss.value).toBeNull();
+    expect(out.signal?.targets.value).toEqual([]);
+    expect(out.issues.join(" ")).not.toMatch(/Stop loss is missing|No targets stated/);
+    expect(out.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
+  });
+
+  it("treats a later stop and targets as levels for an open signal", () => {
+    const out = text("SL 4360\nTP1 4380\nTP2 4390");
+    expect(out.eventType).toBe("UPDATE");
+    expect(out.signal).toBeNull();
+    expect(out.instruction?.fillLevels).toEqual({ stopLoss: 4360, targets: [4380, 4390] });
   });
 
   it("recognises move-stop, close, cancel and target-hit instructions", () => {

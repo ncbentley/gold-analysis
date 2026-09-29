@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
@@ -8,7 +8,7 @@ import { enqueueJob } from "@/server/jobs/queue";
 import { REVIEW_JOB_CONCURRENCY } from "@/server/jobs/limits";
 import { processJobs, useJobRunner } from "@/server/jobs/runner";
 import { useQueueReviewClient, type QueueReview } from "@/server/parsing/queue-review";
-import { addJoinedTelegramChat, useTelegramHistoryLoader } from "@/server/telegram";
+import { addJoinedTelegramChat, queueJoinedTelegramChats, useTelegramHistoryLoader } from "@/server/telegram";
 import { describeSourceImport, messageQueueState } from "@/server/telegram/import-status";
 
 process.env.JOBS_WORKER = "off";
@@ -97,6 +97,50 @@ describe("adding a telegram source", () => {
     const db = await getDb();
     const [row] = await db.select().from(sources).where(eq(sources.id, created.sourceId));
     expect(describeSourceImport(row.importStatus)).toBe("failed");
+  });
+});
+
+describe("queueing several telegram sources", () => {
+  it("queues two channels while another import is still running and does not fetch history", async () => {
+    const actor = { userId: null, label: "test" };
+    const opts = { isQa: true, parserType: "text-generic", backfill: 5 };
+    const first = await queueJoinedTelegramChats(
+      [{ id: "92001", accessHash: "1", username: null, title: "First Desk", kind: "channel" }],
+      opts,
+      actor,
+    );
+    const db = await getDb();
+    await db.update(sources).set({ importStatus: "importing" }).where(eq(sources.id, first.queued[0].sourceId));
+    let historyCalls = 0;
+    useTelegramHistoryLoader(async () => {
+      historyCalls += 1;
+      return [];
+    });
+
+    const added = await queueJoinedTelegramChats(
+      [
+        { id: "92001", accessHash: "1", username: null, title: "First Desk", kind: "channel" },
+        { id: "92002", accessHash: "2", username: null, title: "Second Desk", kind: "channel" },
+        { id: "92003", accessHash: "3", username: null, title: "Third Desk", kind: "group" },
+      ],
+      opts,
+      actor,
+    );
+
+    expect(historyCalls).toBe(0);
+    expect(added.alreadyTracked).toEqual(["First Desk"]);
+    expect(added.queued.map((chat) => chat.title)).toEqual(["Second Desk", "Third Desk"]);
+    expect(added.queued.every((chat) => chat.importStatus === "queued")).toBe(true);
+    const [stillImporting] = await db.select().from(sources).where(eq(sources.id, first.queued[0].sourceId));
+    expect(stillImporting.importStatus).toBe("importing");
+    const rows = await db.select().from(sources).where(inArray(sources.telegramChannelId, ["92002", "92003"]));
+    expect(rows.map((row) => row.importStatus).sort()).toEqual(["queued", "queued"]);
+    const syncs = await db.select().from(jobs).where(eq(jobs.type, "TELEGRAM_SYNC"));
+    const queuedIds = new Set(added.queued.map((chat) => chat.sourceId));
+    const waiting = syncs.filter((job) => job.status === "queued" && queuedIds.has(String(job.payloadJson.sourceId)));
+    expect(waiting).toHaveLength(2);
+    const createdIds = [first.queued[0].sourceId, ...added.queued.map((chat) => chat.sourceId)];
+    await db.delete(jobs).where(inArray(jobs.dedupeKey, createdIds.map((id) => `telegram-sync:${id}`)));
   });
 });
 

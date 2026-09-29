@@ -47,7 +47,7 @@ export function withInferredDirection(fields: ParsedSignalFields): { fields: Par
     entryMin: fields.entryMin.value,
     entryMax: fields.entryMax.value,
     stopLoss: fields.stopLoss.value,
-    targets: fields.targets.value ?? [],
+    targets: (fields.targets.value ?? []).filter((target): target is number => target !== null),
   });
   if (!inferred.direction) return { fields, notes: [] };
   const next: ParsedSignalFields = JSON.parse(JSON.stringify(fields));

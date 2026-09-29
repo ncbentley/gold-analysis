@@ -81,7 +81,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
     { price: d.entryMin, label: d.entryMin === d.entryMax ? "Entry" : "Zone", tone: "entry" as const },
     ...(d.entryMin !== d.entryMax ? [{ price: d.entryMax, label: "Zone", tone: "entry" as const }] : []),
     ...(d.stopLoss !== null ? [{ price: d.stopLoss, label: "SL", tone: "stop" as const }] : []),
-    ...d.targets.map((t) => ({ price: t.price, label: `TP${t.index}`, tone: "target" as const })),
+    ...d.targets.flatMap((t) => (t.price === null ? [] : [{ price: t.price, label: `TP${t.index}`, tone: "target" as const }])),
   ];
   const markers = [{ t: signalMs, label: "Published" }, ...(d.outcome.entryTime ? [{ t: Date.parse(d.outcome.entryTime), label: "Fill" }] : [])];
   const uid = viewer.user?.id;
@@ -110,7 +110,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
           <Section n={1} title="Signal" description="As published by the source and normalized by the parser.">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Stat label={d.entryType === "ZONE" ? "Entry zone" : "Entry"} value={<span className="font-mono text-base">{fmtEntry(d.entryMin, d.entryMax)}</span>} />
-              <Stat label="Stop loss" value={<span className="font-mono text-base">{fmtPrice(d.stopLoss)}</span>} hint={d.stopLoss === null ? "not published" : undefined} />
+              <Stat label="Stop loss" value={<span className="font-mono text-base">{fmtPrice(d.stopLoss)}</span>} />
               <Stat
                 label="Targets"
                 value={
@@ -233,7 +233,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground">No targets were published.</p>
+                      <p className="text-xs text-muted-foreground">—</p>
                     )
                   }
                 </GatedView>

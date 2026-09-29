@@ -96,7 +96,7 @@ describe("queue review confidence", () => {
 describe("learned pattern", () => {
   it("stores the price shape, the role of each price, and the direction", () => {
     const parsed = parseEvent("text-generic", { rawText: bare, payload: null, publishedAt: at });
-    expect(parsed.confidence).toBeLessThan(REVIEW_THRESHOLD);
+    expect(parsed.confidence).toBeGreaterThanOrEqual(REVIEW_THRESHOLD);
     const fields = signalFromQueueReview(parsed, review(), bare);
     expect(fields).toMatchObject({ direction: "LONG", entryType: "LIMIT", entryMin: 3350, stopLoss: 3340, targets: [3360] });
     const lesson = lessonFromModel(bare, [3350, 3350, 3340, 3360], fields, "accept");

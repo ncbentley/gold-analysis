@@ -114,7 +114,7 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
                   entryMin: signal.entryMin,
                   entryMax: signal.entryMax,
                   stopLoss: signal.stopLoss,
-                  targets: targets.map((t) => t.price),
+                  targets: targets.flatMap((t) => (t.price === null ? [] : [t.price])),
                   signalType: signal.signalType,
                   sourceConfidenceText: signal.sourceConfidenceText,
                   signalTime: signal.signalTime,

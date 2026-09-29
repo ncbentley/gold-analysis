@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Api, helpers, Logger, password as tgPassword, sessions, TelegramClient } from "telegram";
 // Explicit .js file paths: Node can't resolve GramJS directory imports, and a bundled second copy breaks its instanceof checks.
 import { EditedMessage, type EditedMessageEvent } from "telegram/events/EditedMessage.js";
@@ -530,6 +530,57 @@ async function loadChannelAccessHash(chat: JoinedChat): Promise<string | null> {
   return null;
 }
 
+export interface QueuedTelegramChat {
+  sourceId: string;
+  title: string;
+  created: boolean;
+  importStatus: "queued";
+}
+
+/**
+ * Records each selected chat and enqueues its import. Returns as soon as the jobs
+ * are queued. It does not call Telegram, so an import already in progress cannot
+ * make the next add fail. A channel that is already on the list is left as it is.
+ */
+export async function queueJoinedTelegramChats(
+  chats: JoinedChat[],
+  input: { isQa: boolean; parserType: string; backfill: number },
+  actor: Actor,
+): Promise<{ queued: QueuedTelegramChat[]; alreadyTracked: string[] }> {
+  const db = await getDb();
+  const seen = new Set<string>();
+  const queued: QueuedTelegramChat[] = [];
+  const alreadyTracked: string[] = [];
+  for (const chat of chats) {
+    const title = chat.title.trim();
+    if (!title || !/^[1-9][0-9]*$/.test(chat.id)) throw new Error("Choose a channel or group the connected account has joined.");
+    if (seen.has(chat.id)) continue;
+    seen.add(chat.id);
+    const [existing] = await db
+      .select({ id: sources.id })
+      .from(sources)
+      .where(and(eq(sources.telegramChannelId, chat.id), isNull(sources.removedAt)));
+    if (existing) {
+      alreadyTracked.push(title);
+      continue;
+    }
+    const saved = await saveLinkedTelegramSource(
+      {
+        channelId: chat.id,
+        accessHash: chat.accessHash,
+        username: chat.username,
+        title,
+        broadcast: chat.kind === "channel",
+      },
+      input,
+      actor,
+    );
+    await enqueueJob("TELEGRAM_SYNC", { sourceId: saved.sourceId, backfill: input.backfill }, { dedupeKey: `telegram-sync:${saved.sourceId}` });
+    queued.push({ sourceId: saved.sourceId, title: saved.title, created: saved.created, importStatus: "queued" });
+  }
+  return { queued, alreadyTracked };
+}
+
 /** Creates a source from a channel or group the account has already joined. The title is the dialog title. */
 export async function addJoinedTelegramChat(input: { chat: JoinedChat; name?: string; isQa: boolean; parserType: string; backfill: number }, actor: Actor) {
   const title = input.chat.title.trim();
@@ -619,6 +670,21 @@ export async function syncTelegramSource(sourceId: string, opts: { backfill?: nu
   const track = source.importStatus === "queued" || source.importStatus === "importing";
   if (source.importStatus === "queued") await markTelegramImporting(source.id);
   try {
+    if (!historyLoader && source.telegramChannelId && !source.telegramAccessHash && source.description?.startsWith("Telegram channel")) {
+      const hash = await withTelegramSlot(() =>
+        loadChannelAccessHash({
+          id: source.telegramChannelId!,
+          accessHash: null,
+          username: source.telegramUsername,
+          title: source.name,
+          kind: "channel",
+        }),
+      );
+      if (hash) {
+        await db.update(sources).set({ telegramAccessHash: hash }).where(eq(sources.id, source.id));
+        source.telegramAccessHash = hash;
+      }
+    }
     if (historyLoader) {
       const loaded = await historyLoader(source, opts);
       let queued = 0;

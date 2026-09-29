@@ -5,52 +5,33 @@ import { cn } from "@/lib/utils";
 
 export interface ChatMenuOption {
   id: string;
+  accessHash: string | null;
+  username: string | null;
+  title: string;
+  kind: "channel" | "group";
   label: string;
+  tracked: boolean;
 }
 
-function matches(option: ChatMenuOption, query: string) {
-  return option.label.toLowerCase().includes(query);
+function payload(chat: ChatMenuOption) {
+  return JSON.stringify({
+    id: chat.id,
+    accessHash: chat.accessHash,
+    username: chat.username,
+    title: chat.title,
+    kind: chat.kind,
+  });
 }
 
-function MenuGroup({ label, options, selected, onPick }: { label: string; options: ChatMenuOption[]; selected: string; onPick: (option: ChatMenuOption) => void }) {
-  if (options.length === 0) return null;
-  return (
-    <div>
-      <div className="px-3 py-1.5 text-xs font-semibold text-neutral-700">{label}</div>
-      {options.map((option) => {
-        const active = option.id === selected;
-        return (
-          <button
-            key={option.id}
-            type="button"
-            role="option"
-            aria-selected={active}
-            className={cn(
-              "block w-full px-3 py-1.5 text-left text-sm font-medium text-neutral-900",
-              active ? "bg-blue-700 text-white" : "hover:bg-blue-700 hover:text-white",
-            )}
-            onClick={() => onPick(option)}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-export function TelegramChatMenu({ channels, groups }: { channels: ChatMenuOption[]; groups: ChatMenuOption[] }) {
+/** One filterable list. Each row is a checkbox. Already-tracked chats stay visible and cannot be selected. */
+export function TelegramChatMenu({ chats }: { chats: ChatMenuOption[] }) {
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState("");
   const listId = useId();
   const needle = query.trim().toLowerCase();
-  const shownChannels = useMemo(() => (needle ? channels.filter((option) => matches(option, needle)) : channels), [channels, needle]);
-  const shownGroups = useMemo(() => (needle ? groups.filter((option) => matches(option, needle)) : groups), [groups, needle]);
-  const empty = shownChannels.length === 0 && shownGroups.length === 0;
+  const shown = useMemo(() => (needle ? chats.filter((chat) => chat.label.toLowerCase().includes(needle)) : chats), [chats, needle]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white font-sans">
-      <input name="chatId" value={selected} required tabIndex={-1} aria-hidden="true" onChange={() => {}} className="sr-only" />
       <input
         id="ch-pick"
         type="search"
@@ -61,14 +42,28 @@ export function TelegramChatMenu({ channels, groups }: { channels: ChatMenuOptio
         autoComplete="off"
         className="w-full border-b border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-900 outline-none placeholder:text-neutral-500"
       />
-      <div id={listId} role="listbox" data-testid="telegram-source-menu" className="h-[32rem] overflow-y-auto">
-        {empty ? (
+      <div id={listId} data-testid="telegram-source-menu" className="h-[32rem] overflow-y-auto">
+        {shown.length === 0 ? (
           <p className="px-3 py-2 text-sm font-medium text-neutral-700">No matching channels or groups.</p>
         ) : (
-          <>
-            <MenuGroup label="Channels" options={shownChannels} selected={selected} onPick={(option) => setSelected(option.id)} />
-            <MenuGroup label="Groups" options={shownGroups} selected={selected} onPick={(option) => setSelected(option.id)} />
-          </>
+          shown.map((chat) => (
+            <label
+              key={chat.id}
+              className={cn(
+                "flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-neutral-900",
+                chat.tracked ? "cursor-default text-neutral-500" : "cursor-pointer hover:bg-blue-700 hover:text-white",
+              )}
+            >
+              <input
+                type="checkbox"
+                name="chat"
+                value={payload(chat)}
+                disabled={chat.tracked}
+                className="size-4 accent-blue-700"
+              />
+              <span>{chat.label}</span>
+            </label>
+          ))
         )}
       </div>
     </div>

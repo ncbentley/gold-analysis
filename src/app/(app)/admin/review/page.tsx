@@ -69,7 +69,7 @@ export default async function ReviewPage({ searchParams }: PageProps<"/admin/rev
                           entryMin: s?.entryMin.value,
                           entryMax: s?.entryMax.value,
                           stopLoss: s?.stopLoss.value,
-                          targets: s?.targets.value,
+                          targets: s?.targets.value?.filter((price): price is number => price !== null),
                           signalType: s?.signalType.value,
                           sourceConfidenceText: s?.sourceConfidenceText.value,
                           signalTime: event.publishedAt,

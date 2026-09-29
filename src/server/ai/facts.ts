@@ -59,8 +59,8 @@ export async function buildSignalFacts(signalId: string): Promise<SignalFacts> {
   const [signal] = await db.select().from(signals).where(eq(signals.id, signalId));
   if (!signal) throw new Error("Signal not found");
   const [source] = await db.select().from(sources).where(eq(sources.id, signal.sourceId));
-  const targets = (await db.select().from(signalTargets).where(eq(signalTargets.signalId, signalId)).orderBy(asc(signalTargets.targetIndex))).map(
-    (t) => t.price,
+  const targets = (await db.select().from(signalTargets).where(eq(signalTargets.signalId, signalId)).orderBy(asc(signalTargets.targetIndex))).flatMap(
+    (t) => (t.price === null ? [] : [t.price]),
   );
 
   const t = signal.signalTime.getTime();
