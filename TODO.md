@@ -16,15 +16,6 @@ Known gaps and next steps after the MVP, roughly in priority order.
 - [ ] **Shared rate limiting.** Move to Redis or a platform limiter before running more than one instance.
 - [x] **Dedicated worker.** `docker compose` runs the `queue` service and sets `JOBS_WORKER=off` on the app. Jobs stay in Postgres.
 
-## Paid upgrades
-
-Roadmap for what a higher tier is actually paying for. Data depth may not be the scarce thing: there can be too many signals at once for extra history or extra fields to matter. The differentiator is choosing which signals are worth acting on, then being told, then optionally having them acted on.
-
-- [ ] **Filterable signals.** Let a member ask only for signals of a certain quality (for example consensus grade, source track record, or risk), instead of the full firehose.
-- [ ] **Push notifications for those filters.** Notify when a signal matches the quality filter above, not on every new post.
-- [ ] **Automation for those filters.** Automatic execution of signals that pass the same quality filter. Trade execution is an MVP non-goal; this is the later paid step after filtering and alerts.
-- [ ] **Consider opening all data to every tier.** If volume is high enough that nobody can use every signal, gating history and fields by tier may not be the product. Revisit Silver / Gold / Platinum so the paid line is the filter, the notification, and the automation, and the underlying data is available to all tiers.
-
 ## Product
 
 - [ ] Telegram albums: a multi-photo post arrives as several messages sharing a `groupedId`. Today only the one carrying the caption produces a signal; the others are stored as captionless evidence.
