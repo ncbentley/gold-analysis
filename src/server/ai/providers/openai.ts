@@ -14,12 +14,16 @@ function parseContent(content: string) {
 /**
  * Queue review used to paste the JSON Schema into the user message. Llama 3.1 8B
  * copied that schema back, which failed validation and looked like "unknown".
- * Other analysis types still receive the schema.
+ * Signal and source analysis do the same with a filled example. Parse review
+ * still receives the schema.
  */
 export function chatUserContent(req: AiRequest) {
   const facts = `Structured facts (JSON):\n${JSON.stringify(req.facts)}`;
   if (req.analysisType === "queue_review") {
     return `${facts}\n\nAnswer the post in message. Return one JSON object with the same keys as the filled examples in the system message. Do not return a JSON Schema, a type/properties wrapper, or markdown.`;
+  }
+  if (req.example) {
+    return `${facts}\n\nReturn one JSON object with exactly the keys of this example. Replace every example value with your own analysis of the facts above:\n${req.example}\n\nDo not return a JSON Schema, a type/properties wrapper, or markdown.`;
   }
   return `${facts}\n\nRespond with one JSON object matching this schema:\n${JSON.stringify(req.jsonSchema)}`;
 }

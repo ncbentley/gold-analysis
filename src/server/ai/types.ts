@@ -32,6 +32,8 @@ export interface AiRequest {
   system: string;
   facts: Record<string, unknown>;
   jsonSchema: Record<string, unknown>;
+  /** When set, chat backends are shown this filled answer instead of the schema. */
+  example?: string;
 }
 
 export interface AiProvider {

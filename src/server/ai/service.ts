@@ -43,8 +43,9 @@ async function runAnalysis(opts: {
     system: prompt.system,
     facts: opts.facts,
     jsonSchema: z.toJSONSchema(prompt.schema) as Record<string, unknown>,
+    example: prompt.example,
   });
-  const output = prompt.schema.parse(raw);
+  const output = prompt.schema.parse(prompt.coerce ? prompt.coerce(raw) : raw);
 
   const analysis = await db.transaction(async (tx) => {
     await tx
