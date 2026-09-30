@@ -1,7 +1,9 @@
+import { RotateCcw, Workflow, Zap } from "lucide-react";
 import { enqueueJobAction, retryJobAction, runJobsAction } from "@/app/actions/admin";
 import { FilterLinks, NativeSelect, Notice, StateBadge } from "@/components/admin-bits";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtDateTime } from "@/lib/format";
 import { listJobs } from "@/server/admin";
@@ -19,12 +21,14 @@ export default async function JobsPage({ searchParams }: PageProps<"/admin/jobs"
   return (
     <>
       <PageHeader
+        icon={Workflow}
+        size="sm"
         title="Jobs"
         description="Durable background work: market data sync, outcome replay, statistics, AI analysis, source polling and billing reconciliation. Failed jobs retry with backoff."
         actions={
           <>
             <form action={enqueueJobAction} className="flex gap-2">
-              <NativeSelect name="type" aria-label="Job to queue" className="w-52" defaultValue="MARKET_DATA_SYNC">
+              <NativeSelect name="type" aria-label="Job to queue" className="h-8 w-52 font-mono text-xs" defaultValue="MARKET_DATA_SYNC">
                 {JOB_TYPES.filter((t) => !["RECALC_OUTCOME", "AI_ANALYZE_SIGNAL", "AI_ANALYZE_SOURCE", "REFRESH_SOURCE_STATS"].includes(t)).map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -38,6 +42,7 @@ export default async function JobsPage({ searchParams }: PageProps<"/admin/jobs"
             </form>
             <form action={runJobsAction}>
               <Button type="submit" size="sm">
+                <Zap data-icon="inline-start" />
                 Run queued now
               </Button>
             </form>
@@ -56,7 +61,7 @@ export default async function JobsPage({ searchParams }: PageProps<"/admin/jobs"
           ]}
         />
       </div>
-      <div className="overflow-hidden rounded-lg border bg-card/40">
+      <Card className="gap-0 py-0">
         <Table>
           <TableHeader>
             <TableRow>
@@ -79,11 +84,11 @@ export default async function JobsPage({ searchParams }: PageProps<"/admin/jobs"
             )}
             {rows.map((j) => (
               <TableRow key={j.id}>
-                <TableCell className="font-mono text-xs">{j.type}</TableCell>
+                <TableCell className="font-mono text-xs font-semibold">{j.type}</TableCell>
                 <TableCell>
                   <StateBadge state={j.status} />
                 </TableCell>
-                <TableCell className="text-right tabular-nums">
+                <TableCell className="text-right font-mono text-xs tabular-nums">
                   {j.attempts}/{j.maxAttempts}
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">{fmtDateTime(j.createdAt)}</TableCell>
@@ -102,6 +107,7 @@ export default async function JobsPage({ searchParams }: PageProps<"/admin/jobs"
                     <form action={retryJobAction}>
                       <input type="hidden" name="id" value={j.id} />
                       <Button type="submit" size="xs" variant="outline">
+                        <RotateCcw data-icon="inline-start" />
                         Retry
                       </Button>
                     </form>
@@ -111,7 +117,7 @@ export default async function JobsPage({ searchParams }: PageProps<"/admin/jobs"
             ))}
           </TableBody>
         </Table>
-      </div>
+      </Card>
     </>
   );
 }

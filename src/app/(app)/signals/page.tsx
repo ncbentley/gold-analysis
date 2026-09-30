@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChartCandlestick, ChevronLeft, ChevronRight, CircleCheck, Radio, SlidersHorizontal } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -13,8 +13,14 @@ import { can, lowestTierWith } from "@/server/entitlements/access";
 import { getViewer } from "@/server/entitlements/service";
 import { listSignalsForViewer, listSignalTypes, parseSignalFilters } from "@/server/signals/queries";
 
-export const metadata: Metadata = { title: "Signals" };
+export const metadata: Metadata = { title: "Live signals" };
 const PAGE_SIZE = 25;
+
+const FEATURES = [
+  { icon: ChartCandlestick, label: "Replayed on 1-minute XAU/USD bars" },
+  { icon: CircleCheck, label: "Targets marked as they are hit" },
+  { icon: SlidersHorizontal, label: "Filter by status, direction and date" },
+];
 
 export default async function SignalsPage({ searchParams }: PageProps<"/signals">) {
   const viewer = await getViewer();
@@ -22,7 +28,7 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
   if (!can(viewer.access, "signals.core")) {
     return (
       <>
-        <PageHeader title="Signals" />
+        <PageHeader title="Live signals" icon={Radio} description="Gold signals from tracked sources, with every level replayed against market data." />
         <LockedPanel feature="signals.core" requiredTier={lowestTierWith("signals.core", viewer.config)} title="Signals are available to members" userId={viewer.user?.id} />
       </>
     );
@@ -43,7 +49,9 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
   return (
     <>
       <PageHeader
-        title="Signals"
+        title="Live signals"
+        icon={Radio}
+        features={FEATURES}
         description={
           result.historyCutoff
             ? `Showing signals since ${fmtDate(result.historyCutoff)} (${viewer.access.historyDays}-day history on your plan).`
@@ -60,22 +68,22 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
           />
         </Suspense>
       </div>
-      <div className="mb-2 text-xs text-muted-foreground">
-        {result.total} signal{result.total === 1 ? "" : "s"}
+      <div className="mb-2 px-1 text-xs text-muted-foreground">
+        <span className="font-mono font-semibold text-foreground tabular-nums">{result.total}</span> signal{result.total === 1 ? "" : "s"}
       </div>
       <SignalList items={result.items} />
       {pages > 1 && (
-        <div className="mt-4 flex items-center justify-end gap-2 text-sm">
+        <nav aria-label="Pagination" className="panel mt-4 flex items-center justify-between gap-2 rounded-xl p-2 text-sm ring-1 ring-glow/25 sm:justify-end">
           <Link href={pageHref(page - 1)} aria-disabled={page <= 1} className={cn(buttonVariants({ variant: "outline", size: "sm" }), page <= 1 && "pointer-events-none opacity-50")}>
             <ChevronLeft /> Prev
           </Link>
-          <span className="text-muted-foreground">
-            Page {page} of {pages}
+          <span className="px-2 text-muted-foreground">
+            Page <span className="font-mono font-semibold text-primary tabular-nums">{page}</span> of <span className="font-mono tabular-nums text-foreground">{pages}</span>
           </span>
           <Link href={pageHref(page + 1)} aria-disabled={page >= pages} className={cn(buttonVariants({ variant: "outline", size: "sm" }), page >= pages && "pointer-events-none opacity-50")}>
             Next <ChevronRight />
           </Link>
-        </div>
+        </nav>
       )}
     </>
   );

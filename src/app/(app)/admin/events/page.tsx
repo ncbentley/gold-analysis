@@ -1,10 +1,11 @@
+import { ChevronLeft, ChevronRight, Filter, Inbox, PenLine } from "lucide-react";
 import Link from "next/link";
 import { ingestManualEventAction } from "@/app/actions/admin";
 import { Field, NativeSelect, Notice, StateBadge } from "@/components/admin-bits";
 import { ImportProgressRefresh } from "@/components/import-progress";
-import { PageHeader } from "@/components/page-header";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader, SectionTitle } from "@/components/page-header";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,11 +34,11 @@ export default async function EventsPage({ searchParams }: PageProps<"/admin/eve
 
   return (
     <>
-      <PageHeader title="Raw events" description="Every message exactly as received. Raw events are never edited; re-parsing creates a new parse result." />
+      <PageHeader icon={Inbox} size="sm" title="Raw events" description="Every message exactly as received. Raw events are never edited; re-parsing creates a new parse result." />
       <ImportProgressRefresh active={sources.some((s) => s.importStatus === "queued" || s.importStatus === "importing") || filters.status === "queued"} />
       <Notice searchParams={sp} />
 
-      <form className="mb-4 flex flex-wrap items-end gap-2">
+      <form className="panel mb-4 flex flex-wrap items-end gap-3 rounded-xl px-4 py-3 ring-1 ring-glow/30">
         <Field label="Source" htmlFor="f-source" className="w-48">
           <NativeSelect id="f-source" name="source" defaultValue={filters.sourceId ?? ""}>
             <option value="">All sources</option>
@@ -58,13 +59,16 @@ export default async function EventsPage({ searchParams }: PageProps<"/admin/eve
             ))}
           </NativeSelect>
         </Field>
-        <Button type="submit" variant="outline" size="sm">
+        <Button type="submit" variant="outline">
+          <Filter data-icon="inline-start" />
           Filter
         </Button>
-        <span className="ml-auto text-xs text-muted-foreground">{total.toLocaleString()} events</span>
+        <span className="ml-auto self-center text-xs font-medium text-muted-foreground">
+          <span className="font-mono text-foreground tabular-nums">{total.toLocaleString()}</span> events
+        </span>
       </form>
 
-      <div className="overflow-hidden rounded-lg border bg-card/40">
+      <Card className="gap-0 py-0">
         <Table>
           <TableHeader>
             <TableRow>
@@ -85,14 +89,14 @@ export default async function EventsPage({ searchParams }: PageProps<"/admin/eve
             )}
             {rows.map(({ event, source, parse }) => (
               <TableRow key={event.id}>
-                <TableCell className="text-xs text-muted-foreground">{fmtDateTime(event.publishedAt)}</TableCell>
-                <TableCell className="text-xs">{source.name}</TableCell>
+                <TableCell className="text-xs text-muted-foreground tabular-nums">{fmtDateTime(event.publishedAt)}</TableCell>
+                <TableCell className="text-xs font-medium">{source.name}</TableCell>
                 <TableCell className="max-w-0">
-                  <Link href={`/admin/events/${event.id}`} className="block truncate font-mono text-xs hover:text-primary">
+                  <Link href={`/admin/events/${event.id}`} className="block truncate rounded font-mono text-xs text-foreground/90 outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring">
                     {event.rawText}
                   </Link>
                 </TableCell>
-                <TableCell className="text-xs">{parse?.eventType ?? event.eventType ?? "—"}</TableCell>
+                <TableCell className="font-mono text-[11px] text-muted-foreground">{parse?.eventType ?? event.eventType ?? "—"}</TableCell>
                 <TableCell>
                   <StateBadge state={messageQueueState(parse?.status)} />
                 </TableCell>
@@ -100,15 +104,27 @@ export default async function EventsPage({ searchParams }: PageProps<"/admin/eve
             ))}
           </TableBody>
         </Table>
-      </div>
-      <div className="mt-3 flex justify-between text-sm">
-        {page > 1 ? <Link href={qs({ page: String(page - 1) })} className="text-primary hover:underline">Previous</Link> : <span />}
-        {page * PAGE < total && <Link href={qs({ page: String(page + 1) })} className="text-primary hover:underline">Next</Link>}
+      </Card>
+      <div className="mt-4 flex justify-between">
+        {page > 1 ? (
+          <Link href={qs({ page: String(page - 1) })} className={buttonVariants({ variant: "outline", size: "sm" })}>
+            <ChevronLeft data-icon="inline-start" />
+            Previous
+          </Link>
+        ) : (
+          <span />
+        )}
+        {page * PAGE < total && (
+          <Link href={qs({ page: String(page + 1) })} className={buttonVariants({ variant: "outline", size: "sm" })}>
+            Next
+            <ChevronRight data-icon="inline-end" />
+          </Link>
+        )}
       </div>
 
-      <Card className="mt-8 bg-card/60">
+      <Card className="mt-6">
         <CardHeader>
-          <CardTitle className="text-base">Record an event manually</CardTitle>
+          <SectionTitle icon={PenLine} title="Record an event manually" className="mb-0" />
         </CardHeader>
         <CardContent>
           <form action={ingestManualEventAction} className="grid gap-3 md:grid-cols-3">

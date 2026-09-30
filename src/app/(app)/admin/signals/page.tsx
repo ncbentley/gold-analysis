@@ -1,8 +1,10 @@
+import { ChevronLeft, ChevronRight, ListChecks } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 import { PageHeader } from "@/components/page-header";
 import { SignalFilters } from "@/components/signal-filters";
 import { SignalList } from "@/components/signal-list";
+import { buttonVariants } from "@/components/ui/button";
 import { requireAdmin } from "@/server/auth/guards";
 import { getViewer } from "@/server/entitlements/service";
 import { listSignalsForViewer, listSignalTypes, listSources, parseSignalFilters } from "@/server/signals/queries";
@@ -29,13 +31,15 @@ export default async function AdminSignalsPage({ searchParams }: PageProps<"/adm
 
   return (
     <>
-      <PageHeader title="Signals" description="Open a signal to correct fields, recalculate or override its outcome, and regenerate AI analysis." />
+      <PageHeader icon={ListChecks} size="sm" title="Signals" description="Open a signal to correct fields, recalculate or override its outcome, and regenerate AI analysis." />
       <div className="mb-4">
         <Suspense>
           <SignalFilters sources={sources.map((s) => ({ value: s.id, label: s.name }))} signalTypes={signalTypes} advanced search />
         </Suspense>
       </div>
-      <div className="mb-2 text-xs text-muted-foreground">{result.total.toLocaleString()} signals</div>
+      <div className="mb-2 text-xs font-medium text-muted-foreground">
+        <span className="font-mono text-foreground tabular-nums">{result.total.toLocaleString()}</span> signals
+      </div>
       <SignalList
         items={result.items.map((item) => {
           const source = sources.find((s) => s.id === item.source.id);
@@ -44,9 +48,21 @@ export default async function AdminSignalsPage({ searchParams }: PageProps<"/adm
         hrefBase="/admin/signals"
         showSource
       />
-      <div className="mt-3 flex justify-between text-sm">
-        {page > 1 ? <Link href={pageHref(page - 1)} className="text-primary hover:underline">Previous</Link> : <span />}
-        {page * PAGE < result.total && <Link href={pageHref(page + 1)} className="text-primary hover:underline">Next</Link>}
+      <div className="mt-4 flex justify-between">
+        {page > 1 ? (
+          <Link href={pageHref(page - 1)} className={buttonVariants({ variant: "outline", size: "sm" })}>
+            <ChevronLeft data-icon="inline-start" />
+            Previous
+          </Link>
+        ) : (
+          <span />
+        )}
+        {page * PAGE < result.total && (
+          <Link href={pageHref(page + 1)} className={buttonVariants({ variant: "outline", size: "sm" })}>
+            Next
+            <ChevronRight data-icon="inline-end" />
+          </Link>
+        )}
       </div>
     </>
   );

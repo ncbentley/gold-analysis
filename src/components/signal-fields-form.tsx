@@ -1,6 +1,8 @@
 import { Field, NativeSelect, toInputDateTime } from "@/components/admin-bits";
 import { Input } from "@/components/ui/input";
 
+const PRICE = "font-mono tabular-nums";
+
 export interface SignalFieldDefaults {
   direction?: string | null;
   entryType?: string | null;
@@ -17,7 +19,7 @@ export interface SignalFieldDefaults {
 export function SignalFieldsForm({ d, idPrefix }: { d: SignalFieldDefaults; idPrefix: string }) {
   const id = (k: string) => `${idPrefix}-${k}`;
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-2 gap-x-3 gap-y-3.5 md:grid-cols-4">
       <Field label="Direction" htmlFor={id("direction")}>
         <NativeSelect id={id("direction")} name="direction" defaultValue={d.direction ?? ""} required>
           <option value="" disabled>
@@ -35,16 +37,16 @@ export function SignalFieldsForm({ d, idPrefix }: { d: SignalFieldDefaults; idPr
         </NativeSelect>
       </Field>
       <Field label="Entry (low)" htmlFor={id("entryMin")}>
-        <Input id={id("entryMin")} name="entryMin" inputMode="decimal" defaultValue={d.entryMin ?? ""} required />
+        <Input id={id("entryMin")} name="entryMin" inputMode="decimal" defaultValue={d.entryMin ?? ""} required className={PRICE} />
       </Field>
       <Field label="Entry (high)" htmlFor={id("entryMax")} hint="Same as low for a single price">
-        <Input id={id("entryMax")} name="entryMax" inputMode="decimal" defaultValue={d.entryMax ?? ""} />
+        <Input id={id("entryMax")} name="entryMax" inputMode="decimal" defaultValue={d.entryMax ?? ""} className={PRICE} />
       </Field>
       <Field label="Stop loss" htmlFor={id("stopLoss")}>
-        <Input id={id("stopLoss")} name="stopLoss" inputMode="decimal" defaultValue={d.stopLoss ?? ""} />
+        <Input id={id("stopLoss")} name="stopLoss" inputMode="decimal" defaultValue={d.stopLoss ?? ""} className={PRICE} />
       </Field>
       <Field label="Targets" htmlFor={id("targets")} hint="Comma separated" className="col-span-2 md:col-span-1">
-        <Input id={id("targets")} name="targets" defaultValue={d.targets?.join(", ") ?? ""} />
+        <Input id={id("targets")} name="targets" defaultValue={d.targets?.join(", ") ?? ""} className={PRICE} />
       </Field>
       <Field label="Signal type" htmlFor={id("signalType")}>
         <Input id={id("signalType")} name="signalType" defaultValue={d.signalType ?? ""} placeholder="scalp, swing…" />

@@ -1,6 +1,7 @@
+import { CheckCircle2, ClipboardCheck, ExternalLink, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { dismissReviewAction, resolveReviewAction } from "@/app/actions/admin";
-import { Field, Notice, StateBadge } from "@/components/admin-bits";
+import { EmptyState, Field, Notice, StateBadge } from "@/components/admin-bits";
 import { PageHeader } from "@/components/page-header";
 import { SignalFieldsForm } from "@/components/signal-fields-form";
 import { Button } from "@/components/ui/button";
@@ -21,12 +22,21 @@ export default async function ReviewPage({ searchParams }: PageProps<"/admin/rev
   return (
     <>
       <PageHeader
+        icon={ClipboardCheck}
+        size="sm"
         title="Review queue"
         description="The model reviews these posts first. A post stays here when the model is unsure or its confidence is under 80%. Create the signal with corrected fields, or dismiss the message. Every decision is audited."
+        actions={
+          items.length > 0 && (
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary ring-1 ring-primary/45">
+              <span className="font-mono tabular-nums">{items.length}</span> waiting
+            </span>
+          )
+        }
       />
       <Notice searchParams={sp} />
       {items.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">The queue is empty. Posts the model cannot decide are listed here.</div>
+        <EmptyState icon={CheckCircle2}>The queue is empty. Posts the model cannot decide are listed here.</EmptyState>
       ) : (
         <div className="space-y-4">
           {items.map(({ event, source, parse }) => {
@@ -34,21 +44,24 @@ export default async function ReviewPage({ searchParams }: PageProps<"/admin/rev
             const s = out.signal;
             const isSignal = parse.eventType === "NEW_SIGNAL";
             return (
-              <Card key={parse.id} className="bg-card/60">
-                <CardHeader>
+              <Card key={parse.id}>
+                <CardHeader className="border-b">
                   <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
-                    <span>{source.name}</span>
-                    <span className="font-normal text-muted-foreground">· {fmtDateTime(event.publishedAt)}</span>
+                    <span className="font-heading text-base font-bold">{source.name}</span>
+                    <span className="font-sans font-normal text-muted-foreground tabular-nums">{fmtDateTime(event.publishedAt)}</span>
                     <StateBadge state={parse.status} />
-                    <span className="rounded-md border px-1.5 py-0.5 text-[11px] text-muted-foreground">{parse.eventType}</span>
-                    <span className="text-xs font-normal text-muted-foreground">confidence {(parse.confidence * 100).toFixed(0)}%</span>
-                    <Link href={`/admin/events/${event.id}`} className="ml-auto text-xs font-normal text-primary hover:underline">
+                    <span className="rounded-full border border-glow/40 bg-glow/10 px-2 py-0.5 font-mono text-[11px] font-medium text-[#8db6ff]">{parse.eventType}</span>
+                    <span className="font-sans text-xs font-normal text-muted-foreground">
+                      confidence <span className="font-mono font-semibold text-foreground tabular-nums">{(parse.confidence * 100).toFixed(0)}%</span>
+                    </span>
+                    <Link href={`/admin/events/${event.id}`} className="ml-auto inline-flex items-center gap-1 font-sans text-xs font-medium text-[#8db6ff] hover:text-primary">
                       Event detail
+                      <ExternalLink className="size-3.5" />
                     </Link>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <pre className="whitespace-pre-wrap rounded-md border bg-background/60 p-3 font-mono text-xs">{event.rawText}</pre>
+                  <pre className="whitespace-pre-wrap rounded-lg border border-glow/20 bg-[#050b18] p-3 font-mono text-xs leading-relaxed">{event.rawText}</pre>
                   {parse.issues.length > 0 && (
                     <ul className="list-inside list-disc text-xs text-amber-300/90">
                       {parse.issues.map((i) => (
@@ -57,8 +70,11 @@ export default async function ReviewPage({ searchParams }: PageProps<"/admin/rev
                     </ul>
                   )}
                   {isSignal && (
-                    <form action={resolveReviewAction} className="space-y-3 rounded-md border p-3">
-                      <div className="text-xs font-medium">Create signal</div>
+                    <form action={resolveReviewAction} className="space-y-3 rounded-xl border border-primary/35 bg-primary/[0.04] p-3.5">
+                      <div className="flex items-center gap-1.5 font-heading text-sm font-bold text-primary">
+                        <Plus className="size-4" />
+                        Create signal
+                      </div>
                       <input type="hidden" name="rawEventId" value={event.id} />
                       <input type="hidden" name="publishedAt" value={event.publishedAt.toISOString()} />
                       <SignalFieldsForm
@@ -89,6 +105,7 @@ export default async function ReviewPage({ searchParams }: PageProps<"/admin/rev
                       <Input id={`${parse.id}-dismiss`} name="reason" required minLength={3} placeholder={isSignal ? "e.g. Not a tradable signal" : "e.g. Commentary only"} />
                     </Field>
                     <Button type="submit" variant="outline">
+                      <X data-icon="inline-start" />
                       Dismiss
                     </Button>
                   </form>

@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Reset password" };
 
 export default function ForgotPasswordPage() {
   return (
-    <AuthCard title="Reset your password" description="We will email you a link to choose a new password." footer={<Link href="/login" className="hover:text-foreground">Back to sign in</Link>}>
+    <AuthCard title="Reset your password" description="We will email you a link to choose a new password." footer={<Link href="/login" className="font-medium hover:text-primary">Back to sign in</Link>}>
       <AuthForm action={forgotPasswordAction} submitLabel="Send reset link" fields={[{ name: "email", label: "Email", type: "email", autoComplete: "email" }]} />
     </AuthCard>
   );

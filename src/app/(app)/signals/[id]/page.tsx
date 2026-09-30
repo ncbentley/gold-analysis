@@ -1,4 +1,4 @@
-import { ArrowLeft, Bot, Info, Sparkles } from "lucide-react";
+import { ArrowLeft, Bot, BrainCircuit, Crosshair, GitCompare, History, Info, Sparkles, Target, Trophy, Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -23,18 +23,37 @@ import { nowMs } from "@/lib/clock";
 
 export const metadata: Metadata = { title: "Signal" };
 
-function Section({ n, title, description, children, className }: { n: number; title: string; description?: string; children: React.ReactNode; className?: string }) {
+type Icon = React.ComponentType<{ className?: string }>;
+
+const BOX = "rounded-xl bg-black/25 p-3.5 ring-1 ring-glow/20";
+
+function Section({ icon: IconCmp, title, description, children, className }: { icon: Icon; title: string; description?: string; children: React.ReactNode; className?: string }) {
   return (
-    <Card className={cn("bg-card/60", className)}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <span className="flex size-5 items-center justify-center rounded bg-primary/10 text-[11px] text-primary">{n}</span>
+    <Card className={className}>
+      <CardHeader className="border-b border-glow/15">
+        <CardTitle className="flex items-center gap-2.5 text-base">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/50">
+            <IconCmp className="size-4" />
+          </span>
           {title}
         </CardTitle>
-        {description && <CardDescription>{description}</CardDescription>}
+        {description && <CardDescription className="text-xs leading-relaxed">{description}</CardDescription>}
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
+  );
+}
+
+function SubLabel({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn("mb-2 text-xs font-semibold text-[#8db6ff]", className)}>{children}</div>;
+}
+
+function Cell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-black/25 px-2.5 py-2 ring-1 ring-glow/20">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-mono tabular-nums">{children}</span>
+    </div>
   );
 }
 
@@ -50,17 +69,35 @@ const TL_LABEL: Record<string, string> = {
   AMBIGUOUS: "Ambiguous candle",
 };
 
+const TL_DOT: Record<string, string> = {
+  ENTRY: "bg-primary shadow-[0_0_8px_var(--primary)]",
+  TARGET: "bg-win shadow-[0_0_8px_var(--win)]",
+  STOP: "bg-loss shadow-[0_0_8px_var(--loss)]",
+  AMBIGUOUS: "bg-amber-300",
+};
+
+function rTone(r: number | null | undefined) {
+  if (r === null || r === undefined) return "blue" as const;
+  return r > 0.05 ? ("win" as const) : r < -0.05 ? ("loss" as const) : ("blue" as const);
+}
+
 export default async function SignalDetailPage({ params }: PageProps<"/signals/[id]">) {
   const { id } = await params;
   const viewer = await getViewer();
   const res = await getSignalDetailForViewer(id, viewer);
   if (res.kind === "not_found") notFound();
+  const back = (
+    <Link
+      href="/signals"
+      className="mb-3 inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <ArrowLeft className="size-4" /> Live signals
+    </Link>
+  );
   if (res.kind !== "ok") {
     return (
       <>
-        <Link href="/signals" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="size-4" /> Signals
-        </Link>
+        {back}
         <LockedPanel
           feature={res.kind === "history_locked" ? "sources.history.full" : "signals.core"}
           requiredTier={res.requiredTier}
@@ -89,29 +126,31 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
 
   return (
     <>
-      <Link href="/signals" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-4" /> Signals
-      </Link>
+      {back}
       <PageHeader
+        size="sm"
+        icon={Crosshair}
         title={
-          <span className="flex flex-wrap items-center gap-3">
-            <DirectionBadge direction={d.direction} />
-            <span>
-              {d.instrument} {d.entryType.toLowerCase()} · {fmtEntry(d.entryMin, d.entryMax)}
-            </span>
-            <StatusBadge status={d.status} />
-          </span>
+          <>
+            {d.instrument} {d.entryType.toLowerCase()} · <span className="tabular-nums">{fmtEntry(d.entryMin, d.entryMax)}</span>
+          </>
         }
-        description={`Published ${fmtDateTime(d.signalTime)} (${fmtAge(d.signalTime)} ago) · ${session} session`}
-      />
+      >
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <DirectionBadge direction={d.direction} />
+          <StatusBadge status={d.status} />
+          <span className="text-sm text-foreground/80">{`Published ${fmtDateTime(d.signalTime)} (${fmtAge(d.signalTime)} ago) · ${session} session`}</span>
+        </div>
+      </PageHeader>
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <Section n={1} title="Signal" description="As published by the source and normalized by the parser.">
+          <Section icon={Crosshair} title="Signal" description="As published by the source and normalized by the parser.">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Stat label={d.entryType === "ZONE" ? "Entry zone" : "Entry"} value={<span className="font-mono text-base">{fmtEntry(d.entryMin, d.entryMax)}</span>} />
-              <Stat label="Stop loss" value={<span className="font-mono text-base">{fmtPrice(d.stopLoss)}</span>} />
+              <Stat tone="gold" label={d.entryType === "ZONE" ? "Entry zone" : "Entry"} value={<span className="font-mono text-base">{fmtEntry(d.entryMin, d.entryMax)}</span>} />
+              <Stat tone="loss" label="Stop loss" value={<span className={cn("font-mono text-base", d.stopLoss !== null && "text-loss")}>{fmtPrice(d.stopLoss)}</span>} />
               <Stat
+                tone="win"
                 label="Targets"
                 value={
                   <span className="flex flex-col font-mono text-sm">
@@ -125,15 +164,15 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
               />
               <Stat label="Parser confidence" value={fmtPct(d.parserConfidence)} hint={`version ${d.version}${d.sourceConfidenceText ? ` · source says “${d.sourceConfidenceText}”` : ""}`} />
             </div>
-            <div className="mt-4 rounded-lg border bg-background/40 p-2">
+            <div className="mt-4 rounded-xl bg-[#050c1c]/80 p-2 ring-1 ring-glow/25 shadow-[inset_0_0_30px_-12px_rgb(47_123_255/0.4)]">
               <PriceChart points={points} levels={levels} markers={markers} />
             </div>
             <div className="mt-4">
-              <div className="mb-1.5 text-xs font-medium text-muted-foreground">Original source text</div>
+              <SubLabel>Original source text</SubLabel>
               <GatedView gated={d.rawText} title="Original source text" userId={uid} compact>
                 {(text) =>
                   text ? (
-                    <pre className="whitespace-pre-wrap break-words rounded-md border bg-background/60 p-3 font-mono text-xs leading-relaxed">{text}</pre>
+                    <pre className="whitespace-pre-wrap break-words rounded-xl border-l-2 border-primary/60 bg-black/35 p-3.5 font-mono text-xs leading-relaxed ring-1 ring-glow/20">{text}</pre>
                   ) : (
                     <p className="text-xs text-muted-foreground">This source does not permit redistribution of its original text.</p>
                   )
@@ -142,12 +181,12 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             </div>
             {d.updates.length > 0 && (
               <div className="mt-4">
-                <div className="mb-1.5 text-xs font-medium text-muted-foreground">Source updates</div>
-                <ul className="space-y-1.5">
+                <SubLabel>Source updates</SubLabel>
+                <ul className="divide-y divide-glow/10 rounded-xl bg-black/20 px-3 ring-1 ring-glow/15">
                   {d.updates.map((u, i) => (
-                    <li key={i} className="flex gap-3 text-xs">
+                    <li key={i} className="flex items-center gap-3 py-2 text-xs">
                       <span className="w-32 shrink-0 text-muted-foreground">{fmtDateTime(u.publishedAt)}</span>
-                      <Badge variant="outline" className="shrink-0">{u.eventType ?? "EVENT"}</Badge>
+                      <Badge variant="outline" className="shrink-0 rounded-md border-glow/40 text-[#8db6ff]">{u.eventType ?? "EVENT"}</Badge>
                       {u.text && <span className="truncate font-mono">{u.text}</span>}
                     </li>
                   ))}
@@ -156,26 +195,29 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             )}
           </Section>
 
-          <Section
-            n={2}
-            title="Cross-trader consensus"
-            description="Sources on this same entry zone inside 30 minutes. Channel names are not shown."
-          >
+          <Section icon={Users} title="Cross-trader consensus" description="Sources on this same entry zone inside 30 minutes. Channel names are not shown.">
             <ConsensusPanel grade={d.consensus.grade} timing={d.consensus.timing} mapping={d.consensus.mapping} userId={uid} />
           </Section>
 
-          <Section n={3} title="Outcome" description={`Deterministic replay against 1-minute XAU/USD bars · ${d.outcome.calcVersion ?? "not yet calculated"}${d.outcome.kind === "override" ? " · manual override" : ""}`}>
+          <Section icon={Target} title="Outcome" description={`Deterministic replay against 1-minute XAU/USD bars · ${d.outcome.calcVersion ?? "not yet calculated"}${d.outcome.kind === "override" ? " · manual override" : ""}`}>
             {d.outcome.ambiguous && (
-              <div className="mb-3 flex gap-2 rounded-md border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200">
+              <div className="mb-3 flex gap-2 rounded-lg border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-amber-200">
                 <Info className="size-4 shrink-0" />
                 The stop and a target were both touched inside one 1-minute candle. The order cannot be determined from minute data, so no result is assigned.
               </div>
             )}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Stat label="Entered" value={d.outcome.entered ? "Yes" : "No"} hint={d.outcome.entryTime ? fmtDateTime(d.outcome.entryTime) : undefined} />
-              <Stat label="Fill price" value={<span className="font-mono text-base">{fmtPrice(d.outcome.entryPrice)}</span>} />
+              <Stat tone="gold" label="Fill price" value={<span className="font-mono text-base">{fmtPrice(d.outcome.entryPrice)}</span>} />
               <GatedView gated={d.outcome.basic} title="Result" userId={uid} compact>
-                {(r) => <Stat label="Result" value={r ? <RValue value={r.rResult} /> : "Open"} hint={r ? `${r.classification.toLowerCase()} · ${r.exitReason?.toLowerCase() ?? ""}` : "shown after close"} />}
+                {(r) => (
+                  <Stat
+                    tone={rTone(r?.rResult)}
+                    label="Result"
+                    value={r ? <RValue value={r.rResult} /> : "Open"}
+                    hint={r ? `${r.classification.toLowerCase()} · ${r.exitReason?.toLowerCase() ?? ""}` : "shown after close"}
+                  />
+                )}
               </GatedView>
               <GatedView gated={d.outcome.excursionSummary} title="MFE / MAE" userId={uid} compact>
                 {(x) => <Stat label="MFE / MAE" value={x ? <span className="text-base"><RValue value={x.mfeR} /> / <RValue value={x.maeR === null ? null : -x.maeR} /></span> : "—"} hint="in R, after entry" />}
@@ -190,25 +232,28 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             )}
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div>
-                <div className="mb-1.5 text-xs font-medium text-muted-foreground">Trade timeline &amp; excursions</div>
+                <SubLabel>Trade timeline &amp; excursions</SubLabel>
                 <GatedView gated={d.outcome.excursionDetail} title="Detailed MFE / MAE and timeline" userId={uid} compact>
                   {(x) =>
                     x ? (
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="rounded border p-2">Best price <span className="float-right font-mono">{fmtPrice(x.bestPrice)}</span></div>
-                          <div className="rounded border p-2">Worst price <span className="float-right font-mono">{fmtPrice(x.worstPrice)}</span></div>
-                          <div className="rounded border p-2">MFE <span className="float-right font-mono">${fmtPrice(x.mfe)}</span></div>
-                          <div className="rounded border p-2">MAE <span className="float-right font-mono">${fmtPrice(x.mae)}</span></div>
-                          <div className="rounded border p-2">Risk (1R) <span className="float-right font-mono">{x.risk ? `$${fmtPrice(x.risk)}` : "—"}</span></div>
-                          <div className="rounded border p-2">Duration <span className="float-right font-mono">{fmtMinutes(x.durationMinutes)}</span></div>
+                          <Cell label="Best price">{fmtPrice(x.bestPrice)}</Cell>
+                          <Cell label="Worst price">{fmtPrice(x.worstPrice)}</Cell>
+                          <Cell label="MFE">${fmtPrice(x.mfe)}</Cell>
+                          <Cell label="MAE">${fmtPrice(x.mae)}</Cell>
+                          <Cell label="Risk (1R)">{x.risk ? `$${fmtPrice(x.risk)}` : "—"}</Cell>
+                          <Cell label="Duration">{fmtMinutes(x.durationMinutes)}</Cell>
                         </div>
-                        <ol className="space-y-1 border-l pl-3 text-xs">
+                        <ol className="ml-1 space-y-2.5 border-l border-glow/35 pl-4 text-xs">
                           {(x.timeline as { t: number; type: string; price?: number; note?: string }[]).map((e, i) => (
                             <li key={i} className="relative">
-                              <span className="absolute -left-[15px] top-1.5 size-1.5 rounded-full bg-primary" />
-                              <span className="text-muted-foreground">{fmtDateTime(new Date(e.t))}</span> · {TL_LABEL[e.type] ?? e.type}
-                              {e.note ? ` (${e.note})` : ""} {e.price !== undefined && <span className="font-mono">@ {fmtPrice(e.price)}</span>}
+                              <span className={cn("absolute -left-[21.5px] top-1 size-2.5 rounded-full ring-2 ring-[#081328]", TL_DOT[e.type] ?? "bg-[#8db6ff]")} />
+                              <div className="font-medium">
+                                {TL_LABEL[e.type] ?? e.type}
+                                {e.note ? ` (${e.note})` : ""} {e.price !== undefined && <span className="font-mono text-foreground/80">@ {fmtPrice(e.price)}</span>}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground">{fmtDateTime(new Date(e.t))}</div>
                             </li>
                           ))}
                         </ol>
@@ -220,15 +265,22 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
                 </GatedView>
               </div>
               <div>
-                <div className="mb-1.5 text-xs font-medium text-muted-foreground">Time to target</div>
+                <SubLabel>Time to target</SubLabel>
                 <GatedView gated={d.outcome.timeToTarget} title="Time-to-target" userId={uid} compact>
                   {(tt) =>
                     tt.length ? (
-                      <div className="space-y-1.5 text-xs">
+                      <div className="space-y-2 text-xs">
                         {tt.map((t) => (
-                          <div key={t.index} className="flex items-center justify-between rounded border p-2">
-                            <span>TP{t.index}</span>
-                            <span className="font-mono">{t.ambiguous ? "ambiguous" : t.minutesFromEntry === null ? "not reached" : fmtMinutes(t.minutesFromEntry)}</span>
+                          <div key={t.index} className="flex items-center justify-between rounded-lg bg-black/25 px-2.5 py-2 ring-1 ring-glow/20">
+                            <span className="font-semibold">TP{t.index}</span>
+                            <span
+                              className={cn(
+                                "font-mono",
+                                t.ambiguous ? "text-amber-300" : t.minutesFromEntry === null ? "text-muted-foreground" : "text-win",
+                              )}
+                            >
+                              {t.ambiguous ? "ambiguous" : t.minutesFromEntry === null ? "not reached" : fmtMinutes(t.minutesFromEntry)}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -241,16 +293,16 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             </div>
           </Section>
 
-          <Section n={4} title="Similar trades" description="Earlier closed trades from this source matched on deterministic dimensions. Only trades that closed before this signal are used.">
+          <Section icon={GitCompare} title="Similar trades" description="Earlier closed trades from this source matched on deterministic dimensions. Only trades that closed before this signal are used.">
             <GatedView gated={d.similar.summary} title="Similar historical trade summary" userId={uid}>
               {(s) =>
                 s && s.matched > 0 ? (
                   <>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                       <Stat label="Matched trades" value={s.matched} />
-                      <Stat label="Win rate" value={fmtPct(s.winRate)} n={s.matched} />
-                      <Stat label="Average R" value={<RValue value={s.avgR} />} n={s.matched} />
-                      <Stat label="Won / lost" value={`${s.wins} / ${s.losses}`} />
+                      <Stat tone="gold" label="Win rate" value={fmtPct(s.winRate)} n={s.matched} />
+                      <Stat tone={rTone(s.avgR)} label="Average R" value={<RValue value={s.avgR} />} n={s.matched} />
+                      <Stat label="Won / lost" value={<><span className="text-win">{s.wins}</span> / <span className="text-loss">{s.losses}</span></>} />
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">Matched on: {s.dimensions.join(", ")}.</p>
                   </>
@@ -263,10 +315,10 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
               <GatedView gated={d.similar.details} title="Similar-trade details" userId={uid} compact>
                 {(rows) =>
                   rows.length ? (
-                    <div className="overflow-x-auto rounded-md border">
+                    <div className="overflow-x-auto rounded-xl bg-black/20 ring-1 ring-glow/20">
                       <Table>
                         <TableHeader>
-                          <TableRow>
+                          <TableRow className="hover:bg-transparent">
                             <TableHead>Published</TableHead>
                             <TableHead>Result</TableHead>
                             <TableHead className="text-right">R</TableHead>
@@ -278,11 +330,11 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
                           {rows.map((r) => (
                             <TableRow key={r.signalId}>
                               <TableCell>
-                                <Link href={`/signals/${r.signalId}`} className="hover:text-primary">{fmtDateTime(r.signalTime)}</Link>
+                                <Link href={`/signals/${r.signalId}`} className="rounded font-medium outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring">{fmtDateTime(r.signalTime)}</Link>
                               </TableCell>
                               <TableCell><StatusBadge status={r.classification} /></TableCell>
-                              <TableCell className="text-right"><RValue value={r.rResult} /></TableCell>
-                              <TableCell className="text-right font-mono text-xs">{r.mfeR?.toFixed(2) ?? "—"} / {r.maeR?.toFixed(2) ?? "—"}</TableCell>
+                              <TableCell className="text-right"><RValue value={r.rResult} className="font-semibold" /></TableCell>
+                              <TableCell className="text-right font-mono text-xs tabular-nums">{r.mfeR?.toFixed(2) ?? "—"} / {r.maeR?.toFixed(2) ?? "—"}</TableCell>
                               <TableCell className="text-right text-xs">{fmtMinutes(r.durationMinutes)}</TableCell>
                             </TableRow>
                           ))}
@@ -295,21 +347,21 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             </div>
           </Section>
 
-          <Section n={5} title="AI analysis" description="Generated from the stored facts above. AI output never changes raw signals or deterministic results.">
+          <Section icon={BrainCircuit} title="AI analysis" description="Generated from the stored facts above. AI output never changes raw signals or deterministic results.">
             {d.ai.meta && (
               <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                <Bot className="size-3.5" /> {d.ai.meta.model} · prompt {d.ai.meta.promptVersion} · {fmtDateTime(d.ai.meta.createdAt)}
+                <Bot className="size-3.5 text-[#8db6ff]" /> {d.ai.meta.model} · prompt {d.ai.meta.promptVersion} · {fmtDateTime(d.ai.meta.createdAt)}
               </div>
             )}
             <div className="grid gap-4 md:grid-cols-2">
               <GatedView gated={d.ai.classification} title="AI setup classification" userId={uid} compact>
                 {(c) =>
                   c ? (
-                    <div className="rounded-lg border bg-background/40 p-3">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground"><Sparkles className="size-3.5 text-primary" /> Setup</div>
-                      <div className="mt-1 text-lg font-semibold">{c.label}</div>
+                    <div className={BOX}>
+                      <div className="flex items-center gap-2 text-xs font-semibold text-[#8db6ff]"><Sparkles className="size-3.5 text-primary" /> Setup</div>
+                      <div className="gold-text mt-1 font-heading text-lg font-bold tracking-tight">{c.label}</div>
                       <div className="text-xs text-muted-foreground">confidence {fmtPct(c.confidence)}</div>
-                      <p className="mt-2 text-sm">{c.rationale}</p>
+                      <p className="mt-2 text-sm leading-relaxed">{c.rationale}</p>
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">Analysis is queued.</p>
@@ -319,11 +371,11 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
               <GatedView gated={d.ai.summary} title="AI context summary" userId={uid} compact>
                 {(s) =>
                   s ? (
-                    <div className="rounded-lg border bg-background/40 p-3">
-                      <div className="text-xs text-muted-foreground">Context summary</div>
+                    <div className={BOX}>
+                      <div className="text-xs font-semibold text-[#8db6ff]">Context summary</div>
                       <p className="mt-1 text-sm leading-relaxed">{s.summary}</p>
                       <div className="mt-2 flex flex-wrap gap-1">
-                        {s.marketContextTags.map((t) => <Badge key={t} variant="secondary">{t}</Badge>)}
+                        {s.marketContextTags.map((t) => <Badge key={t} variant="outline" className="rounded-md border-glow/40 bg-glow/10 text-[#8db6ff]">{t}</Badge>)}
                       </div>
                     </div>
                   ) : (
@@ -337,7 +389,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
                 {(p) =>
                   p ? (
                     <div className="space-y-2 text-sm">
-                      <div className="flex flex-wrap gap-1">{p.patternTags.map((t) => <Badge key={t} variant="outline" className="border-primary/30 text-primary">{t}</Badge>)}</div>
+                      <div className="flex flex-wrap gap-1">{p.patternTags.map((t) => <Badge key={t} variant="outline" className="rounded-md border-primary/40 bg-primary/10 text-primary">{t}</Badge>)}</div>
                       {p.similarPatternExplanation && <p className="text-muted-foreground">{p.similarPatternExplanation}</p>}
                       {(p.sourceStrengths.length > 0 || p.sourceWeaknesses.length > 0) && (
                         <div className="grid gap-2 sm:grid-cols-2">
@@ -354,17 +406,20 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
         </div>
 
         <div className="space-y-4">
-          <Section n={6} title="How this source performed">
+          <Section icon={Trophy} title="How this source performed" className="panel-gold shadow-[0_0_28px_-8px_rgb(245_197_66/0.55)] ring-primary/55">
             {d.sourceStats && (
               <>
-                <div className="text-xs text-muted-foreground">{d.sourceStats.totalSignals} tracked signals · {d.sourceStats.closedTrades} closed</div>
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-mono text-foreground/90">{d.sourceStats.totalSignals}</span> tracked signals ·{" "}
+                  <span className="font-mono text-foreground/90">{d.sourceStats.closedTrades}</span> closed
+                </div>
                 <div className="mt-3">
                   <GatedView gated={d.sourceStats.summary} title="Source statistics" userId={uid} compact>
                     {(s) => (
                       <div className="grid grid-cols-2 gap-2">
-                        <Stat label="Win rate" value={fmtPct(s.winRate)} n={s.wins + s.losses + s.breakevens} />
-                        <Stat label="Average R" value={<RValue value={s.avgR} />} n={s.ratedTrades} />
-                        <Stat label="Expectancy" value={<RValue value={s.expectancy} />} n={s.ratedTrades} />
+                        <Stat tone="gold" label="Win rate" value={fmtPct(s.winRate)} n={s.wins + s.losses + s.breakevens} />
+                        <Stat tone={rTone(s.avgR)} label="Average R" value={<RValue value={s.avgR} />} n={s.ratedTrades} />
+                        <Stat tone={rTone(s.expectancy)} label="Expectancy" value={<RValue value={s.expectancy} />} n={s.ratedTrades} />
                         <Stat label="Avg duration" value={fmtMinutes(s.avgDurationMinutes)} />
                       </div>
                     )}
@@ -374,13 +429,13 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             )}
           </Section>
 
-          <Section n={7} title="Historical context" description="How this source has performed in comparable conditions.">
+          <Section icon={History} title="Historical context" description="How this source has performed in comparable conditions.">
             {d.sourceStats ? (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <GatedView gated={d.sourceStats.direction} title="Performance by direction" userId={uid} compact>
                   {(b) => (
                     <div>
-                      <div className="mb-2 text-xs text-muted-foreground">By direction</div>
+                      <SubLabel>By direction</SubLabel>
                       <BucketRows buckets={b} />
                     </div>
                   )}
@@ -388,15 +443,15 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
                 <GatedView gated={d.sourceStats.recent} title="Recent performance" userId={uid} compact>
                   {(r) => (
                     <div className="grid grid-cols-2 gap-2">
-                      <Stat label="Last 10 avg" value={<RValue value={r.recent10.avgR} />} n={r.recent10.n} hint={`${fmtPct(r.recent10.winRate)} win`} />
-                      <Stat label="Last 30 avg" value={<RValue value={r.recent30.avgR} />} n={r.recent30.n} hint={`${fmtPct(r.recent30.winRate)} win`} />
+                      <Stat tone={rTone(r.recent10.avgR)} label="Last 10 avg" value={<RValue value={r.recent10.avgR} />} n={r.recent10.n} hint={`${fmtPct(r.recent10.winRate)} win`} />
+                      <Stat tone={rTone(r.recent30.avgR)} label="Last 30 avg" value={<RValue value={r.recent30.avgR} />} n={r.recent30.n} hint={`${fmtPct(r.recent30.winRate)} win`} />
                     </div>
                   )}
                 </GatedView>
                 <GatedView gated={d.sourceStats.extended} title="Session breakdown" userId={uid} compact>
                   {(x) => (
                     <div>
-                      <div className="mb-2 text-xs text-muted-foreground">By session (UTC) · this signal: {session}</div>
+                      <SubLabel>By session (UTC) · this signal: {session}</SubLabel>
                       <BucketRows buckets={x.bySession} />
                     </div>
                   )}

@@ -1,17 +1,20 @@
-import { ArrowRight, Bot, Database, LineChart, ScrollText, ShieldCheck, Timer } from "lucide-react";
+import { ArrowRight, BarChart3, Bot, Check, Crown, Database, History, LineChart, Radio, ScrollText, ShieldCheck, Timer, Trophy } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { AffiliateStrip } from "@/components/affiliate-strip";
+import { SectionTitle } from "@/components/page-header";
 import { SignalList } from "@/components/signal-list";
-import { RValue } from "@/components/signal-bits";
+import { TIER_ICON } from "@/components/signal-bits";
+import { TopSources } from "@/components/top-sources";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fmtMoney, fmtPct } from "@/lib/format";
+import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { listPlans } from "@/server/billing/service";
 import { TIER_LABEL, TIER_ORDER } from "@/server/entitlements/config";
 import { getTierConfig } from "@/server/entitlements/service";
 import { listPublicSampleSignals, listSources } from "@/server/signals/queries";
-import { getSourceStats } from "@/server/statistics/service";
+import { getTopSources } from "@/server/statistics/service";
 
 export const dynamic = "force-dynamic";
 
@@ -36,96 +39,102 @@ const TIER_PITCH: Record<string, { tagline: string; bullets: string[] }> = {
   },
 };
 
+const SECTION = "mb-2 [&_h2]:text-2xl [&_h2_svg]:size-6";
+
+
+function HeroFact({ icon: IconCmp, children }: { icon: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
+  return (
+    <li className="flex items-center gap-2.5">
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-black/45 text-primary ring-1 ring-primary/60">
+        <IconCmp className="size-5" />
+      </span>
+      <span className="max-w-36 text-xs font-medium leading-tight text-foreground/90">{children}</span>
+    </li>
+  );
+}
+
 export default async function LandingPage() {
   const config = await getTierConfig();
   const [samples, sources, plans] = await Promise.all([listPublicSampleSignals(config), listSources(), listPlans()]);
-  const sourceStats = await Promise.all(sources.map(async (s) => ({ source: s, stats: await getSourceStats(s.id) })));
-  const totalClosed = sourceStats.reduce((a, s) => a + s.stats.closedTrades, 0);
+  const { top, eligibleCount, sourceCount, totalClosed } = await getTopSources(sources.map((s) => s.id));
   const monthly = new Map(plans.filter((p) => p.period === "monthly").map((p) => [p.tier, p]));
 
   return (
     <>
-      <section className="grid-bg relative overflow-hidden border-b border-border/60">
+      <section className="relative isolate overflow-hidden border-b border-primary/25">
+        <Image
+          src="/brand/hero-gold.jpg"
+          alt=""
+          fill
+          loading="eager"
+          fetchPriority="high"
+          sizes="100vw"
+          className="-z-10 object-cover object-[78%_50%] opacity-95"
+        />
+        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#040914] from-30% via-[#040914]/75 via-60% to-[#040914]/5 max-md:via-[#040914]/90" />
+        <div className="absolute inset-x-0 bottom-0 -z-10 h-32 bg-gradient-to-t from-background to-transparent" />
         <div className="mx-auto max-w-6xl px-4 pb-16 pt-16 md:pb-24 md:pt-24">
-          <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-3 py-1 text-xs text-primary">
-              XAU/USD · {sources.length ? `${sources.length} tracked ${sources.length === 1 ? "source" : "sources"}` : "tracked sources"}
-              {totalClosed > 0 && ` · ${totalClosed.toLocaleString()} measured trades`}
-            </div>
-            <h1 className="mt-5 text-4xl font-semibold tracking-tight md:text-6xl">
-              Every gold signal, <span className="gold-text">tracked and measured</span>.
+          <div className="max-w-2xl">
+            <h1 className="gold-text font-heading text-4xl font-extrabold leading-[1.04] tracking-tight drop-shadow-[0_2px_16px_rgb(245_197_66/0.3)] md:text-6xl">
+              Every gold signal, tracked and measured.
             </h1>
-            <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-              Aurum Ledger records gold trading signals, replays each one against minute-level market data, and shows you how each
-              source has actually performed. The channel is not named. The same way, every time, with the rules in the open.
+            <p className="mt-5 max-w-xl text-pretty text-lg leading-relaxed text-foreground/85">
+              Gold Intelligence Gateway records gold trading signals, replays each one against minute-level market data, and shows how each source has actually
+              performed. Channels stay unnamed. The same rules every time, published in the open.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link href="/signup" className={cn(buttonVariants({ size: "lg" }), "px-5")}>
+              <Link href="/signup" className={cn(buttonVariants({ size: "lg" }), "px-6")}>
                 Create an account <ArrowRight />
               </Link>
-              <Link href="/pricing" className={cn(buttonVariants({ size: "lg", variant: "outline" }), "px-5")}>
+              <Link href="/pricing" className={cn(buttonVariants({ size: "lg", variant: "outline" }), "px-6")}>
                 Compare plans
               </Link>
             </div>
-            <p className="mt-4 text-xs text-muted-foreground">Results are historical measurements, not a forecast.</p>
+            <ul className="mt-9 flex flex-wrap gap-x-7 gap-y-3">
+              <HeroFact icon={Radio}>{sources.length ? `${sources.length} tracked ${sources.length === 1 ? "source" : "sources"}` : "Tracked sources"}</HeroFact>
+              {totalClosed > 0 && <HeroFact icon={BarChart3}>{totalClosed.toLocaleString()} measured trades</HeroFact>}
+              <HeroFact icon={Timer}>Replayed on XAU/USD minute data</HeroFact>
+            </ul>
+            <p className="mt-6 text-xs text-muted-foreground">Results are historical measurements, not a forecast.</p>
           </div>
         </div>
       </section>
 
-      <section id="how-it-works" className="mx-auto max-w-6xl scroll-mt-16 px-4 py-16">
-        <h2 className="text-2xl font-semibold tracking-tight">How it works</h2>
-        <p className="mt-2 max-w-2xl text-muted-foreground">Raw data is kept untouched. Results are computed from it with versioned rules, so they can always be recomputed and checked.</p>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {STEPS.map((s) => (
-            <div key={s.title} className="rounded-xl border bg-card/50 p-5">
-              <s.icon className="size-5 text-primary" />
-              <div className="mt-3 font-medium">{s.title}</div>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
-            </div>
+      <section id="how-it-works" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-16">
+        <SectionTitle icon={Timer} title="How it works" className={SECTION} />
+        <p className="max-w-2xl text-muted-foreground">Raw data is kept untouched. Results are computed from it with versioned rules, so they can always be recomputed and checked.</p>
+        <ol className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {STEPS.map((s, i) => (
+            <li key={s.title} className="panel relative rounded-xl p-5 shadow-[0_0_24px_-12px_rgb(47_123_255/0.6)] ring-1 ring-glow/30">
+              <div className="flex items-center gap-3">
+                <span className="gold-fill flex size-8 shrink-0 items-center justify-center rounded-full font-heading text-sm font-extrabold shadow-[0_0_14px_-3px_rgb(245_197_66/0.7)]">
+                  {i + 1}
+                </span>
+                <span className="font-heading text-base font-bold tracking-tight">{s.title}</span>
+                <s.icon className="ml-auto size-5 text-primary/80" />
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+            </li>
           ))}
-        </div>
+        </ol>
       </section>
 
-      <section className="border-y border-border/60 bg-card/20">
+      <section className="border-y border-glow/15 bg-[#050c1c]/60">
         <div className="mx-auto max-w-6xl px-4 py-16">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight">How sources performed</h2>
-              <p className="mt-2 max-w-2xl text-muted-foreground">Lifetime results for each source, computed from recorded outcomes. Channel names are not shown. Ambiguous and cancelled signals are excluded from win rate.</p>
-            </div>
-          </div>
-          {sourceStats.length === 0 && (
-            <div className="mt-8 rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-              Source track records are published here once signals have closed.
-            </div>
-          )}
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            {sourceStats.map(({ source, stats }) => (
-              <Card key={source.id} className="bg-card/60">
-                <CardHeader>
-                  <CardTitle>How this source performed</CardTitle>
-                  <CardDescription className="line-clamp-2">Results are computed from recorded outcomes. The channel is not named.</CardDescription>
-                </CardHeader>
-                <CardContent className="grid grid-cols-3 gap-3 text-sm">
-                  <div>
-                    <div className="text-[11px] text-muted-foreground">Closed trades</div>
-                    <div className="font-semibold tabular-nums">{stats.closedTrades}</div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-muted-foreground">Win rate</div>
-                    <div className="font-semibold tabular-nums">{fmtPct(stats.winRate)}</div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-muted-foreground">Avg R</div>
-                    <RValue value={stats.avgR} className="font-semibold" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+          <SectionTitle icon={Trophy} title="Top sources" className={SECTION} />
+          <p className="max-w-2xl text-muted-foreground">
+            Lifetime results computed from recorded outcomes. Ambiguous and cancelled signals are excluded from win rate.
+          </p>
+          <div className="mt-8">
+            <TopSources
+              rows={top.map(({ sourceId, stats }) => ({ sourceId, closedTrades: stats.closedTrades, metrics: stats }))}
+              eligibleCount={eligibleCount}
+              sourceCount={sourceCount}
+            />
           </div>
 
-          <h3 className="mt-12 text-lg font-semibold">Sample of recently closed signals</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Shown with a one-week delay. Members see signals as they are published.</p>
+          <SectionTitle icon={History} title="Sample of recently closed signals" className="mb-1 mt-14" />
+          <p className="text-sm text-muted-foreground">Shown with a one-week delay. Members see signals as they are published.</p>
           <div className="mt-4">
             <SignalList items={samples} empty="Closed signals will appear here once the first trades complete." />
           </div>
@@ -133,30 +142,47 @@ export default async function LandingPage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-16">
-        <h2 className="text-2xl font-semibold tracking-tight">Plans</h2>
-        <p className="mt-2 text-muted-foreground">Weekly, monthly or annual billing. Cancel any time; access continues until the end of the paid period.</p>
+        <SectionTitle icon={Crown} title="Plans" className={SECTION} />
+        <p className="text-muted-foreground">Weekly, monthly or annual billing. Cancel any time; access continues until the end of the paid period.</p>
         <div className="mt-8 grid gap-4 md:grid-cols-3">
           {TIER_ORDER.map((tier) => {
             const plan = monthly.get(tier);
+            const gold = tier === "gold";
+            const TierIcon = TIER_ICON[tier];
             return (
-              <Card key={tier} className={cn("bg-card/60", tier === "gold" && "ring-primary/50")}>
+              <Card key={tier} className={cn(gold && "panel-gold ring-primary/55 shadow-[0_0_28px_-8px_rgb(245_197_66/0.55)]")}>
                 <CardHeader>
-                  <CardTitle className={cn(tier === "gold" && "gold-text")}>{TIER_LABEL[tier]}</CardTitle>
-                  <CardDescription>{TIER_PITCH[tier].tagline}</CardDescription>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={cn(
+                        "flex size-11 shrink-0 items-center justify-center rounded-xl ring-1",
+                        gold ? "bg-primary/10 text-primary ring-primary/55" : "bg-glow/10 text-[#8db6ff] ring-glow/50",
+                      )}
+                    >
+                      <TierIcon className="size-5" />
+                    </span>
+                    <div>
+                      <CardTitle className={cn("text-lg", gold && "gold-text")}>{TIER_LABEL[tier]}</CardTitle>
+                      <CardDescription>{TIER_PITCH[tier].tagline}</CardDescription>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {plan && (
-                    <div className="text-2xl font-semibold">
+                    <div className={cn("font-heading text-3xl font-extrabold tabular-nums tracking-tight", gold && "gold-text")}>
                       {fmtMoney(plan.amountCents, plan.currency)}
-                      <span className="text-sm font-normal text-muted-foreground"> / month</span>
+                      <span className="font-sans text-sm font-normal text-muted-foreground"> / month</span>
                     </div>
                   )}
-                  <ul className="mt-4 space-y-1.5 text-sm text-muted-foreground">
+                  <ul className="mt-4 space-y-1.5 text-sm">
                     {TIER_PITCH[tier].bullets.map((b) => (
-                      <li key={b}>{b}</li>
+                      <li key={b} className="flex gap-2">
+                        <Check className="mt-0.5 size-4 shrink-0 text-primary" />
+                        <span className="text-foreground/85">{b}</span>
+                      </li>
                     ))}
                   </ul>
-                  <div className="mt-2 text-[11px] text-muted-foreground">
+                  <div className="mt-3 text-[11px] text-muted-foreground">
                     History: {config[tier].historyDays ? `${config[tier].historyDays} days` : "full"}
                   </div>
                 </CardContent>

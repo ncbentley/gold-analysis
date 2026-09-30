@@ -16,7 +16,7 @@ function parsePlan(form: FormData) {
 export async function checkoutAction(form: FormData) {
   const { tier, period } = parsePlan(form);
   const user = await getCurrentUser();
-  if (!user) redirect(`/signup?next=${encodeURIComponent(`/pricing?tier=${tier}&period=${period}`)}`);
+  if (!user) redirect(`/signup?next=${encodeURIComponent(`/billing?tier=${tier}&period=${period}#plans`)}`);
   if (!user.emailVerifiedAt) redirect(`/check-email?email=${encodeURIComponent(user.email)}&reason=checkout`);
   const { url } = await startCheckout(user, tier, period);
   redirect(url);

@@ -1,12 +1,13 @@
+import { Bot, Eye, FileClock, History, Inbox, ListChecks, MessageSquareText, PenLine, ShieldAlert, Target, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { clearOverrideAction, correctSignalAction, overrideOutcomeAction, recalcOutcomeAction, rerunAiAction } from "@/app/actions/admin";
 import { Field, JsonBlock, NativeSelect, Notice } from "@/components/admin-bits";
-import { PageHeader } from "@/components/page-header";
+import { PageHeader, SectionTitle } from "@/components/page-header";
 import { DirectionBadge, RValue, StatusBadge } from "@/components/signal-bits";
 import { SignalFieldsForm } from "@/components/signal-fields-form";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { fmtDateTime, fmtEntry, fmtPrice } from "@/lib/format";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -27,6 +28,8 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
   return (
     <>
       <PageHeader
+        icon={ListChecks}
+        size="sm"
         title={
           <span className="flex flex-wrap items-center gap-3">
             {source.name} <DirectionBadge direction={signal.direction} /> <StatusBadge status={signal.status} />
@@ -35,10 +38,12 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
         description={`${fmtDateTime(signal.signalTime)} · version ${signal.version} · parser confidence ${(signal.parserConfidence * 100).toFixed(0)}%`}
         actions={
           <>
-            <Link href={`/signals/${signal.id}`} className="text-sm text-primary hover:underline">
+            <Link href={`/signals/${signal.id}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>
+              <Eye data-icon="inline-start" />
               Member view
             </Link>
-            <Link href={`/admin/events/${signal.originEventId}`} className="text-sm text-primary hover:underline">
+            <Link href={`/admin/events/${signal.originEventId}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
+              <Inbox data-icon="inline-start" />
               Origin event
             </Link>
           </>
@@ -47,16 +52,16 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
       <Notice searchParams={sp} />
 
       {d.consensus && (
-        <Card className="mb-4 bg-card/60">
+        <Card className="panel-gold mb-4 ring-primary/55 shadow-[0_0_28px_-8px_rgb(245_197_66/0.55)]">
           <CardHeader>
-            <CardTitle className="text-base">Cross-trader consensus</CardTitle>
+            <SectionTitle icon={UsersRound} title="Cross-trader consensus" className="mb-0" />
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="text-lg font-semibold">{d.consensus.grade.label}</div>
+            <div className="gold-text font-heading text-xl font-extrabold tracking-tight">{d.consensus.grade.label}</div>
             {d.consensus.grade.riskNote && <p className="text-amber-200">{d.consensus.grade.riskNote}</p>}
             <p className="text-muted-foreground">{d.consensus.mapping.sentence}</p>
             {d.consensus.mapping.oppositionSentence && <p className="text-muted-foreground">{d.consensus.mapping.oppositionSentence}</p>}
-            <div className="overflow-x-auto rounded-md border">
+            <div className="overflow-x-auto rounded-lg border border-glow/25 bg-black/20">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -81,8 +86,8 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
                       <TableCell>
                         <DirectionBadge direction={row.direction} />
                       </TableCell>
-                      <TableCell className="font-mono">{fmtEntry(row.entryMin, row.entryMax)}</TableCell>
-                      <TableCell className="font-mono">{row.offsetMinutes === 0 ? "this signal" : `${row.offsetMinutes > 0 ? "+" : ""}${row.offsetMinutes} min`}</TableCell>
+                      <TableCell className="font-mono tabular-nums">{fmtEntry(row.entryMin, row.entryMax)}</TableCell>
+                      <TableCell className="font-mono tabular-nums">{row.offsetMinutes === 0 ? "this signal" : `${row.offsetMinutes > 0 ? "+" : ""}${row.offsetMinutes} min`}</TableCell>
                       <TableCell className="text-xs">
                         {row.historicallyAccurate ? "Historically accurate" : "Not rated accurate"}
                         {row.topPerformerRank ? ` · rank ${row.topPerformerRank}` : ""}
@@ -99,9 +104,9 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
       )}
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <Card className="bg-card/60 xl:col-span-2">
+        <Card className="xl:col-span-2">
           <CardHeader>
-            <CardTitle className="text-base">Correct signal</CardTitle>
+            <SectionTitle icon={PenLine} title="Correct signal" className="mb-0" />
           </CardHeader>
           <CardContent>
             <form action={correctSignalAction} className="space-y-3">
@@ -136,24 +141,24 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
           </CardContent>
         </Card>
 
-        <Card className="bg-card/60">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-base">Current outcome</CardTitle>
+            <SectionTitle icon={Target} title="Current outcome" className="mb-0" />
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             {outcome ? (
-              <dl className="grid grid-cols-2 gap-y-1">
+              <dl className="grid grid-cols-2 gap-y-2">
                 <dt className="text-muted-foreground">Classification</dt>
                 <dd>
-                  <StatusBadge status={outcome.classification} /> {isOverride && <span className="text-xs text-amber-300">override</span>}
+                  <StatusBadge status={outcome.classification} /> {isOverride && <span className="text-xs font-medium text-amber-300">override</span>}
                 </dd>
                 <dt className="text-muted-foreground">R result</dt>
                 <dd>
                   <RValue value={outcome.rResult} />
                 </dd>
                 <dt className="text-muted-foreground">Entry</dt>
-                <dd className="tabular-nums">
-                  {fmtPrice(outcome.entryPrice)} {outcome.entryTime && <span className="text-xs text-muted-foreground">{fmtDateTime(outcome.entryTime)}</span>}
+                <dd className="font-mono tabular-nums">
+                  {fmtPrice(outcome.entryPrice)} {outcome.entryTime && <span className="font-sans text-xs text-muted-foreground">{fmtDateTime(outcome.entryTime)}</span>}
                 </dd>
                 <dt className="text-muted-foreground">Exit</dt>
                 <dd className="text-xs">
@@ -177,9 +182,9 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
           </CardContent>
         </Card>
 
-        <Card className="bg-card/60">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-base">Override outcome</CardTitle>
+            <SectionTitle icon={ShieldAlert} title="Override outcome" className="mb-0" />
           </CardHeader>
           <CardContent>
             <p className="mb-3 text-xs text-muted-foreground">For exceptional cases only, such as ambiguous candles resolved from tick data. The computed history is kept.</p>
@@ -198,7 +203,7 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
                 </NativeSelect>
               </Field>
               <Field label="R result" htmlFor="ov-r">
-                <Input id="ov-r" name="rResult" inputMode="decimal" />
+                <Input id="ov-r" name="rResult" inputMode="decimal" className="font-mono tabular-nums" />
               </Field>
               <Field label="Exit time (UTC)" htmlFor="ov-exit" className="col-span-2">
                 <Input id="ov-exit" name="exitTime" type="datetime-local" />
@@ -222,14 +227,14 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
           </CardContent>
         </Card>
 
-        <Card className="bg-card/60">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-base">AI analysis</CardTitle>
+            <SectionTitle icon={Bot} title="AI analysis" className="mb-0" />
           </CardHeader>
           <CardContent className="space-y-3">
             <form action={rerunAiAction} className="flex gap-2">
               <input type="hidden" name="signalId" value={signal.id} />
-              <NativeSelect name="promptVersion" defaultValue={DEFAULT_PROMPT.signal_setup} aria-label="Prompt version">
+              <NativeSelect name="promptVersion" defaultValue={DEFAULT_PROMPT.signal_setup} aria-label="Prompt version" className="h-8 font-mono text-xs">
                 {promptsFor("signal_setup").map((p) => (
                   <option key={p.version} value={p.version}>
                     {p.version}
@@ -242,9 +247,9 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
             </form>
             {d.analyses.length === 0 && <p className="text-sm text-muted-foreground">No analysis yet.</p>}
             {d.analyses.map((a) => (
-              <details key={a.id} open={a.isCurrent} className="rounded-md border p-2">
-                <summary className="cursor-pointer text-xs">
-                  {a.promptVersion} · {a.model} · {fmtDateTime(a.createdAt)} {a.isCurrent && <span className="text-primary">current</span>}
+              <details key={a.id} open={a.isCurrent} className="rounded-lg border border-glow/25 bg-black/15 p-2.5 open:border-glow/40">
+                <summary className="cursor-pointer text-xs font-medium">
+                  {a.promptVersion} · {a.model} · {fmtDateTime(a.createdAt)} {a.isCurrent && <span className="ml-1 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold text-primary">current</span>}
                 </summary>
                 <JsonBlock value={a.outputJson} className="mt-2" />
               </details>
@@ -252,13 +257,13 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
           </CardContent>
         </Card>
 
-        <Card className="bg-card/60">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-base">Source instructions</CardTitle>
+            <SectionTitle icon={MessageSquareText} title="Source instructions" className="mb-0" />
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="rounded-md border bg-background/60 p-2 font-mono text-xs whitespace-pre-wrap">{d.origin?.rawText}</div>
-            <div className="text-xs text-muted-foreground">
+            <div className="rounded-lg border border-glow/20 bg-[#050b18] p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">{d.origin?.rawText}</div>
+            <div className="font-mono text-xs text-muted-foreground tabular-nums">
               Entry {fmtEntry(signal.entryMin, signal.entryMax)} · SL {fmtPrice(signal.stopLoss)} · TP {targets.map((t) => fmtPrice(t.price)).join(" / ") || "—"}
             </div>
             {d.adjustments.length === 0 ? (
@@ -277,20 +282,20 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
           </CardContent>
         </Card>
 
-        <Card className="bg-card/60 xl:col-span-2">
+        <Card className="xl:col-span-2">
           <CardHeader>
-            <CardTitle className="text-base">Outcome history</CardTitle>
+            <SectionTitle icon={History} title="Outcome history" className="mb-0" />
           </CardHeader>
           <CardContent>
-            <ul className="divide-y text-sm">
+            <ul className="divide-y divide-border text-sm">
               {d.outcomes.map((o) => (
-                <li key={o.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <li key={o.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 first:pt-0 last:pb-0">
                   <StatusBadge status={o.classification} />
                   <RValue value={o.rResult} />
                   <span className="text-xs text-muted-foreground">
                     {o.kind} · {o.calcVersion} · signal v{o.signalVersion} · {fmtDateTime(o.computedAt)}
                   </span>
-                  {o.isCurrent && <span className="text-xs text-primary">current</span>}
+                  {o.isCurrent && <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-semibold text-primary">current</span>}
                   {o.overrideReason && <span className="w-full text-xs text-amber-300/90">Reason: {o.overrideReason}</span>}
                 </li>
               ))}
@@ -298,9 +303,9 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
           </CardContent>
         </Card>
 
-        <Card className="bg-card/60">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-base">Audit trail</CardTitle>
+            <SectionTitle icon={FileClock} title="Audit trail" className="mb-0" />
           </CardHeader>
           <CardContent>
             {d.audit.length === 0 ? (
@@ -310,7 +315,7 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
                 {d.audit.map((a) => (
                   <li key={a.id}>
                     <div className="flex justify-between gap-2">
-                      <span className="font-medium">{a.action}</span>
+                      <span className="font-mono font-semibold text-primary">{a.action}</span>
                       <span className="text-muted-foreground">{fmtDateTime(a.createdAt)}</span>
                     </div>
                     <div className="text-muted-foreground">

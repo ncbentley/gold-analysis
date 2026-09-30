@@ -2,9 +2,7 @@
 
 import {
   Activity,
-  BarChart3,
   ClipboardCheck,
-  Cog,
   CreditCard,
   FileClock,
   Gauge,
@@ -17,26 +15,28 @@ import {
   Send,
   Settings,
   ShieldCheck,
-  User,
+  UserRound,
   Workflow,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Brand } from "@/components/brand";
+import { Brand, BrandLockup } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
-const MEMBER = [
+type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> };
+
+const MEMBER: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/signals", label: "Signals", icon: Activity },
+  { href: "/signals", label: "Live signals", icon: Activity },
   { href: "/billing", label: "Billing", icon: CreditCard },
-  { href: "/account", label: "Account", icon: User },
+  { href: "/account", label: "My profile", icon: UserRound },
 ];
 
-const ADMIN = [
-  { href: "/admin", label: "Overview", icon: Gauge },
+const ADMIN: NavItem[] = [
+  { href: "/admin", label: "Command center", icon: Gauge },
   { href: "/admin/telegram", label: "Telegram", icon: Send },
   { href: "/admin/review", label: "Review queue", icon: ClipboardCheck },
   { href: "/admin/events", label: "Raw events", icon: Inbox },
@@ -44,81 +44,91 @@ const ADMIN = [
   { href: "/admin/sources", label: "Sources", icon: Radio },
   { href: "/admin/jobs", label: "Jobs", icon: Workflow },
   { href: "/admin/entitlements", label: "Entitlements", icon: ShieldCheck },
-  { href: "/admin/affiliates", label: "Affiliates", icon: Link2 },
+  { href: "/admin/affiliates", label: "Broker links", icon: Link2 },
   { href: "/admin/audit", label: "Audit log", icon: FileClock },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
-function NavLinks({ isAdmin, onNavigate, reviewCount }: { isAdmin: boolean; onNavigate?: () => void; reviewCount?: number }) {
+function useActive() {
   const pathname = usePathname();
-  const active = (href: string) => (href === "/admin" ? pathname === "/admin" : pathname === href || pathname.startsWith(`${href}/`));
-  const item = (l: (typeof MEMBER)[number], badge?: number) => (
-    <Link
-      key={l.href}
-      href={l.href}
-      onClick={onNavigate}
-      className={cn(
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
-        active(l.href) && "bg-sidebar-accent font-medium text-sidebar-foreground",
-      )}
-    >
-      <l.icon className={cn("size-4", active(l.href) && "text-primary")} />
-      <span className="flex-1">{l.label}</span>
-      {badge ? <span className="rounded-full bg-amber-400/15 px-1.5 text-[11px] font-medium text-amber-300">{badge}</span> : null}
-    </Link>
-  );
+  return (href: string) => (href === "/admin" ? pathname === "/admin" : pathname === href || pathname.startsWith(`${href}/`));
+}
+
+function NavLinks({ isAdmin, onNavigate, reviewCount }: { isAdmin: boolean; onNavigate?: () => void; reviewCount?: number }) {
+  const active = useActive();
+  const item = (l: NavItem, badge?: number) => {
+    const on = active(l.href);
+    return (
+      <Link
+        key={l.href}
+        href={l.href}
+        onClick={onNavigate}
+        aria-current={on ? "page" : undefined}
+        className={cn(
+          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/80 transition-all duration-200 hover:bg-white/[0.04] hover:text-sidebar-foreground",
+          on && "gold-fill font-semibold text-primary-foreground shadow-[0_0_20px_-4px_rgb(245_197_66/0.7)] hover:bg-transparent hover:text-primary-foreground",
+        )}
+      >
+        <l.icon className={cn("size-[18px]", on ? "text-primary-foreground" : "text-sidebar-foreground/70")} />
+        <span className="flex-1">{l.label}</span>
+        {badge ? (
+          <span className={cn("min-w-5 rounded-full px-1.5 text-center text-[11px] font-semibold", on ? "bg-primary-foreground/15" : "bg-loss text-white")}>{badge}</span>
+        ) : null}
+      </Link>
+    );
+  };
   return (
-    <nav className="flex flex-col gap-4">
-      <div className="flex flex-col gap-0.5">
-        <div className="px-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">Member</div>
-        {MEMBER.map((l) => item(l))}
-      </div>
+    <nav aria-label="Main" className="flex flex-col gap-5">
+      <div className="flex flex-col gap-1">{MEMBER.map((l) => item(l))}</div>
       {isAdmin && (
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5 px-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-            <Cog className="size-3" /> Admin
-          </div>
+        <div className="flex flex-col gap-1">
+          <div className="px-3 pb-1 text-xs font-medium text-primary/70">Admin</div>
           {ADMIN.map((l) => item(l, l.href === "/admin/review" ? reviewCount : undefined))}
         </div>
       )}
-      <div className="flex flex-col gap-0.5">
-        <div className="px-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">Public</div>
-        {item({ href: "/pricing", label: "Pricing", icon: BarChart3 })}
-      </div>
     </nav>
   );
 }
 
-export function Sidebar({ isAdmin, reviewCount, footer }: { isAdmin: boolean; reviewCount?: number; footer: React.ReactNode }) {
+export function Sidebar({ isAdmin, reviewCount, footer, account }: { isAdmin: boolean; reviewCount?: number; footer: React.ReactNode; account: React.ReactNode }) {
   return (
-    <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r bg-sidebar p-3 lg:flex">
-      <Brand href="/dashboard" className="px-2 py-2" />
-      <div className="mt-4 flex-1 overflow-y-auto">
+    <aside className="sticky top-0 hidden h-svh w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar/95 lg:flex">
+      <div className="border-b border-sidebar-border px-4 pb-4 pt-5">
+        <BrandLockup href="/dashboard" />
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 py-4">
         <NavLinks isAdmin={isAdmin} reviewCount={reviewCount} />
       </div>
-      {footer}
+      <div className="space-y-3 p-3">
+        {footer}
+        {account}
+      </div>
     </aside>
   );
 }
 
-export function MobileNav({ isAdmin, reviewCount, footer }: { isAdmin: boolean; reviewCount?: number; footer: React.ReactNode }) {
+/** Mobile-only top bar; on desktop the sidebar carries navigation and the account chip. */
+export function TopBar({ isAdmin, reviewCount, footer, account }: { isAdmin: boolean; reviewCount?: number; footer: React.ReactNode; account: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/85 px-4 py-2.5 backdrop-blur lg:hidden">
-      <Brand href="/dashboard" />
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-sidebar-border bg-background/80 px-4 backdrop-blur-md lg:hidden">
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger render={<Button variant="ghost" size="icon" aria-label="Open navigation" />}>
           <Menu />
         </SheetTrigger>
-        <SheetContent side="left" className="w-72 bg-sidebar p-3">
+        <SheetContent side="left" className="w-72 gap-0 overflow-y-auto bg-sidebar p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <Brand href="/dashboard" className="px-2 py-2" />
-          <div className="mt-4 flex-1 overflow-y-auto">
+          <div className="border-b border-sidebar-border px-4 pb-4 pt-5">
+            <BrandLockup href="/dashboard" />
+          </div>
+          <div className="px-3 py-4">
             <NavLinks isAdmin={isAdmin} reviewCount={reviewCount} onNavigate={() => setOpen(false)} />
           </div>
-          {footer}
+          <div className="p-3">{footer}</div>
         </SheetContent>
       </Sheet>
-    </div>
+      <Brand href="/dashboard" />
+      <div className="ml-auto">{account}</div>
+    </header>
   );
 }

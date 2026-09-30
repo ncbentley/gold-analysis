@@ -33,18 +33,18 @@ export default async function CheckEmailPage({ searchParams }: PageProps<"/check
       }
     >
       <div className="flex flex-col items-center gap-3 text-center">
-        <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <MailCheck />
+        <div className="flex size-14 items-center justify-center rounded-full bg-black/40 text-primary shadow-[0_0_18px_-2px_rgb(245_197_66/0.6)] ring-2 ring-primary/70">
+          <MailCheck className="size-6" />
         </div>
-        {email && <div className="text-sm font-medium">{email}</div>}
+        {email && <div className="max-w-full break-all rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary ring-1 ring-primary/40">{email}</div>}
         {devLink && (
-          <div className="w-full rounded-md border border-dashed p-3 text-left text-xs text-muted-foreground">
+          <div className="w-full rounded-lg border border-dashed border-glow/30 bg-black/20 p-3 text-left text-xs text-muted-foreground">
             <div className="mb-1 font-medium text-foreground">Local dev mailbox</div>
             Emails are not sent in local development.{" "}
             <Link href={devLink} className="text-primary underline-offset-2 hover:underline">Open the link from this email</Link>.
           </div>
         )}
-        <Link href="/dashboard" className={buttonVariants({ variant: "outline", className: "w-full" })}>Continue to dashboard</Link>
+        <Link href="/dashboard" className={buttonVariants({ variant: "outline", size: "lg", className: "w-full" })}>Continue to dashboard</Link>
       </div>
     </AuthCard>
   );

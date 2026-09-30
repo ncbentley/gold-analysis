@@ -1,3 +1,8 @@
+export function initials(email: string) {
+  const local = email.split("@")[0].replace(/[^a-z0-9]/gi, "");
+  return (local.slice(0, 2) || "GI").toUpperCase();
+}
+
 export function fmtPrice(n: number | null | undefined) {
   if (n === null || n === undefined) return "—";
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

@@ -1,4 +1,4 @@
-# Aurum Ledger: Gold Signal Intelligence
+# Gold Intelligence Gateway: Gold Signal Intelligence
 
 A subscription web platform that captures gold (XAU/USD) trading signals from Telegram channels, replays each one against one-minute market data with versioned deterministic rules, and shows members how every channel has actually performed. It includes source statistics, similar historical trades and AI-written context, with Silver, Gold and Platinum tiers.
 

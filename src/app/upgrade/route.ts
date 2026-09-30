@@ -7,6 +7,7 @@ export async function GET(req: NextRequest) {
   const feature = req.nextUrl.searchParams.get("feature") ?? "";
   const user = await getCurrentUser();
   await trackEvent("upgrade_clicked", user?.id ?? null, { tier, feature });
-  const location = ["silver", "gold", "platinum"].includes(tier) ? `/pricing?tier=${tier}` : "/pricing";
+  const query = ["silver", "gold", "platinum"].includes(tier) ? `?tier=${tier}` : "";
+  const location = user ? `/billing${query}#plans` : `/pricing${query}`;
   return new Response(null, { status: 303, headers: { Location: location } });
 }

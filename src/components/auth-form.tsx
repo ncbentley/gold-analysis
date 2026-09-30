@@ -31,15 +31,23 @@ export function AuthForm({
       ))}
       {fields.map((f) => (
         <div key={f.name} className="space-y-1.5">
-          <Label htmlFor={f.name}>{f.label}</Label>
-          <Input id={f.name} name={f.name} type={f.type ?? "text"} autoComplete={f.autoComplete} placeholder={f.placeholder} required className="h-9" />
+          <Label htmlFor={f.name} className="text-foreground/90">{f.label}</Label>
+          <Input
+            id={f.name}
+            name={f.name}
+            type={f.type ?? "text"}
+            autoComplete={f.autoComplete}
+            placeholder={f.placeholder}
+            required
+            className="h-10 border-glow/30 bg-[#060e20]/90 hover:border-glow/50"
+          />
         </div>
       ))}
       {terms && (
-        <label className="flex items-start gap-2 text-xs text-muted-foreground">
-          <input type="checkbox" name="terms" className="mt-0.5 accent-[var(--primary)]" required />
+        <label className="flex items-start gap-2.5 rounded-lg bg-black/20 p-3 text-xs leading-relaxed text-muted-foreground ring-1 ring-glow/15">
+          <input type="checkbox" name="terms" className="mt-0.5 size-4 shrink-0 accent-[var(--primary)]" required />
           <span>
-            I agree to the <a href="/terms" className="text-foreground underline-offset-2 hover:underline">terms</a> and understand this is general market information, not personal financial advice.
+            I agree to the <a href="/terms" className="font-medium text-primary underline-offset-2 hover:underline">terms</a> and understand this is general market information, not personal financial advice.
           </span>
         </label>
       )}
@@ -49,12 +57,12 @@ export function AuthForm({
         </Alert>
       )}
       {state?.ok && (
-        <Alert>
+        <Alert className="border-win/30 bg-win/5">
           <AlertDescription>{state.ok}</AlertDescription>
         </Alert>
       )}
-      <Button type="submit" className="h-9 w-full" disabled={pending}>
-        {pending && <Loader2 className="animate-spin" />}
+      <Button type="submit" size="lg" className="w-full" disabled={pending}>
+        {pending && <Loader2 className="animate-spin motion-reduce:animate-none" />}
         {submitLabel}
       </Button>
     </form>

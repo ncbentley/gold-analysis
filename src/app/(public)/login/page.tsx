@@ -18,7 +18,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       description="Sign in to see live signals and source history."
       footer={
         <>
-          New here? <Link href={`/signup${next !== "/dashboard" ? `?next=${encodeURIComponent(next)}` : ""}`} className="text-primary hover:underline">Create an account</Link>
+          New here? <Link href={`/signup${next !== "/dashboard" ? `?next=${encodeURIComponent(next)}` : ""}`} className="font-medium text-primary hover:underline">Create an account</Link>
         </>
       }
     >
@@ -32,10 +32,10 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         ]}
       />
       <div className="mt-3 text-right text-xs">
-        <Link href="/forgot-password" className="text-muted-foreground hover:text-foreground">Forgot password?</Link>
+        <Link href="/forgot-password" className="text-muted-foreground hover:text-primary">Forgot password?</Link>
       </div>
       {process.env.NODE_ENV !== "production" && (
-        <div className="mt-5 rounded-md border border-dashed p-3 text-[11px] leading-relaxed text-muted-foreground">
+        <div className="mt-5 rounded-lg border border-dashed border-glow/30 bg-black/20 p-3 text-[11px] leading-relaxed text-muted-foreground">
           <div className="mb-1 font-medium text-foreground">Local development</div>
           Default admin: admin@example.com / admin12345 (override with SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD)
         </div>

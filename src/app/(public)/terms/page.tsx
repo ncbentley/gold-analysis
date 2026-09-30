@@ -12,7 +12,7 @@ export default function TermsPage() {
         {
           heading: "What the service is",
           body: [
-            "Aurum Ledger aggregates trading signals published by third-party sources, records them, and measures them against historical market data. We do not create the signals and we do not place trades on your behalf.",
+            "Gold Intelligence Gateway aggregates trading signals published by third-party sources, records them, and measures them against historical market data. We do not create the signals and we do not place trades on your behalf.",
             "All content is general information made available identically to every member of a subscription tier. It is not personal financial, investment, tax or legal advice, and it does not take your circumstances into account.",
           ],
         },
@@ -40,7 +40,7 @@ export default function TermsPage() {
         {
           heading: "Third-party sources and brokers",
           body: [
-            "Signals remain the responsibility of the sources that publish them. Links to brokers are affiliate links: we may be paid if you open an account. Access to Aurum Ledger never depends on opening a broker account.",
+            "Signals remain the responsibility of the sources that publish them. Links to brokers are affiliate links: we may be paid if you open an account. Access to Gold Intelligence Gateway never depends on opening a broker account.",
           ],
         },
         {

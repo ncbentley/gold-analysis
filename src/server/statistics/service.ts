@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/server/db";
 import { signalOutcomes, signals, signalTargets, sourceStats } from "@/server/db/schema";
-import { computeSourceStatistics, STATS_VERSION, type SourceStatistics, type StatsInputRow } from "./compute";
+import { computeSourceStatistics, STATS_VERSION, TOP_SOURCES_MIN_TRADES, type SourceStatistics, type StatsInputRow } from "./compute";
 
 export async function loadStatsRows(sourceId: string): Promise<StatsInputRow[]> {
   const db = await getDb();
@@ -59,6 +59,30 @@ export async function getSourceStats(sourceId: string): Promise<SourceStatistics
   const [row] = await db.select().from(sourceStats).where(eq(sourceStats.sourceId, sourceId));
   if (row && row.calcVersion === STATS_VERSION) return row.statsJson as unknown as SourceStatistics;
   return refreshSourceStats(sourceId);
+}
+
+export async function getSourceStatsMany(sourceIds: string[]): Promise<Map<string, SourceStatistics>> {
+  if (!sourceIds.length) return new Map();
+  const db = await getDb();
+  const rows = await db.select().from(sourceStats).where(inArray(sourceStats.sourceId, sourceIds));
+  const cached = new Map(rows.filter((r) => r.calcVersion === STATS_VERSION).map((r) => [r.sourceId, r.statsJson as unknown as SourceStatistics]));
+  const out = new Map<string, SourceStatistics>();
+  for (const id of sourceIds) out.set(id, cached.get(id) ?? (await refreshSourceStats(id)));
+  return out;
+}
+
+/** Ranks by expectancy; sources below the closed-trade minimum are left out so small samples can't top the list. */
+export async function getTopSources(sourceIds: string[], limit = 5) {
+  const all = await getSourceStatsMany(sourceIds);
+  const stats = [...all].map(([sourceId, s]) => ({ sourceId, stats: s }));
+  const eligible = stats.filter((s) => s.stats.closedTrades >= TOP_SOURCES_MIN_TRADES && s.stats.expectancy !== null);
+  eligible.sort((a, b) => b.stats.expectancy! - a.stats.expectancy! || b.stats.closedTrades - a.stats.closedTrades);
+  return {
+    top: eligible.slice(0, limit),
+    eligibleCount: eligible.length,
+    sourceCount: stats.length,
+    totalClosed: stats.reduce((n, s) => n + s.stats.closedTrades, 0),
+  };
 }
 
 export async function getSourceStatsMeta(sourceId: string) {

@@ -18,7 +18,7 @@ export default async function SignupPage({ searchParams }: PageProps<"/signup">)
       description="Free to create. Choose a membership when you are ready."
       footer={
         <>
-          Already a member? <Link href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="text-primary hover:underline">Sign in</Link>
+          Already a member? <Link href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="font-medium text-primary hover:underline">Sign in</Link>
         </>
       }
     >

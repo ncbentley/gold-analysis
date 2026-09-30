@@ -77,7 +77,7 @@ export async function startCheckout(user: { id: string; email: string }, tier: T
     metadata: { userId: user.id, tier, period },
     subscription_data: { metadata: { userId: user.id, tier, period } },
     success_url: `${appUrl()}/billing?checkout=success`,
-    cancel_url: `${appUrl()}/pricing?checkout=cancelled`,
+    cancel_url: `${appUrl()}/billing?checkout=cancelled#plans`,
   });
   return { url: session.url! };
 }

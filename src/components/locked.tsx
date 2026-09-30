@@ -26,22 +26,27 @@ export function LockedPanel({
   return (
     <div
       className={cn(
-        "relative flex flex-col items-center justify-center gap-2 overflow-hidden rounded-lg border border-dashed border-primary/25 bg-gradient-to-b from-primary/[0.04] to-transparent text-center",
-        compact ? "p-4" : "p-8",
+        "relative isolate flex flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-primary/40 bg-[radial-gradient(ellipse_at_top,rgb(245_197_66/0.09),transparent_65%),linear-gradient(180deg,rgb(47_123_255/0.06),rgb(6_12_26/0.4))] text-center shadow-[inset_0_0_0_1px_rgb(47_123_255/0.12)]",
+        compact ? "gap-1.5 p-4" : "gap-2.5 p-8",
         className,
       )}
     >
-      <div className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary">
-        <Lock className="size-4" />
+      <div
+        className={cn(
+          "flex items-center justify-center rounded-xl bg-primary/10 text-primary shadow-[0_0_18px_-4px_rgb(245_197_66/0.6)] ring-1 ring-primary/60",
+          compact ? "size-9" : "size-12",
+        )}
+      >
+        <Lock className={compact ? "size-4" : "size-5"} />
       </div>
-      <div className="text-sm font-medium">{title ?? "Locked"}</div>
+      <div className={cn("font-heading font-bold tracking-tight", compact ? "text-sm" : "text-base")}>{title ?? "Locked"}</div>
       <p className="max-w-sm text-xs text-muted-foreground">
         {tierLabel ? `Included with ${tierLabel} membership and above.` : "Not available on current plans."}
       </p>
       {requiredTier && (
         <Link
           href={`/upgrade?tier=${requiredTier}&feature=${encodeURIComponent(feature)}`}
-          className={cn(buttonVariants({ size: "sm" }), "mt-1")}
+          className={cn(buttonVariants({ size: compact ? "sm" : "default" }), "mt-1")}
         >
           Upgrade to {tierLabel}
         </Link>

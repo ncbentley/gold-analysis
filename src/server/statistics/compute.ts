@@ -3,6 +3,7 @@
  */
 
 export const STATS_VERSION = "stats-v1";
+export const TOP_SOURCES_MIN_TRADES = 20;
 
 export interface StatsInputRow {
   signalId: string;
