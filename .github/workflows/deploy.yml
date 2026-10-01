@@ -27,7 +27,7 @@ jobs:
             exit 1
           fi
           install -d -m 700 ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/inbound-deploy
+          printf '%s' "$DEPLOY_SSH_KEY" | base64 -d > ~/.ssh/inbound-deploy
           chmod 600 ~/.ssh/inbound-deploy
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           printf 'Host inbound-prod\n\tHostName %s\n\tUser %s\n\tIdentityFile ~/.ssh/inbound-deploy\n\tIdentitiesOnly yes\n' "$DEPLOY_HOST" "$DEPLOY_USER" > ~/.ssh/config
