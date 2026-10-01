@@ -32,4 +32,6 @@ jobs:
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           printf 'Host inbound-prod\n\tHostName %s\n\tUser %s\n\tIdentityFile ~/.ssh/inbound-deploy\n\tIdentitiesOnly yes\n' "$DEPLOY_HOST" "$DEPLOY_USER" > ~/.ssh/config
           chmod 600 ~/.ssh/config
-          ./deploy/deploy.sh
+          # deploy.sh reads DEPLOY_HOST. The secret is the address already written
+          # into the ssh config; the script must use the inbound-prod alias.
+          DEPLOY_HOST=inbound-prod ./deploy/deploy.sh
