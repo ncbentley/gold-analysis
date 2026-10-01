@@ -11,9 +11,7 @@ import { fmtAge, fmtPrice } from "@/lib/format";
 import { can, lowestTierWith } from "@/server/entitlements/access";
 import { getViewer } from "@/server/entitlements/service";
 import { getRecentBars } from "@/server/market-data";
-import { presentSourceStats } from "@/server/presenters";
-import { listSignalsForViewer, listSources } from "@/server/signals/queries";
-import { getTopSources } from "@/server/statistics/service";
+import { listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
 import { nowMs } from "@/lib/clock";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -79,16 +77,11 @@ export default async function DashboardPage() {
     );
   }
 
-  const [open, closed, sources] = await Promise.all([
+  const [open, closed, ranking] = await Promise.all([
     listSignalsForViewer(viewer, { status: "OPEN" }, { limit: 20 }),
     listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 10 }),
-    listSources({ includeQa: viewer.access.isAdmin }),
+    listTopSourcesForViewer(viewer, 5),
   ]);
-  const ranking = await getTopSources(sources.map((s) => s.id));
-  const topRows = ranking.top.map(({ sourceId, stats }) => {
-    const summary = presentSourceStats(stats, access, config).summary;
-    return { sourceId, closedTrades: stats.closedTrades, metrics: summary.locked ? null : summary.data };
-  });
   const activeCount = open.items.filter((s) => s.status !== "PENDING").length;
   const pendingCount = open.items.filter((s) => s.status === "PENDING").length;
 
@@ -98,7 +91,7 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Active trades" value={activeCount} hint="entered, not closed" icon={Activity} tone="gold" />
         <Stat label="Pending entries" value={pendingCount} hint="waiting for fill" icon={Hourglass} />
-        <Stat label="Tracked sources" value={sources.length} icon={Radar} />
+        <Stat label="Tracked sources" value={ranking.sourceCount} icon={Radar} />
         <Stat
           label="Signals in your window"
           value={open.total + closed.total}
@@ -118,9 +111,10 @@ export default async function DashboardPage() {
       </section>
 
       <section className="mt-8">
-        <SectionTitle icon={Trophy} title="Top sources" />
+        <SectionTitle icon={Trophy} title="Top sources" action={<ViewAll href="/sources" />} />
         <TopSources
-          rows={topRows}
+          rows={ranking.rows}
+          hrefBase="/sources"
           eligibleCount={ranking.eligibleCount}
           sourceCount={ranking.sourceCount}
           lockedHref="/upgrade?tier=gold&feature=sources.stats.summary"

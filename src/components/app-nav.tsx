@@ -14,6 +14,7 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Trophy,
   UserRound,
   Workflow,
 } from "lucide-react";
@@ -30,6 +31,7 @@ type NavItem = { href: string; label: string; icon: React.ComponentType<{ classN
 const MEMBER: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/signals", label: "Live signals", icon: Activity },
+  { href: "/sources", label: "Top sources", icon: Trophy },
   { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/account", label: "My profile", icon: UserRound },
 ];

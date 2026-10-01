@@ -13,9 +13,6 @@ type Config = Record<Tier, TierConfig>;
 const CLOSED = new Set(["WON", "LOST", "BREAKEVEN"]);
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
-/** Member-facing label. The real channel name stays on the source row for admins. */
-export const ANONYMOUS_SOURCE_NAME = "This source";
-
 export function redactIdentities(text: string, identities: Array<string | null | undefined>) {
   const needles = identities
     .map((value) => value?.trim())
@@ -30,13 +27,21 @@ export function redactIdentities(text: string, identities: Array<string | null |
   return out;
 }
 
-function memberSource(source: { id: string }) {
-  return { id: source.id, name: ANONYMOUS_SOURCE_NAME, slug: source.id, isQa: false };
+type SourceIdentity = Pick<Source, "id" | "name" | "nickname" | "slug" | "isQa">;
+
+/** Admins see the channel name. Everyone else, including an admin previewing a plan, sees the nickname. */
+export function sourceDisplayName(source: Pick<Source, "name" | "nickname">, access: Access) {
+  return access.isAdmin ? source.name : source.nickname;
+}
+
+function presentSourceIdentity(source: SourceIdentity, access: Access) {
+  if (access.isAdmin) return { id: source.id, name: source.name, nickname: source.nickname, slug: source.slug, isQa: source.isQa };
+  return { id: source.id, name: source.nickname, nickname: source.nickname, slug: source.id, isQa: false };
 }
 
 export interface SignalBundle {
   signal: Signal;
-  source: Pick<Source, "id" | "name" | "slug" | "showRawText" | "isQa"> & { telegramUsername?: string | null };
+  source: SourceIdentity & { telegramUsername?: string | null };
   targets: SignalTarget[];
   outcome: SignalOutcome | null;
 }
@@ -45,7 +50,7 @@ export function presentSignalListItem({ signal, source, targets, outcome }: Sign
   const isClosed = outcome ? CLOSED.has(outcome.classification) : false;
   return {
     id: signal.id,
-    source: memberSource(source),
+    source: presentSourceIdentity(source, access),
     instrument: signal.instrument,
     direction: signal.direction,
     entryType: signal.entryType,
@@ -86,7 +91,7 @@ export function presentSignalDetail(input: SignalDetailInput, access: Access, co
     risk?: number | null;
   };
   const isClosed = outcome ? CLOSED.has(outcome.classification) : false;
-  const identities = [input.source.name, input.source.slug, input.source.telegramUsername];
+  const identities = access.isAdmin ? [] : [input.source.name, input.source.slug, input.source.telegramUsername];
   const redact = (value: string | null | undefined) => (value == null ? null : redactIdentities(value, identities));
   const ai = (analysis?.outputJson ?? null) as null | {
     setupClassification?: { label: string; confidence: number; rationale: string };
@@ -104,11 +109,12 @@ export function presentSignalDetail(input: SignalDetailInput, access: Access, co
     version: input.signal.version,
     parserConfidence: input.signal.parserConfidence,
     sourceConfidenceText: input.signal.sourceConfidenceText,
-    rawText: gate(access, "signals.raw_text", config, () => (input.source.showRawText ? redact(input.rawText) : null)),
+    // Original posts often carry the channel name, so only an admin session receives them.
+    rawText: access.isAdmin ? { locked: false as const, data: input.rawText } : { locked: true as const, feature: "signals.raw_text" as const, requiredTier: null },
     updates: input.updates.map((u) => ({
       publishedAt: u.publishedAt.toISOString(),
       eventType: u.eventType,
-      text: input.source.showRawText && access.features.has("signals.raw_text") ? redact(u.rawText) : null,
+      text: access.isAdmin ? u.rawText : null,
     })),
     outcome: {
       calcVersion: outcome?.calcVersion ?? null,
@@ -234,15 +240,12 @@ export function presentSourceStats(s: SourceStatistics, access: Access, config: 
 export type PresentedSourceStats = ReturnType<typeof presentSourceStats>;
 
 export function presentSourceSummary(source: Source, stats: SourceStatistics | null, access: Access, config: Config) {
-  const identity = memberSource(source);
+  const identity = presentSourceIdentity(source, access);
   return {
-    id: source.id,
-    name: identity.name,
-    slug: identity.slug,
-    description: null,
+    ...identity,
+    description: access.isAdmin ? source.description : null,
     sourceType: source.sourceType,
-    telegramUsername: null,
-    isQa: identity.isQa,
+    telegramUsername: access.isAdmin ? source.telegramUsername : null,
     active: source.active,
     stats: stats ? presentSourceStats(stats, access, config) : null,
   };

@@ -12,11 +12,11 @@ import {
 } from "@/server/db/schema";
 import { buildAccess, can, historyCutoff, lowestTierWith } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
-import { presentSignalDetail, presentSignalListItem, type SignalBundle } from "@/server/presenters";
+import { presentSignalDetail, presentSignalListItem, presentSourceStats, sourceDisplayName, type SignalBundle } from "@/server/presenters";
 import { OUTCOME_RULES } from "@/server/outcomes/engine";
 import { getSimilarTradesForSignal } from "@/server/similar/service";
 import { loadMemberConsensus } from "@/server/consensus/service";
-import { getSourceStats } from "@/server/statistics/service";
+import { getSourceStats, getTopSources } from "@/server/statistics/service";
 
 export interface SignalFilters {
   sourceId?: string;
@@ -226,6 +226,24 @@ export async function listSources(opts: { includeInactive?: boolean; includeQa?:
     .from(sources)
     .where(and(isNull(sources.removedAt), opts.includeInactive ? undefined : eq(sources.active, true), opts.includeQa ? undefined : eq(sources.isQa, false)))
     .orderBy(asc(sources.name));
+}
+
+/** Ranked sources as the viewer may see them: nicknames for members, channel names for admins. */
+export async function listTopSourcesForViewer(viewer: Viewer, limit: number) {
+  const sourceRows = await listSources({ includeQa: viewer.access.isAdmin });
+  const ranking = await getTopSources(sourceRows.map((s) => s.id), limit);
+  const byId = new Map(sourceRows.map((s) => [s.id, s]));
+  const rows = ranking.top.map(({ sourceId, stats }) => {
+    const summary = presentSourceStats(stats, viewer.access, viewer.config).summary;
+    const source = byId.get(sourceId)!;
+    return {
+      sourceId,
+      name: sourceDisplayName(source, viewer.access),
+      closedTrades: stats.closedTrades,
+      metrics: summary.locked ? null : summary.data,
+    };
+  });
+  return { rows, eligibleCount: ranking.eligibleCount, sourceCount: ranking.sourceCount };
 }
 
 export async function getSourceBySlugOrId(key: string, opts: { includeQa?: boolean; allowSlug?: boolean } = {}) {

@@ -2,7 +2,7 @@ import type { Tier } from "@/server/db/schema";
 
 export const FEATURE_CATALOG = {
   "signals.core": "Signal source, instrument, direction, entry, stop, targets, time and status",
-  "signals.raw_text": "Original source text (where the source permits)",
+  "signals.raw_text": "Original source text",
   "signals.basic_result": "Final result after the trade closes",
   "sources.stats.summary": "Source lifetime count, win rate, average R and expectancy",
   "sources.stats.recent": "Recent 10 / 30 trade performance",
@@ -30,7 +30,7 @@ export const FEATURE_CATALOG = {
 export type Feature = keyof typeof FEATURE_CATALOG;
 export const ALL_FEATURES = Object.keys(FEATURE_CATALOG) as Feature[];
 
-const SILVER: Feature[] = ["signals.core", "signals.raw_text", "signals.basic_result"];
+const SILVER: Feature[] = ["signals.core", "signals.basic_result"];
 const GOLD: Feature[] = [
   ...SILVER,
   "sources.stats.summary",

@@ -155,7 +155,7 @@ export async function retryJob(id: string, actor: Actor) {
   return job ?? null;
 }
 
-export type SourceInput = Pick<Source, "name" | "slug" | "sourceType" | "sourceUrl" | "description" | "active" | "timezone" | "parserType" | "showRawText" | "isQa">;
+export type SourceInput = Pick<Source, "name" | "slug" | "sourceType" | "sourceUrl" | "description" | "active" | "timezone" | "parserType" | "isQa">;
 
 /** Takes a source off the admin list and stops new capture. Past events and signals stay on the row. */
 export async function removeSourceFromList(id: string, actor: Actor) {

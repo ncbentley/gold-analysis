@@ -8,6 +8,7 @@ import { TOP_SOURCES_MIN_TRADES } from "@/server/statistics/compute";
 
 export type TopSourceRow = {
   sourceId: string;
+  name: string;
   closedTrades: number;
   metrics: { winRate: number | null; expectancy: number | null } | null;
 };
@@ -34,11 +35,14 @@ export function TopSources({
   eligibleCount,
   sourceCount,
   lockedHref,
+  hrefBase,
 }: {
   rows: TopSourceRow[];
   eligibleCount: number;
   sourceCount: number;
   lockedHref?: string;
+  /** Links each name to its source page. Left off for anonymous visitors. */
+  hrefBase?: string;
 }) {
   if (rows.length === 0) {
     return (
@@ -66,7 +70,15 @@ export function TopSources({
               <TableCell>
                 <Rank n={i + 1} />
               </TableCell>
-              <TableCell className="font-medium text-foreground/90">Anonymous source</TableCell>
+              <TableCell className="font-medium text-foreground/90">
+                {hrefBase ? (
+                  <Link href={`${hrefBase}/${r.sourceId}`} className="rounded outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring">
+                    {r.name}
+                  </Link>
+                ) : (
+                  r.name
+                )}
+              </TableCell>
               <TableCell className="text-right font-mono tabular-nums">{r.closedTrades}</TableCell>
               {r.metrics ? (
                 <>
@@ -86,7 +98,7 @@ export function TopSources({
       </Table>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-glow/15 bg-black/20 px-3 py-2.5 text-xs text-muted-foreground">
         <span>
-          Ranked by expectancy among the {eligibleCount} of {sourceCount} sources with at least {TOP_SOURCES_MIN_TRADES} closed trades. Channel names are not shown.
+          Ranked by expectancy among the {eligibleCount} of {sourceCount} sources with at least {TOP_SOURCES_MIN_TRADES} closed trades.
         </span>
         {locked && lockedHref && (
           <Link href={lockedHref} className="font-semibold text-primary hover:underline">

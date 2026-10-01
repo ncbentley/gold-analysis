@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { buildAccess } from "@/server/entitlements/access";
 import { DEFAULT_TIER_CONFIG } from "@/server/entitlements/config";
-import { presentSignalListItem, presentSourceSummary, redactIdentities } from "./presenters";
+import { presentSignalListItem, presentSourceSummary, redactIdentities, sourceDisplayName } from "./presenters";
 import type { Source } from "@/server/db/schema";
 
 const access = buildAccess("platinum", DEFAULT_TIER_CONFIG);
 
-describe("source anonymity", () => {
+describe("source identity", () => {
+  const source = { id: "src-1", name: "Chartsyco Trades", nickname: "Amber Fox", slug: "chartsycotrades", isQa: false };
+
+  it("gives members the nickname and admins the channel name", () => {
+    expect(sourceDisplayName(source, access)).toBe("Amber Fox");
+    expect(sourceDisplayName(source, buildAccess("platinum", DEFAULT_TIER_CONFIG, true))).toBe("Chartsyco Trades");
+  });
+
   it("strips channel names from member signal rows", () => {
     const item = presentSignalListItem(
       {
@@ -22,35 +29,60 @@ describe("source anonymity", () => {
           closedAt: null,
           status: "PENDING",
         } as never,
-        source: { id: "src-1", name: "Chartsyco Trades", slug: "chartsycotrades", showRawText: true, isQa: false },
+        source,
         targets: [],
         outcome: null,
       },
       access,
       DEFAULT_TIER_CONFIG,
     );
-    expect(item.source.name).toBe("This source");
+    expect(item.source.name).toBe("Amber Fox");
     expect(JSON.stringify(item)).not.toContain("Chartsyco");
     expect(JSON.stringify(item)).not.toContain("chartsycotrades");
   });
 
-  it("omits the channel name, slug and description from source summaries", () => {
+  it("returns the channel name on an admin signal row", () => {
+    const item = presentSignalListItem(
+      {
+        signal: {
+          id: "sig",
+          instrument: "XAUUSD",
+          direction: "LONG",
+          entryType: "MARKET",
+          entryMin: 4100,
+          entryMax: 4100,
+          stopLoss: 4090,
+          signalTime: new Date("2026-09-28T12:00:00Z"),
+          closedAt: null,
+          status: "PENDING",
+        } as never,
+        source,
+        targets: [],
+        outcome: null,
+      },
+      buildAccess("platinum", DEFAULT_TIER_CONFIG, true),
+      DEFAULT_TIER_CONFIG,
+    );
+    expect(item.source.name).toBe("Chartsyco Trades");
+    expect(item.source.slug).toBe("chartsycotrades");
+  });
+
+  it("omits the channel name, slug and description from member source summaries", () => {
     const summary = presentSourceSummary(
       {
-        id: "src-1",
+        ...source,
         name: "James Gold Master",
         slug: "james-gold-master",
         description: "Signals from James Gold Master",
         sourceType: "telegram",
         telegramUsername: "jamesgold",
-        isQa: false,
         active: true,
       } as Source,
       null,
       access,
       DEFAULT_TIER_CONFIG,
     );
-    expect(summary.name).toBe("This source");
+    expect(summary.name).toBe("Amber Fox");
     expect(summary.slug).toBe("src-1");
     expect(summary.description).toBeNull();
     expect(summary.telegramUsername).toBeNull();

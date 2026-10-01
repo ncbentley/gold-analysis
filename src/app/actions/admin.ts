@@ -128,7 +128,6 @@ const sourceSchema = z.object({
   timezone: z.string().min(1).max(60),
   parserType: z.enum(PARSER_TYPES as [string, ...string[]]),
   active: z.boolean(),
-  showRawText: z.boolean(),
   isQa: z.boolean(),
 });
 
@@ -145,7 +144,6 @@ export async function saveSourceAction(form: FormData) {
       timezone: str(form, "timezone") || "UTC",
       parserType: str(form, "parserType"),
       active: form.get("active") === "on",
-      showRawText: form.get("showRawText") === "on",
       isQa: form.get("isQa") === "on",
     });
     if (!parsed.success) throw new Error(parsed.error.issues.map((i) => i.message).join("; "));

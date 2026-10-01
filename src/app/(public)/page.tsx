@@ -28,7 +28,7 @@ const STEPS = [
 ];
 
 const TIER_PITCH: Record<string, { tagline: string; bullets: string[] }> = {
-  silver: { tagline: "The signals, as they happen", bullets: ["Live signals and status updates", "Original source text", "Final result for closed trades"] },
+  silver: { tagline: "The signals, as they happen", bullets: ["Live signals and status updates", "Every source tracked under its own nickname", "Final result for closed trades"] },
   gold: {
     tagline: "Know how each source performs",
     bullets: ["Everything in Silver", "Source win rate, average R and expectancy", "Recent 10 / 30 trade form", "Time of day, direction and signal type breakdowns", "Similar-trade summary and MFE / MAE"],
@@ -127,7 +127,12 @@ export default async function LandingPage() {
           </p>
           <div className="mt-8">
             <TopSources
-              rows={top.map(({ sourceId, stats }) => ({ sourceId, closedTrades: stats.closedTrades, metrics: stats }))}
+              rows={top.map(({ sourceId, stats }) => ({
+                sourceId,
+                name: sources.find((source) => source.id === sourceId)?.nickname ?? "Source",
+                closedTrades: stats.closedTrades,
+                metrics: stats,
+              }))}
               eligibleCount={eligibleCount}
               sourceCount={sourceCount}
             />

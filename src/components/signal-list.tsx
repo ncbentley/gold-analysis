@@ -41,13 +41,13 @@ export function SignalList({
   empty,
   now = nowMs(),
   hrefBase = "/signals",
-  showSource = false,
+  showSource = true,
 }: {
   items: SignalListItem[];
   empty?: React.ReactNode;
   now?: number;
   hrefBase?: string;
-  /** Admin lists only. Member tables omit the source column. */
+  /** The name is whatever the server decided this viewer may see. */
   showSource?: boolean;
 }) {
   if (!items.length) {

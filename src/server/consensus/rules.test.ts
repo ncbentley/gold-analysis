@@ -163,7 +163,7 @@ describe("tier visibility", () => {
           createdAt: t0,
           updatedAt: t0,
         },
-        source: { id: "src-secret", name: secretName, slug: "chartsycotrades", showRawText: false, isQa: false, telegramUsername: "chartsyco" },
+        source: { id: "src-secret", name: secretName, nickname: "Amber Fox", slug: "chartsycotrades", isQa: false, telegramUsername: "chartsyco" },
         targets: [],
         outcome: null,
         rawText: null,

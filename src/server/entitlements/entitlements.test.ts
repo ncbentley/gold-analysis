@@ -106,7 +106,7 @@ const detailFor = (access: ReturnType<typeof buildAccess>) =>
   presentSignalDetail(
     {
       signal,
-      source: { id: "src1", name: "Src", slug: "src", showRawText: true, isQa: false },
+      source: { id: "src1", name: "Src", nickname: "Amber Fox", slug: "src", isQa: false },
       targets,
       outcome,
       rawText: "XAUUSD BUY ZONE",
@@ -167,7 +167,8 @@ describe("signal detail projection", () => {
   it("silver receives the core signal and basic result but nothing from higher tiers", () => {
     const d = detailFor(silver);
     expect(d.entryMin).toBe(3399);
-    expect(d.rawText).toEqual({ locked: false, data: "XAUUSD BUY ZONE" });
+    expect(d.rawText.locked).toBe(true);
+    expect(JSON.stringify(d)).not.toContain("XAUUSD BUY ZONE");
     expect(d.result.locked).toBe(false);
     expect(d.outcome.excursionSummary.locked).toBe(true);
     expect(d.similar.summary.locked).toBe(true);
@@ -209,9 +210,9 @@ describe("signal detail projection", () => {
     expect(d.similar.details.locked).toBe(false);
   });
 
-  it("hides raw text when the source does not permit it, even for platinum", () => {
+  it("keeps original posts off member payloads, including platinum", () => {
     const d = presentSignalDetail(
-      { signal, source: { id: "s", name: "S", slug: "s", showRawText: false, isQa: false }, targets, outcome, rawText: "PRIVATE", updates: [], sourceStats: null, similar: null, analysis: null },
+      { signal, source: { id: "s", name: "S", nickname: "Amber Fox", slug: "s", isQa: false }, targets, outcome, rawText: "PRIVATE", updates: [], sourceStats: null, similar: null, analysis: null },
       platinum,
       config,
     );

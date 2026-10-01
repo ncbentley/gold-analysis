@@ -40,14 +40,7 @@ export default async function AdminSignalsPage({ searchParams }: PageProps<"/adm
       <div className="mb-2 text-xs font-medium text-muted-foreground">
         <span className="font-mono text-foreground tabular-nums">{result.total.toLocaleString()}</span> signals
       </div>
-      <SignalList
-        items={result.items.map((item) => {
-          const source = sources.find((s) => s.id === item.source.id);
-          return source ? { ...item, source: { ...item.source, name: source.name, isQa: source.isQa } } : item;
-        })}
-        hrefBase="/admin/signals"
-        showSource
-      />
+      <SignalList items={result.items} hrefBase="/admin/signals" showSource />
       <div className="mt-4 flex justify-between">
         {page > 1 ? (
           <Link href={pageHref(page - 1)} className={buttonVariants({ variant: "outline", size: "sm" })}>

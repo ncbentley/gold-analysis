@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   doublePrecision,
@@ -134,32 +135,37 @@ export const tierEntitlements = pgTable("tier_entitlements", {
 /* Sources and raw evidence                                            */
 /* ------------------------------------------------------------------ */
 
-export const sources = pgTable("sources", {
-  id: id(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  sourceType: text("source_type", { enum: SOURCE_TYPES }).notNull(),
-  sourceUrl: text("source_url"),
-  description: text("description"),
-  active: boolean("active").notNull().default(true),
-  /** QA sources are visible to admins only and never appear in member views or public stats. */
-  isQa: boolean("is_qa").notNull().default(false),
-  timezone: text("timezone").notNull().default("UTC"),
-  parserType: text("parser_type").notNull(),
-  showRawText: boolean("show_raw_text").notNull().default(true),
-  telegramChannelId: text("telegram_channel_id").unique(),
-  telegramAccessHash: text("telegram_access_hash"),
-  telegramUsername: text("telegram_username"),
-  lastMessageId: integer("last_message_id"),
-  lastSyncedAt: ts("last_synced_at"),
-  syncError: text("sync_error"),
-  /** queued, then importing, then caught_up or failed. Null on sources added before this column. */
-  importStatus: text("import_status", { enum: ["queued", "importing", "caught_up", "failed"] }),
-  /** Set when an admin takes the source off the list. The row stays so past signals remain. */
-  removedAt: ts("removed_at"),
-  createdAt: createdAt(),
-  updatedAt: updatedAt(),
-});
+export const sources = pgTable(
+  "sources",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    /** What members see instead of the channel name. Unique ignoring case; the database generates one when omitted. */
+    nickname: text("nickname").notNull().default(sql`generate_source_nickname()`),
+    slug: text("slug").notNull().unique(),
+    sourceType: text("source_type", { enum: SOURCE_TYPES }).notNull(),
+    sourceUrl: text("source_url"),
+    description: text("description"),
+    active: boolean("active").notNull().default(true),
+    /** QA sources are visible to admins only and never appear in member views or public stats. */
+    isQa: boolean("is_qa").notNull().default(false),
+    timezone: text("timezone").notNull().default("UTC"),
+    parserType: text("parser_type").notNull(),
+    telegramChannelId: text("telegram_channel_id").unique(),
+    telegramAccessHash: text("telegram_access_hash"),
+    telegramUsername: text("telegram_username"),
+    lastMessageId: integer("last_message_id"),
+    lastSyncedAt: ts("last_synced_at"),
+    syncError: text("sync_error"),
+    /** queued, then importing, then caught_up or failed. Null on sources added before this column. */
+    importStatus: text("import_status", { enum: ["queued", "importing", "caught_up", "failed"] }),
+    /** Set when an admin takes the source off the list. The row stays so past signals remain. */
+    removedAt: ts("removed_at"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("sources_nickname_idx").on(sql`lower(${t.nickname})`)],
+);
 
 /** Encrypted key/value store for credentials entered in the admin (Telegram session, API keys). */
 export const appSettings = pgTable("app_settings", {

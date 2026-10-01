@@ -460,7 +460,6 @@ async function saveLinkedTelegramSource(ch: ResolvedChannel, input: { name?: str
       timezone: "UTC",
       isQa: input.isQa,
       active: true,
-      showRawText: true,
       importStatus: "queued",
     })
     .returning({ id: sources.id });

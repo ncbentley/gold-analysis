@@ -139,6 +139,9 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <DirectionBadge direction={d.direction} />
           <StatusBadge status={d.status} />
+          <Link href={`/sources/${d.source.id}`} className="rounded text-sm font-semibold text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">
+            {d.source.name}
+          </Link>
           <span className="text-sm text-foreground/80">{`Published ${fmtDateTime(d.signalTime)} (${fmtAge(d.signalTime)} ago) · ${session} session`}</span>
         </div>
       </PageHeader>
@@ -167,18 +170,12 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
             <div className="mt-4 rounded-xl bg-[#050c1c]/80 p-2 ring-1 ring-glow/25 shadow-[inset_0_0_30px_-12px_rgb(47_123_255/0.4)]">
               <PriceChart points={points} levels={levels} markers={markers} />
             </div>
-            <div className="mt-4">
-              <SubLabel>Original source text</SubLabel>
-              <GatedView gated={d.rawText} title="Original source text" userId={uid} compact>
-                {(text) =>
-                  text ? (
-                    <pre className="whitespace-pre-wrap break-words rounded-xl border-l-2 border-primary/60 bg-black/35 p-3.5 font-mono text-xs leading-relaxed ring-1 ring-glow/20">{text}</pre>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">This source does not permit redistribution of its original text.</p>
-                  )
-                }
-              </GatedView>
-            </div>
+            {!d.rawText.locked && d.rawText.data && (
+              <div className="mt-4">
+                <SubLabel>Original source text</SubLabel>
+                <pre className="whitespace-pre-wrap break-words rounded-xl border-l-2 border-primary/60 bg-black/35 p-3.5 font-mono text-xs leading-relaxed ring-1 ring-glow/20">{d.rawText.data}</pre>
+              </div>
+            )}
             {d.updates.length > 0 && (
               <div className="mt-4">
                 <SubLabel>Source updates</SubLabel>
