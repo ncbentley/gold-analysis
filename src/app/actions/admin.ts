@@ -135,7 +135,7 @@ const sourceSchema = z.object({
 export async function saveSourceAction(form: FormData) {
   const { actor } = await requireAdmin();
   const id = str(form, "id") || null;
-  await attempt(id ? `/admin/sources?edit=${id}` : "/admin/sources", async () => {
+  await attempt("/admin/telegram", async () => {
     const parsed = sourceSchema.safeParse({
       name: str(form, "name"),
       slug: str(form, "slug"),
@@ -309,7 +309,7 @@ export async function rerunAiAction(form: FormData) {
   const signalId = str(form, "signalId");
   const sourceId = str(form, "sourceId");
   const promptVersion = str(form, "promptVersion") || undefined;
-  const path = signalId ? `/admin/signals/${signalId}` : "/admin/sources";
+  const path = signalId ? `/admin/signals/${signalId}` : "/admin/telegram";
   await attempt(path, async () => {
     if (promptVersion && !PROMPTS[promptVersion]) throw new Error("Unknown prompt version");
     if (signalId) {
@@ -411,7 +411,7 @@ export async function telegramReconnectAction() {
 
 export async function removeSourceAction(form: FormData) {
   const { actor } = await requireAdmin();
-  await attempt("/admin/sources", async () => {
+  await attempt("/admin/telegram", async () => {
     const name = await removeSourceFromList(str(form, "id"), actor);
     return `${name} was removed from the list. Past signals stay. Add the channel again to capture new posts.`;
   });
@@ -438,7 +438,7 @@ function joinedChatFromForm(value: FormDataEntryValue): JoinedChat {
 
 export async function telegramAddJoinedChatAction(form: FormData) {
   const { actor } = await requireAdmin();
-  await attempt("/admin/sources", async () => {
+  await attempt("/admin/telegram", async () => {
     const parserType = str(form, "parserType") || PARSER_TYPES[0];
     if (!(PARSER_TYPES as readonly string[]).includes(parserType)) throw new Error("Unknown parser.");
     const backfill = Math.trunc(num(form, "backfill") ?? 0);
@@ -450,6 +450,28 @@ export async function telegramAddJoinedChatAction(form: FormData) {
     const names = queued.map((chat) => chat.title).join(", ");
     const skipped = alreadyTracked.length ? ` ${alreadyTracked.length} already tracked ${alreadyTracked.length === 1 ? "was" : "were"} left unchanged.` : "";
     return `Queued ${queued.length}: ${names}. Each row shows queued, then importing, then caught up or failed.${skipped}`;
+  });
+}
+
+const DEFAULT_TRACK_BACKFILL = 200;
+
+export async function saveTelegramTrackingAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/telegram", async () => {
+    const removeIds = [...new Set(form.getAll("remove").map(String).filter(Boolean))];
+    const chats = form.getAll("add").map(joinedChatFromForm);
+    for (const id of removeIds) await removeSourceFromList(id, actor);
+    let queuedCount = 0;
+    if (chats.length > 0) {
+      const parserType = PARSER_TYPES[0];
+      if (!parserType) throw new Error("No parser is configured.");
+      const saved = await queueJoinedTelegramChats(chats, { isQa: false, parserType, backfill: DEFAULT_TRACK_BACKFILL }, actor);
+      queuedCount = saved.queued.length;
+    }
+    if (removeIds.length === 0 && queuedCount === 0) return chats.length > 0 ? "Those channels are already tracked." : "No channel changes to save.";
+    const summary = [queuedCount > 0 ? `Now tracking ${queuedCount}` : null, removeIds.length > 0 ? `stopped ${removeIds.length}` : null].filter((part): part is string => Boolean(part));
+    const imported = queuedCount > 0 ? ` New channels import the latest ${DEFAULT_TRACK_BACKFILL} messages.` : "";
+    return `${summary.join(", ")}.${imported}`;
   });
 }
 

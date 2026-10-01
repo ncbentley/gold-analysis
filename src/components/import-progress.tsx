@@ -1,10 +1,7 @@
 "use client";
 
-import { Loader2, Plus } from "lucide-react";
 import { useEffect } from "react";
-import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 
 /** Reloads the server page while a source is queued or importing. */
 export function ImportProgressRefresh({ active }: { active: boolean }) {
@@ -15,14 +12,4 @@ export function ImportProgressRefresh({ active }: { active: boolean }) {
     return () => clearInterval(id);
   }, [active, router]);
   return null;
-}
-
-export function AddSourceButton() {
-  const { pending } = useFormStatus();
-  return (
-    <Button type="submit" disabled={pending} className="min-w-24">
-      {pending ? <Loader2 data-icon="inline-start" className="animate-spin motion-reduce:animate-none" /> : <Plus data-icon="inline-start" />}
-      {pending ? "Queuing…" : "Add"}
-    </Button>
-  );
 }

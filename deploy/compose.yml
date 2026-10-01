@@ -1,0 +1,76 @@
+# Production stack for the VPS. No service publishes a host port: the only
+# way in is the Cloudflare tunnel, which forwards to Caddy, which proxies the app.
+# Secrets and settings live in deploy/.env next to this file (see env.example).
+name: gold
+
+x-app: &app
+  image: gold-app:latest
+  env_file: .env
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gold
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: gold
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gold -d gold"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  app:
+    <<: *app
+    build:
+      context: ..
+    environment:
+      DATABASE_URL: postgres://gold:${POSTGRES_PASSWORD}@postgres:5432/gold
+      APP_SECRET: ${APP_SECRET:?set APP_SECRET in deploy/.env}
+      JOBS_WORKER: "off"
+      QUEUE_URL: http://queue:4320
+
+  queue:
+    <<: *app
+    pull_policy: never
+    command: ["pnpm", "exec", "tsx", "scripts/queue-worker.ts"]
+    environment:
+      DATABASE_URL: postgres://gold:${POSTGRES_PASSWORD}@postgres:5432/gold
+      APP_SECRET: ${APP_SECRET:?set APP_SECRET in deploy/.env}
+      JOBS_WORKER: "on"
+      QUEUE_PORT: "4320"
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - app
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    depends_on:
+      - caddy
+    # Without TUNNEL_TOKEN this is a quick tunnel on a random trycloudflare.com
+    # address that changes whenever the container restarts.
+    command: ${TUNNEL_COMMAND:-tunnel --no-autoupdate --url http://caddy:80}
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy-data:
+  caddy-config:

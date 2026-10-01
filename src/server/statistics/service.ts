@@ -85,6 +85,20 @@ export async function getTopSources(sourceIds: string[], limit = 5) {
   };
 }
 
+/** Cached win rates only. Missing or non-numeric rows stay null and are not recomputed. */
+export async function getStoredWinRates(sourceIds: string[]): Promise<Map<string, number | null>> {
+  const out = new Map<string, number | null>();
+  if (!sourceIds.length) return out;
+  for (const id of sourceIds) out.set(id, null);
+  const db = await getDb();
+  const rows = await db.select({ sourceId: sourceStats.sourceId, statsJson: sourceStats.statsJson }).from(sourceStats).where(inArray(sourceStats.sourceId, sourceIds));
+  for (const row of rows) {
+    const rate = row.statsJson.winRate;
+    out.set(row.sourceId, typeof rate === "number" && Number.isFinite(rate) ? rate : null);
+  }
+  return out;
+}
+
 export async function getSourceStatsMeta(sourceId: string) {
   const db = await getDb();
   const [row] = await db.select({ computedAt: sourceStats.computedAt, calcVersion: sourceStats.calcVersion }).from(sourceStats).where(eq(sourceStats.sourceId, sourceId));

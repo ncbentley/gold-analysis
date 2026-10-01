@@ -13,7 +13,7 @@ const ENTITY_LINK: Record<string, (id: string) => string> = {
   signal: (id) => `/admin/signals/${id}`,
   signal_outcome: (id) => `/admin/signals/${id}`,
   raw_event: (id) => `/admin/events/${id}`,
-  source: (id) => `/admin/sources?edit=${id}`,
+  source: () => `/admin/telegram`,
 };
 
 export default async function AuditPage({ searchParams }: PageProps<"/admin/audit">) {

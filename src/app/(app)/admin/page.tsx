@@ -12,7 +12,6 @@ import {
   Link2,
   ListChecks,
   Plug,
-  Radio,
   RefreshCw,
   Send,
   Settings,
@@ -49,15 +48,13 @@ const QUICK: { href: string; label: string; icon: Icon }[] = [
   { href: "/admin/review", label: "Review queue", icon: ClipboardCheck },
   { href: "/admin/signals", label: "Signals", icon: ListChecks },
   { href: "/admin/telegram", label: "Telegram", icon: Send },
-  { href: "/admin/sources", label: "Sources", icon: Radio },
   { href: "/admin/affiliates", label: "Broker links", icon: Link2 },
 ];
 
 const MODULES: { href: string; title: string; description: string; cta: string; icon: Icon }[] = [
   { href: "/admin/review", title: "Review queue", description: "Posts the model could not decide on. Create the signal with corrected fields or dismiss the message.", cta: "Review posts", icon: ClipboardCheck },
   { href: "/admin/signals", title: "Signal control", description: "Correct fields, recalculate or override outcomes, and regenerate AI analysis.", cta: "Manage signals", icon: ListChecks },
-  { href: "/admin/sources", title: "Sources", description: "Tracked providers with their parser, import status, event counts and ingest endpoint.", cta: "Manage sources", icon: Radio },
-  { href: "/admin/telegram", title: "Telegram", description: "The user account that reads channels and groups, and the chats it tracks.", cta: "Manage Telegram", icon: Send },
+  { href: "/admin/telegram", title: "Telegram", description: "The account that reads channels, and which of those channels are tracked.", cta: "Manage Telegram", icon: Send },
   { href: "/admin/jobs", title: "Jobs", description: "Market data sync, outcome replay, statistics, AI and billing work, with retries.", cta: "Manage jobs", icon: Workflow },
   { href: "/admin/entitlements", title: "Entitlements", description: "Features and history window included in each membership tier.", cta: "Manage entitlements", icon: ShieldCheck },
   { href: "/admin/affiliates", title: "Broker links", description: "Affiliate links, where they are placed and how often they are clicked.", cta: "Manage broker links", icon: Link2 },
