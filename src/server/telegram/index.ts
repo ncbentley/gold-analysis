@@ -636,7 +636,7 @@ export function useTelegramHistoryLoader(loader: typeof historyLoader) {
   historyLoader = loader;
 }
 
-async function queueIncoming(source: Source, event: IncomingEvent | null, messageId: number, edited: boolean) {
+async function queueIncoming(source: Source, event: IncomingEvent | null, messageId: number, edited: boolean, opts?: { live?: boolean }) {
   if (!edited) {
     const db = await getDb();
     await db
@@ -647,14 +647,18 @@ async function queueIncoming(source: Source, event: IncomingEvent | null, messag
   if (!event) return null;
   const stored = await storeRawEvent(source.id, event);
   if (stored.status === "stored") {
-    await enqueueJob("PROCESS_EVENT", { rawEventId: stored.rawEventId, sourceId: source.id }, { dedupeKey: `event:${stored.rawEventId}` });
+    await enqueueJob(
+      "PROCESS_EVENT",
+      { rawEventId: stored.rawEventId, sourceId: source.id, ...(opts?.live ? { live: true } : {}) },
+      { dedupeKey: `event:${stored.rawEventId}` },
+    );
   }
   return stored;
 }
 
-async function queueTelegramMessage(source: Source, msg: Api.Message, edited: boolean) {
+async function queueTelegramMessage(source: Source, msg: Api.Message, edited: boolean, opts?: { live?: boolean }) {
   const event = toIncomingEvent(msg, { channelId: source.telegramChannelId!, username: source.telegramUsername }, { edited });
-  return queueIncoming(source, event, msg.id, edited);
+  return queueIncoming(source, event, msg.id, edited, opts);
 }
 
 /**
@@ -768,20 +772,20 @@ function messagePeerId(msg: Api.Message) {
 
 async function onLiveMessage(msg: Api.Message, edited: boolean) {
   try {
-    await withTelegramSlot(async () => {
-      const channelId = messagePeerId(msg);
-      if (!channelId) return;
-      const db = await getDb();
-      const [source] = await db
-        .select()
-        .from(sources)
-        .where(and(eq(sources.telegramChannelId, channelId), eq(sources.sourceType, "telegram"), eq(sources.active, true)));
-      if (!source || source.lastMessageId == null) return;
-      await queueTelegramMessage(source, msg, edited);
-    });
+    // The update is already delivered. Do not take a Telegram slot for the
+    // database write, or a history fetch can delay storing the post.
+    const channelId = messagePeerId(msg);
+    if (!channelId) return;
+    const db = await getDb();
+    const [source] = await db
+      .select()
+      .from(sources)
+      .where(and(eq(sources.telegramChannelId, channelId), eq(sources.sourceType, "telegram"), eq(sources.active, true)));
+    if (!source || source.lastMessageId == null) return;
+    await queueTelegramMessage(source, msg, edited, { live: true });
     if (process.env.JOBS_WORKER !== "off") {
       const { processJobs } = await import("@/server/jobs/runner");
-      void processJobs(100).catch(() => {});
+      void processJobs(50, ["PROCESS_EVENT"]).catch(() => {});
     }
   } catch (err) {
     console.error("[telegram] live message failed:", (err as Error).message);

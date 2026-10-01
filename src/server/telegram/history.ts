@@ -8,7 +8,7 @@ export interface HistoryPage<T> {
 
 /**
  * Pages through channel history. Each page takes one Telegram slot, so parallel
- * imports and live updates together stay within TELEGRAM_CONCURRENCY.
+ * imports stay within TELEGRAM_CONCURRENCY.
  */
 export async function readHistoryPages<T>(loadPage: (offsetId: number) => Promise<HistoryPage<T>>, limit: number): Promise<T[]> {
   const out: T[] = [];

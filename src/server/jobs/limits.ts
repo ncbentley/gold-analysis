@@ -1,13 +1,47 @@
+import type { JobType } from "./queue";
+
 /**
- * Message processing and AI analysis call the chat model (DeepInfra when that key is set).
- * At most this many of those jobs run at once.
+ * Each job type has its own lane. A slow Telegram sync, market pull, or AI
+ * analysis cannot occupy a slot that a live PROCESS_EVENT needs.
+ *
+ * PROCESS_EVENT, AI_ANALYZE_SIGNAL, and AI_ANALYZE_SOURCE all call the chat
+ * model. Their caps are separate on purpose, and the sum stays under the
+ * provider limit (DeepInfra allows 200). Message processing keeps its slots
+ * even when a backlog of signal writeups is waiting.
  */
-export const REVIEW_JOB_CONCURRENCY = 200;
+export const JOB_CONCURRENCY: Record<JobType, number> = {
+  PROCESS_EVENT: 16,
+  AI_ANALYZE_SIGNAL: 8,
+  AI_ANALYZE_SOURCE: 2,
+  TELEGRAM_SYNC: 2, // same number as TELEGRAM_CONCURRENCY below
+  MARKET_DATA_SYNC: 2,
+  MARKET_DATA_BACKFILL: 1,
+  RECALC_OUTCOME: 4,
+  RECALC_OPEN_SIGNALS: 1,
+  RECALC_ALL_SIGNALS: 1,
+  REFRESH_SOURCE_STATS: 2,
+  REPAIR_QUOTE_PARSES: 1,
+  RECONCILE_SUBSCRIPTIONS: 1,
+};
 
-export const REVIEW_JOB_TYPES = ["PROCESS_EVENT", "AI_ANALYZE_SIGNAL", "AI_ANALYZE_SOURCE"] as const;
+/** How soon an idle lane looks again. Enqueue wakes the lane immediately. */
+export const LANE_POLL_MS: Record<JobType, number> = {
+  PROCESS_EVENT: 200,
+  AI_ANALYZE_SIGNAL: 500,
+  AI_ANALYZE_SOURCE: 1_000,
+  TELEGRAM_SYNC: 1_000,
+  MARKET_DATA_SYNC: 1_000,
+  MARKET_DATA_BACKFILL: 2_000,
+  RECALC_OUTCOME: 500,
+  RECALC_OPEN_SIGNALS: 2_000,
+  RECALC_ALL_SIGNALS: 2_000,
+  REFRESH_SOURCE_STATS: 2_000,
+  REPAIR_QUOTE_PARSES: 2_000,
+  RECONCILE_SUBSCRIPTIONS: 2_000,
+};
 
 /**
- * In-flight Telegram calls shared by history pages and live updates.
+ * In-flight Telegram API calls shared by history pages.
  *
  * Telegram does not publish a concurrency number for messages.getHistory.
  * What it does publish:
@@ -22,8 +56,9 @@ export const REVIEW_JOB_TYPES = ["PROCESS_EVENT", "AI_ANALYZE_SIGNAL", "AI_ANALY
  * by 10 seconds only when fetching more than 300 ids. A normal import is smaller
  * than that, so the library itself does not slow it down.
  *
- * Two is the cap we use: one history page and one live update can be in flight
- * on that single session, and nothing else. We do not open a second session.
+ * Two is the cap we use: two history pages can be in flight on that single
+ * session, and nothing else. Live updates do not take a slot; the message is
+ * already in hand. We do not open a second session.
  */
 export const TELEGRAM_CONCURRENCY = 2;
 

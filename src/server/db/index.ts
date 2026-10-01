@@ -17,7 +17,10 @@ async function connect(): Promise<DbHandle> {
   if (url) {
     const { Pool } = await import("pg");
     const { drizzle } = await import("drizzle-orm/node-postgres");
-    const pool = new Pool({ connectionString: url });
+    const pool = new Pool({
+      connectionString: url,
+      max: Number(process.env.PG_POOL_MAX ?? 30),
+    });
     // Query API is identical across pg-core drivers; the cast keeps one Db type app-wide.
     const db = drizzle(pool, { schema }) as unknown as Db;
     return { db, close: () => pool.end(), driver: "postgres" };

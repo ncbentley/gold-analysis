@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AffiliateStrip } from "@/components/affiliate-strip";
+import { LiveRefresh } from "@/components/live-refresh";
 import { ConsensusPanel } from "@/components/consensus-panel";
 import { BucketRows } from "@/components/bucket-chart";
 import { GatedView, LockedPanel } from "@/components/locked";
@@ -123,9 +124,11 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
   const markers = [{ t: signalMs, label: "Published" }, ...(d.outcome.entryTime ? [{ t: Date.parse(d.outcome.entryTime), label: "Fill" }] : [])];
   const uid = viewer.user?.id;
   const session = sessionFor(new Date(d.signalTime));
+  const open = d.status === "PENDING" || d.status === "ACTIVE" || d.status === "PARTIAL";
 
   return (
     <>
+      {open && <LiveRefresh />}
       {back}
       <PageHeader
         size="sm"

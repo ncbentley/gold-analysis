@@ -94,16 +94,17 @@ market_bars (1m) ─▶ outcome engine (outcome-v3) ─▶ signal_outcomes (vers
   Results are stored with the rules version and signal version. Admin overrides are separate rows with a reason, and the computed history is kept.
 - **Statistics** (`src/server/statistics`) cover win rate, average R, expectancy, recent form, excursion, time-to-target, and breakdowns by hour, weekday, session, direction, signal type and entry type. Every figure carries its sample size.
 - **Consensus** (`src/server/consensus`) scores sources that publish the same XAU/USD entry zone inside 30 minutes. Historically accurate sources are the ones `stats-v1` already measures (sample size, win rate, expectancy). Silver sees the trade only. Gold sees the score and how the timing lines up. Platinum also sees how many of the top historical performers are on that zone. Channel names stay on the admin signal page.
+- **Source nicknames.** Members see each source by a unique nickname, and admins see the real channel name. Original message text is admin-only. See `DECISIONS.md`.
 - **Similar trades** always match on source and direction, then on session, entry type, signal type, weekday and AI pattern tags. The least important criteria are dropped until at least five matches exist. Only trades that closed before the signal count.
 - **AI** only explains computed facts. Prompts are versioned, outputs are schema-validated, and analyses are stored separately from outcomes (`ai_analyses`). The AI never changes an outcome. The same provider also reviews posts the parser could not accept: a confident decision is applied, and a low-confidence or unknown decision stays in the human queue. The default provider is a deterministic mock; set `AI_PROVIDER=openai` to use a real model.
 - **Entitlements** (`src/server/entitlements`) are configurable per tier in `/admin/entitlements`: a feature list plus a history window. They are enforced on the server in `src/server/presenters.ts`, so locked fields are never serialized to the browser or the API.
-- **Jobs** are durable rows in `jobs`, retried with exponential backoff. Docker Compose runs them in a `queue` service beside the app, using the same Postgres, so an app restart does not drop the queue. Review jobs run at most 200 at a time. Telegram history fetches and live updates share a cap of 2. Without Docker, the scheduler in `src/instrumentation.ts` does the same work in-process. It handles market data sync every minute, Telegram catch-up sync every two minutes, market data backfill, open-trade recalculation, stats refresh, AI analysis and subscription reconciliation.
+- **Jobs** are durable rows in `jobs`, retried with exponential backoff. Docker Compose runs them in a `queue` service beside the app, using the same Postgres, so an app restart does not drop the queue. Each job type has its own lane and concurrency, so message processing is not stuck behind Telegram, market data, or AI. Live posts jump ahead of a history import. Telegram history fetches share a cap of 2. Without Docker, the scheduler in `src/instrumentation.ts` does the same work in-process. It handles market data sync every minute, Telegram catch-up sync every two minutes, market data backfill, open-trade recalculation, stats refresh, AI analysis and subscription reconciliation.
 - **Audit**: every manual change to a signal, outcome, source, entitlement, affiliate link or subscription is written to `audit_logs` with before and after values and a reason.
 
 ## Pages
 
 - **Public:** `/`, `/pricing`, `/login`, `/signup`, `/forgot-password`, `/terms`, `/privacy`
-- **Members:** `/dashboard`, `/signals`, `/signals/:id`, `/billing`, `/account`
+- **Members:** `/dashboard`, `/signals`, `/signals/:id`, `/sources` (top sources), `/sources/:id`, `/billing`, `/account`
 - **Admin:** `/admin`, `/admin/telegram`, `/admin/review`, `/admin/events`, `/admin/signals`, `/admin/sources`, `/admin/jobs`, `/admin/entitlements`, `/admin/affiliates`, `/admin/audit`, `/admin/settings`
 
 ## API
@@ -149,6 +150,14 @@ Every integration has a local fallback, so nothing is required to run locally. T
 The Telegram client holds a long-lived connection, so deploy it as a **persistent Node process**: a VPS or Docker host. Serverless platforms such as Vercel stop the process between requests, which drops the Telegram connection.
 
 `docker compose up --build` starts Postgres, the app, and the queue service. The queue process is what talks to Telegram and runs jobs. `JOBS_WORKER=off` on the app, so restarting the app leaves queued jobs in Postgres. `APP_SECRET` is generated into a shared volume the first time it is missing and reused after that. It is never rotated. Set `SEED_ADMIN_PASSWORD` (12+ characters) before the first production start. The host must be allowed to make outbound connections to Telegram's servers.
+
+### Production VPS
+
+`deploy/` holds the production stack: Postgres, the app, the queue service, Caddy, and a Cloudflare tunnel. No host port is published. Traffic arrives through the tunnel, goes to Caddy, then to the app. Run `deploy/deploy.sh` from your machine. It rsyncs the working tree to `/srv/gold` on the `inbound-prod` SSH host, rebuilds the image there, and restarts the stack. The settings live in `/srv/gold/deploy/.env` on the server; `deploy/env.example` lists them.
+
+Until a domain is connected, the tunnel is a quick tunnel on a random `trycloudflare.com` address. A new address is assigned whenever the tunnel container restarts, including after a reboot. `deploy.sh` prints the address and updates `APP_URL` to match. To switch to a domain, create a named tunnel in Cloudflare and point its public hostname at `http://caddy:80`. Then set `TUNNEL_COMMAND`, `TUNNEL_TOKEN` and `SITE_ADDRESS` in the server's `.env` and run `deploy.sh` again.
+
+Only one machine may run the queue service against a Telegram session. Running it on two machines at once can get the session revoked.
 
 ## Project layout
 

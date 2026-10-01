@@ -2,6 +2,7 @@ import { Activity, ChartCandlestick, Coins, History, Hourglass, LayoutDashboard,
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AffiliateStrip } from "@/components/affiliate-strip";
+import { LiveRefresh } from "@/components/live-refresh";
 import { LockedPanel } from "@/components/locked";
 import { PageHeader, SectionTitle } from "@/components/page-header";
 import { Stat } from "@/components/signal-bits";
@@ -87,6 +88,7 @@ export default async function DashboardPage() {
 
   return (
     <>
+      <LiveRefresh />
       {header}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Active trades" value={activeCount} hint="entered, not closed" icon={Activity} tone="gold" />

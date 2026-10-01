@@ -2,6 +2,7 @@ import { ChartCandlestick, ChevronLeft, ChevronRight, CircleCheck, Radio, Slider
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { LiveRefresh } from "@/components/live-refresh";
 import { LockedPanel } from "@/components/locked";
 import { PageHeader } from "@/components/page-header";
 import { SignalFilters } from "@/components/signal-filters";
@@ -50,6 +51,7 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
 
   return (
     <>
+      <LiveRefresh />
       <PageHeader
         title="Live signals"
         icon={Radio}

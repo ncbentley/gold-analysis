@@ -126,6 +126,8 @@ export async function createSignal(
     );
     return s;
   });
+  // The row is listable as soon as this returns. Outcome replay and AI
+  // analysis are follow-up jobs; neither has to finish before the signal is shown.
   await enqueueJob("RECALC_OUTCOME", { signalId: signal.id }, { dedupeKey: `recalc:${signal.id}` });
   await enqueueJob("AI_ANALYZE_SIGNAL", { signalId: signal.id }, { dedupeKey: `ai:${signal.id}` });
   return signal;

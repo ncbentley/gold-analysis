@@ -2,11 +2,11 @@
  * End-to-end pipeline test on an in-memory Postgres (PGlite):
  * ingestion -> parsing -> normalization -> market replay -> stats -> AI -> entitlement-filtered reads.
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getDb, closeDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
-import { auditLogs, marketBars, parseResults, rawEvents, signalOutcomes, signals, signalTargets, sources, tierEntitlements, TIERS } from "@/server/db/schema";
+import { auditLogs, jobs, marketBars, parseResults, rawEvents, signalOutcomes, signals, signalTargets, sources, tierEntitlements, TIERS } from "@/server/db/schema";
 import { buildAccess } from "@/server/entitlements/access";
 import { DEFAULT_TIER_CONFIG } from "@/server/entitlements/config";
 import type { Viewer } from "@/server/entitlements/service";
@@ -59,6 +59,13 @@ beforeAll(async () => {
   expect(res.status).toBe("stored");
   const [sig] = await db.select().from(signals).where(eq(signals.sourceId, sourceId));
   signalId = sig.id;
+  const listed = await listSignalsForViewer(viewer("gold"), {});
+  expect(listed.items.map((item) => item.id)).toContain(signalId);
+  const [aiJob] = await db
+    .select({ status: jobs.status })
+    .from(jobs)
+    .where(and(eq(jobs.type, "AI_ANALYZE_SIGNAL"), eq(jobs.status, "queued")));
+  expect(aiJob?.status).toBe("queued");
   await drain();
 }, 60_000);
 

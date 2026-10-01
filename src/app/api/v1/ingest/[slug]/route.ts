@@ -56,7 +56,7 @@ export async function POST(req: Request, ctx: RouteContext<"/api/v1/ingest/[slug
   if (publishedAt.getTime() > Date.now() + 5 * 60_000) return apiError(400, "future_timestamp", "published_at is in the future.");
 
   const result = await ingestRawEvent(source.id, { externalMessageId: messageId, rawText, payload: body, publishedAt });
-  void processJobs(100).catch(() => {});
+  if (process.env.JOBS_WORKER !== "off") void processJobs(100).catch(() => {});
   if (result.status === "duplicate") return json({ status: "duplicate", rawEventId: result.rawEventId, reason: result.reason }, 200);
   return json(
     {

@@ -43,6 +43,13 @@
       "when": 1791072000000,
       "tag": "0005_source_nicknames",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791158400000,
+      "tag": "0006_job_claim_index",
+      "breakpoints": true
     }
   ]
 }

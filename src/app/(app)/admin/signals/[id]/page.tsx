@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { clearOverrideAction, correctSignalAction, overrideOutcomeAction, recalcOutcomeAction, rerunAiAction } from "@/app/actions/admin";
 import { Field, JsonBlock, NativeSelect, Notice } from "@/components/admin-bits";
+import { LiveRefresh } from "@/components/live-refresh";
 import { PageHeader, SectionTitle } from "@/components/page-header";
 import { DirectionBadge, RValue, StatusBadge } from "@/components/signal-bits";
 import { SignalFieldsForm } from "@/components/signal-fields-form";
@@ -25,8 +26,10 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
   const { signal, source, targets, outcome } = d;
   const isOverride = outcome?.kind === "override";
 
+  const open = signal.status === "PENDING" || signal.status === "ACTIVE" || signal.status === "PARTIAL";
   return (
     <>
+      {open && <LiveRefresh />}
       <PageHeader
         icon={ListChecks}
         size="sm"
@@ -35,7 +38,7 @@ export default async function AdminSignalPage({ params, searchParams }: PageProp
             {source.name} <DirectionBadge direction={signal.direction} /> <StatusBadge status={signal.status} />
           </span>
         }
-        description={`${fmtDateTime(signal.signalTime)} · version ${signal.version} · parser confidence ${(signal.parserConfidence * 100).toFixed(0)}%`}
+        description={`Members see “${source.nickname}” · ${fmtDateTime(signal.signalTime)} · version ${signal.version} · parser confidence ${(signal.parserConfidence * 100).toFixed(0)}%`}
         actions={
           <>
             <Link href={`/signals/${signal.id}`} className={buttonVariants({ variant: "secondary", size: "sm" })}>

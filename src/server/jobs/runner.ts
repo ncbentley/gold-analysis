@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, sql } from "drizzle-orm";
 import { analyzeSignal, analyzeSourcePatterns } from "@/server/ai/service";
 import { reconcileSubscriptions } from "@/server/billing/service";
 import { getDb } from "@/server/db";
@@ -10,7 +10,7 @@ import { repairShortZones } from "@/server/parsing/repair-zones";
 import { refreshSourceStats } from "@/server/statistics/service";
 import { finishImportIfIdle } from "@/server/telegram/import-status";
 import { syncAllTelegramSources, syncTelegramSource } from "@/server/telegram";
-import { REVIEW_JOB_CONCURRENCY, REVIEW_JOB_TYPES } from "./limits";
+import { JOB_CONCURRENCY } from "./limits";
 import { enqueueJob, JOB_TYPES, type JobType } from "./queue";
 
 type Handler = (payload: Record<string, unknown>) => Promise<unknown>;
@@ -73,21 +73,30 @@ const handlers: Record<JobType, Handler> = {
   RECONCILE_SUBSCRIPTIONS: async () => reconcileSubscriptions(),
 };
 
-async function claimNext(types?: JobType[]): Promise<Job | null> {
+async function claimNext(type: JobType): Promise<Job | null> {
   const db = await getDb();
-  const [next] = await db
-    .select()
-    .from(jobs)
-    .where(and(eq(jobs.status, "queued"), lte(jobs.runAfter, new Date()), types ? inArray(jobs.type, types) : undefined))
-    .orderBy(asc(jobs.runAfter), asc(jobs.createdAt))
-    .limit(1);
-  if (!next) return null;
-  const claimed = await db
-    .update(jobs)
-    .set({ status: "running", startedAt: new Date(), attempts: sql`${jobs.attempts} + 1` })
-    .where(and(eq(jobs.id, next.id), eq(jobs.status, "queued")))
-    .returning();
-  return claimed[0] ?? null;
+  // Live posts carry payload.live. Sort that first: run_after is the enqueue
+  // time, so a history row queued a few milliseconds earlier would otherwise win.
+  const order =
+    type === "PROCESS_EVENT"
+      ? [sql`case when ${jobs.payloadJson}->>'live' = 'true' then 0 else 1 end`, asc(jobs.runAfter), asc(jobs.createdAt)]
+      : [asc(jobs.runAfter), asc(jobs.createdAt)];
+  return db.transaction(async (tx) => {
+    const [next] = await tx
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.status, "queued"), eq(jobs.type, type), lte(jobs.runAfter, new Date())))
+      .orderBy(...order)
+      .limit(1)
+      .for("update", { skipLocked: true });
+    if (!next) return null;
+    const [claimed] = await tx
+      .update(jobs)
+      .set({ status: "running", startedAt: new Date(), attempts: sql`${jobs.attempts} + 1` })
+      .where(eq(jobs.id, next.id))
+      .returning();
+    return claimed ?? null;
+  });
 }
 
 let jobRunner: ((job: Job) => Promise<unknown>) | null = null;
@@ -97,16 +106,15 @@ export function useJobRunner(runner: ((job: Job) => Promise<unknown>) | null) {
   jobRunner = runner;
 }
 
-const reviewTypes = new Set<string>(REVIEW_JOB_TYPES);
-
-function isReviewJob(type: string) {
-  return reviewTypes.has(type);
-}
-
 export async function runJob(job: Job) {
   const db = await getDb();
   const handler = handlers[job.type as JobType];
   const runner = jobRunner;
+  if (job.type === "PROCESS_EVENT") {
+    const readyAt = Math.max(new Date(job.runAfter).getTime(), new Date(job.createdAt).getTime());
+    const waitedMs = Date.now() - readyAt;
+    if (waitedMs > 3_000) console.warn(`[jobs] PROCESS_EVENT ${job.id} waited ${Math.round(waitedMs / 1000)}s in queue`);
+  }
   try {
     if (!runner && !handler) throw new Error(`No handler for job type ${job.type}`);
     const result = runner ? await runner(job) : await handler(job.payloadJson);
@@ -132,63 +140,77 @@ export async function runJob(job: Job) {
   }
 }
 
-let draining: Promise<number> | null = null;
+const laneDrain = new Map<JobType, Promise<number>>();
+const laneWake = new Set<JobType>();
 
-function typesForOpen(open: Array<"review" | "other">, types?: JobType[]): JobType[] | undefined {
-  if (!types && open.length === 2) return undefined;
-  const pool = types ?? [...JOB_TYPES];
-  return pool.filter((type) => open.includes(isReviewJob(type) ? "review" : "other"));
+async function drainLane(type: JobType, limit: number): Promise<number> {
+  // This drain is the wake that started it. A flag set again means a row
+  // arrived while we were claiming, and the loop below must look once more.
+  laneWake.delete(type);
+  const concurrency = JOB_CONCURRENCY[type];
+  let n = 0;
+  let running = 0;
+  const pending = new Set<Promise<void>>();
+
+  const claimMore = async () => {
+    while (n < limit) {
+      if (running >= concurrency) {
+        await Promise.race(pending);
+        continue;
+      }
+      const job = await claimNext(type);
+      if (!job) {
+        if (pending.size > 0) {
+          await Promise.race(pending);
+          continue;
+        }
+        if (laneWake.delete(type)) continue;
+        return;
+      }
+      n += 1;
+      running += 1;
+      const task = runJob(job).finally(() => {
+        running -= 1;
+        pending.delete(task);
+      });
+      pending.add(task);
+    }
+  };
+
+  await claimMore();
+  await Promise.all(pending);
+  while (laneWake.delete(type) && n < limit) {
+    await claimMore();
+    await Promise.all(pending);
+  }
+  return n;
+}
+
+function startLane(type: JobType, limit: number): Promise<number> {
+  const existing = laneDrain.get(type);
+  if (existing) return existing;
+  const run = drainLane(type, limit).finally(() => {
+    if (laneDrain.get(type) === run) laneDrain.delete(type);
+    // A row inserted as this drain exited still needs a lane. The flag is set
+    // before startLane, so a drain that already finished does not swallow it.
+    if (laneWake.has(type) && !laneDrain.has(type)) {
+      laneWake.delete(type);
+      void startLane(type, limit).catch((err) => console.error(`[jobs] ${type} lane failed:`, (err as Error).message));
+    }
+  });
+  laneDrain.set(type, run);
+  return run;
 }
 
 /**
- * Claims queued jobs and runs them. Review jobs (message processing and AI) share a cap of
- * REVIEW_JOB_CONCURRENCY. Everything else, including Telegram sync, runs one at a time.
- * Concurrent callers share one drain loop.
+ * Claims queued jobs and runs them. Each type has its own lane and concurrency,
+ * so a long Telegram sync or AI analysis cannot block PROCESS_EVENT.
+ * A caller that arrives while that type's lane is already draining joins it.
  */
 export function processJobs(limit = 500, types?: JobType[]): Promise<number> {
-  if (draining) return draining;
-  draining = (async () => {
-    let n = 0;
-    const running = { review: 0, other: 0 };
-    const pending = new Set<Promise<void>>();
-    const openClasses = () =>
-      (["review", "other"] as const).filter((klass) => running[klass] < (klass === "review" ? REVIEW_JOB_CONCURRENCY : 1));
-    try {
-      while (n < limit) {
-        const open = openClasses();
-        if (open.length === 0) {
-          if (pending.size === 0) break;
-          await Promise.race(pending);
-          continue;
-        }
-        const claimTypes = typesForOpen(open, types);
-        if (claimTypes && claimTypes.length === 0) {
-          if (pending.size === 0) break;
-          await Promise.race(pending);
-          continue;
-        }
-        const job = await claimNext(claimTypes);
-        if (!job) {
-          if (pending.size === 0) break;
-          await Promise.race(pending);
-          continue;
-        }
-        n += 1;
-        const klass = isReviewJob(job.type) ? "review" : "other";
-        running[klass] += 1;
-        const task = runJob(job).finally(() => {
-          running[klass] -= 1;
-          pending.delete(task);
-        });
-        pending.add(task);
-      }
-      await Promise.all(pending);
-    } finally {
-      draining = null;
-    }
-    return n;
-  })();
-  return draining;
+  const selected = types?.length ? types : [...JOB_TYPES];
+  for (const type of selected) laneWake.add(type);
+  return Promise.all(selected.map((type) => startLane(type, limit))).then((counts) => counts.reduce((sum, count) => sum + count, 0));
 }
 
 /** Jobs left in "running" by a crashed process are returned to the queue on startup. */

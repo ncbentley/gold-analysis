@@ -35,6 +35,8 @@ services:
 
   queue:
     build: .
+    # One process, one lane per job type. Do not split Telegram into another
+    # container: a second MTProto session can invalidate the auth key.
     command: ["pnpm", "exec", "tsx", "scripts/queue-worker.ts"]
     depends_on:
       postgres:

@@ -1,6 +1,7 @@
 import { ChevronLeft, ChevronRight, ListChecks } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
+import { LiveRefresh } from "@/components/live-refresh";
 import { PageHeader } from "@/components/page-header";
 import { SignalFilters } from "@/components/signal-filters";
 import { SignalList } from "@/components/signal-list";
@@ -31,6 +32,7 @@ export default async function AdminSignalsPage({ searchParams }: PageProps<"/adm
 
   return (
     <>
+      <LiveRefresh />
       <PageHeader icon={ListChecks} size="sm" title="Signals" description="Open a signal to correct fields, recalculate or override its outcome, and regenerate AI analysis." />
       <div className="mb-4">
         <Suspense>

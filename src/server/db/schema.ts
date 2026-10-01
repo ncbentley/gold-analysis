@@ -431,7 +431,11 @@ export const jobs = pgTable(
     finishedAt: ts("finished_at"),
     createdAt: createdAt(),
   },
-  (t) => [index("jobs_status_idx").on(t.status, t.runAfter), index("jobs_dedupe_idx").on(t.dedupeKey)],
+  (t) => [
+    index("jobs_status_idx").on(t.status, t.runAfter),
+    index("jobs_claim_idx").on(t.type, t.status, t.runAfter, t.createdAt),
+    index("jobs_dedupe_idx").on(t.dedupeKey),
+  ],
 );
 
 export const auditLogs = pgTable(
