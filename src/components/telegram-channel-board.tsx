@@ -111,6 +111,7 @@ export function TelegramChannelBoard({ channels, canSync, untrackedEmpty }: { ch
   const hiddenAdds = add.filter((channel) => !matchesTrackedColumn(channel, rightFilter)).length;
   const hiddenRemoves = remove.filter((channel) => !matchesChannelSearch(channel, leftQuery)).length;
   const hidden = hiddenAdds + hiddenRemoves;
+  const news = channels.filter((channel) => channel.starred).sort((a, b) => a.title.localeCompare(b.title));
 
   function move(id: string) {
     setFlipped((current) => {
@@ -122,7 +123,28 @@ export function TelegramChannelBoard({ channels, canSync, untrackedEmpty }: { ch
   }
 
   return (
-    <div className={cn("grid gap-4 lg:grid-cols-2", dirty && "pb-24")}>
+    <div className={cn(dirty && "pb-24")}>
+      <section className="mb-4 rounded-xl bg-[#081226] px-3 py-3 ring-1 ring-primary/30">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="font-heading text-base font-bold tracking-tight">News</h2>
+          <span className="font-mono text-xs text-muted-foreground tabular-nums">{news.length}</span>
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">Star any channel below. Every starred channel feeds the same dashboard direction read. A tracked channel can be news too.</p>
+        {news.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">No news channels yet.</p>
+        ) : (
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {news.map((channel) => (
+              <li key={channel.id} className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-2 py-1 text-sm ring-1 ring-primary/30">
+                <Star className="size-3.5 fill-current text-primary" />
+                <span className="font-medium">{channel.title}</span>
+                {channel.tracked && <span className="text-xs text-muted-foreground">tracked</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <div className="grid gap-4 lg:grid-cols-2">
       <Column
         title="Not tracked"
         total={leftAll.length}
@@ -182,6 +204,7 @@ export function TelegramChannelBoard({ channels, canSync, untrackedEmpty }: { ch
           </div>
         </form>
       )}
+      </div>
     </div>
   );
 }
@@ -223,7 +246,7 @@ function StarButton({ channel }: { channel: BoardChannel }) {
       type="submit"
       disabled={pending}
       aria-pressed={on}
-      aria-label={on ? `Unstar ${channel.title}` : `Star ${channel.title} for market direction`}
+      aria-label={on ? `Remove ${channel.title} from news` : `Star ${channel.title} as news`}
       className="inline-flex size-7 items-center justify-center rounded-lg text-primary outline-none hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
     >
       <Star className={cn("size-4", on && "fill-current")} />
@@ -296,9 +319,7 @@ function ChannelTable({
           <tr className="border-b border-glow/20 text-left text-xs font-semibold text-muted-foreground">
             <SortHeader label="Channel" sortKey="channel" sort={sort} align="left" onSort={onSort} />
             {trackedSide && <SortHeader label="Win rate" sortKey="winRate" sort={sort} align="right" onSort={onSort} className="w-24" />}
-            <th className="w-12 px-2 py-2">
-              <span className="sr-only">Market direction</span>
-            </th>
+            <th className="w-14 px-2 py-2 text-right">News</th>
             <th className="w-12 px-2 py-2">
               <span className="sr-only">{trackedSide ? "Stop tracking" : "Track"}</span>
             </th>
@@ -323,7 +344,7 @@ function ChannelTable({
                 <td className="px-3 py-2.5 align-middle">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="font-semibold">{channel.title}</span>
-                    {channel.starred && <Badge variant="secondary">Direction</Badge>}
+                    {channel.starred && <Badge variant="secondary">News</Badge>}
                     {channel.isQa && <Badge variant="secondary">QA</Badge>}
                     {channel.sourceId && !channel.active && <Badge variant="outline">disabled</Badge>}
                     {pending && <span className="text-[11px] font-medium text-primary">{trackedSide ? "will track" : "will stop"}</span>}

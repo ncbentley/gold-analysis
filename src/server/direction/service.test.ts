@@ -66,4 +66,33 @@ describe("starred headline direction", () => {
     expect(gone.removedAt).not.toBeNull();
     expect(gone.active).toBe(false);
   });
+
+  it("folds a news channel and a tracked channel into one direction read", async () => {
+    const news = await starJoinedTelegramChat(
+      { id: "88041", accessHash: "1", username: "wire", title: "Wire", kind: "channel" },
+      "text-generic",
+      actor,
+    );
+    const tracked = await starJoinedTelegramChat(
+      { id: "88042", accessHash: "2", username: "calls", title: "Calls", kind: "channel" },
+      "text-generic",
+      actor,
+    );
+    const db = await getDb();
+    await db.update(sources).set({ parseSignals: true }).where(eq(sources.id, tracked.sourceId));
+
+    useTelegramHistoryLoader(async (source) => {
+      const text = source.id === news.sourceId ? "Iran stays open to talks" : "Putin hopes the strait reopens";
+      return [{ id: 7, text, date: new Date() }];
+    });
+    await syncTelegramSource(news.sourceId, { backfill: 40 });
+    await syncTelegramSource(tracked.sourceId, { backfill: 40 });
+
+    const written = await refreshMarketDirection();
+    expect(written).toMatchObject({ skipped: false, lean: "offered" });
+    const view = await latestMarketDirection();
+    const ids = new Set(view?.headlines.map((headline) => headline.sourceId));
+    expect(ids.has(news.sourceId)).toBe(true);
+    expect(ids.has(tracked.sourceId)).toBe(true);
+  });
 });

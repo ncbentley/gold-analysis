@@ -497,7 +497,7 @@ export async function starTelegramChannelAction(form: FormData) {
     revalidatePath("/dashboard");
     if (sourceId) {
       const name = await setTelegramSourceStarred(sourceId, starred, actor);
-      return starred ? `Starred ${name}. Its posts feed the dashboard direction read.` : `Unstarred ${name}.`;
+      return starred ? `Starred ${name} as news. Its posts join the dashboard direction read.` : `Removed ${name} from news.`;
     }
     if (!starred) throw new Error("That channel is not starred.");
     const parserType = PARSER_TYPES[0];
@@ -505,7 +505,7 @@ export async function starTelegramChannelAction(form: FormData) {
     const chatValue = form.get("chat");
     if (chatValue === null) throw new Error("Choose a channel or group the connected account has joined.");
     const saved = await starJoinedTelegramChat(joinedChatFromForm(chatValue), parserType, actor);
-    return `Starred ${saved.title}. The latest ${HEADLINE_BACKFILL} posts feed the dashboard direction read.`;
+    return `Starred ${saved.title} as news. The latest ${HEADLINE_BACKFILL} posts join the dashboard direction read.`;
   });
 }
 

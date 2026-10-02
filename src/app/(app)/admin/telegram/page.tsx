@@ -46,7 +46,7 @@ export default async function AdminTelegramPage({ searchParams }: PageProps<"/ad
         icon={Send}
         size="sm"
         title="Telegram"
-        description="Star a channel to feed the dashboard direction read. Move a channel right to track its trades. Tracking changes wait until you press Save. A star saves immediately."
+        description="Star any channel as news. Every news channel feeds the same dashboard direction read. Move a channel right to track its trades. Tracking changes wait until you press Save. A star saves immediately."
         actions={
           <TelegramAccountDialog signedIn={status.signedIn} connected={status.connected} pending={Boolean(status.pending)} hasError={Boolean(status.lastError)}>
             <TelegramAccountPanel status={status} keySource={secretKeySource()} />
