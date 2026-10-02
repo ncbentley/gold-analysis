@@ -462,8 +462,9 @@ export async function listJoinedTelegramChats(): Promise<{ connected: true; chat
     return body.connected ? { connected: true, chats: body.chats } : { connected: false, chats: [] };
   }
   const client = await connectTelegram();
+  const revoked = state().lastError;
   if (!client) {
-    if (state().revokedSession && state().lastError) throw new Error(state().lastError);
+    if (state().revokedSession && revoked) throw new Error(revoked);
     return { connected: false, chats: [] };
   }
   try {
