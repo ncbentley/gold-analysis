@@ -288,6 +288,23 @@ export const signals = pgTable(
   ],
 );
 
+export const consolidatedIdeas = pgTable("consolidated_ideas", {
+  id: id(),
+  direction: text("direction", { enum: ["LONG", "SHORT"] }).notNull(),
+  entryMin: doublePrecision("entry_min").notNull(),
+  entryMax: doublePrecision("entry_max").notNull(),
+  stopLoss: doublePrecision("stop_loss"),
+  targets: jsonb("targets").$type<number[]>().notNull(),
+  exitSpreadStops: doublePrecision("exit_spread_stops"),
+  exitSpreadTargets: jsonb("exit_spread_targets").$type<number[]>().notNull(),
+  sourceCount: integer("source_count").notNull(),
+  signalIds: jsonb("signal_ids").$type<string[]>().notNull(),
+  newestSignalAt: ts("newest_signal_at").notNull(),
+  frozenAt: ts("frozen_at"),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 export const signalTargets = pgTable(
   "signal_targets",
   {
