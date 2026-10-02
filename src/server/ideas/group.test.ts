@@ -76,4 +76,9 @@ describe("groupSignals", () => {
     const [idea] = groupSignals([sig({ id: "a", sourceId: "s1" })], t0 + 30 * 60_000);
     expect(idea.frozenAt).toBe(t0 + 30 * 60_000);
   });
+
+  it("keeps frozenAt at first quiet boundary, not later now", () => {
+    const [idea] = groupSignals([sig({ id: "a", sourceId: "s1" })], t0 + 90 * 60_000);
+    expect(idea.frozenAt).toBe(t0 + 30 * 60_000);
+  });
 });

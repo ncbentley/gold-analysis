@@ -68,7 +68,7 @@ export function groupSignals(signals: GroupSignal[], now: number): GroupedIdea[]
       sourceCount: new Set(rows.map((r) => r.sourceId)).size,
       signalIds: rows.map((r) => r.id),
       newestSignalAt: newest,
-      frozenAt: now - newest >= QUIET_MS ? now : null,
+      frozenAt: now - newest >= QUIET_MS ? newest + QUIET_MS : null,
     };
   });
 }
