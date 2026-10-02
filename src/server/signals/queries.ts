@@ -10,7 +10,7 @@ import {
   SIGNAL_STATUSES,
   type SignalStatus,
 } from "@/server/db/schema";
-import { buildAccess, can, historyCutoff, lowestTierWith, type Access } from "@/server/entitlements/access";
+import { buildAccess, can, historyCutoff, lowestTierWith, tierForSignalTime, type Access } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
 import { presentSignalDetail, presentSignalListItem, presentSourceStats, sourceDisplayName, type SignalBundle } from "@/server/presenters";
 import { OUTCOME_RULES } from "@/server/outcomes/engine";
@@ -219,8 +219,11 @@ export async function getSignalDetailForViewer(signalId: string, viewer: Viewer)
   if (!bundle || bundle.signal.status === "INVALID") return { kind: "not_found" };
   if (bundle.source.isQa && !access.isAdmin) return { kind: "not_found" };
   if (!can(access, "signals.core")) return { kind: "no_access", requiredTier: lowestTierWith("signals.core", config) };
-  const cutoff = historyCutoff(access);
-  if (cutoff && bundle.signal.signalTime < cutoff) return { kind: "history_locked", requiredTier: lowestTierWith("sources.history.full", config) };
+  const now = new Date();
+  const cutoff = historyCutoff(access, now);
+  if (cutoff && bundle.signal.signalTime < cutoff) {
+    return { kind: "history_locked", requiredTier: tierForSignalTime(bundle.signal.signalTime, config, now) };
+  }
 
   const db = await getDb();
   const [origin] = await db.select().from(rawEvents).where(eq(rawEvents.id, bundle.signal.originEventId));

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { getDb } from "@/server/db";
 import { consolidatedIdeas, signalOutcomes, signalTargets, signals, sources } from "@/server/db/schema";
-import { historyCutoff, lowestTierWith } from "@/server/entitlements/access";
+import { historyCutoff, tierForSignalTime } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
 import { listSignalListItemsByIds } from "@/server/signals/queries";
 import { groupSignals, type GroupedIdea } from "./group";
@@ -174,9 +174,10 @@ export async function getIdeaForViewer(id: string, viewer: Viewer, spot: number 
   const db = await getDb();
   const [row] = await db.select().from(consolidatedIdeas).where(eq(consolidatedIdeas.id, id));
   if (!row) return { kind: "not_found" };
-  const cutoff = historyCutoff(viewer.access);
+  const now = new Date();
+  const cutoff = historyCutoff(viewer.access, now);
   if (cutoff && row.newestSignalAt < cutoff) {
-    return { kind: "history_locked", requiredTier: lowestTierWith("sources.history.full", viewer.config) };
+    return { kind: "history_locked", requiredTier: tierForSignalTime(row.newestSignalAt, viewer.config, now) };
   }
   const members = await membersById(row.signalIds);
   return {

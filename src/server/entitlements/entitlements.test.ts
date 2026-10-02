@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Signal, SignalOutcome, SignalTarget } from "@/server/db/schema";
 import { presentSignalDetail, presentSourceStats } from "@/server/presenters";
 import { computeSourceStatistics } from "@/server/statistics/compute";
-import { ANONYMOUS, buildAccess, can, freeAccess, gate, historyCutoff, lowestTierWith, requireFeature } from "./access";
+import { ANONYMOUS, buildAccess, can, freeAccess, gate, historyCutoff, lowestTierWith, requireFeature, tierForSignalTime } from "./access";
 import { DEFAULT_TIER_CONFIG, type TierConfig } from "./config";
 
 const config = DEFAULT_TIER_CONFIG;
@@ -161,6 +161,13 @@ describe("access", () => {
 
   it("platinum has unlimited history", () => {
     expect(historyCutoff(platinum, now)).toBeNull();
+  });
+
+  it("names the cheapest plan whose history window covers the signal", () => {
+    const eightDaysAgo = new Date(now.getTime() - 8 * 86_400_000);
+    const twoHundredDaysAgo = new Date(now.getTime() - 200 * 86_400_000);
+    expect(tierForSignalTime(eightDaysAgo, config, now)).toBe("silver");
+    expect(tierForSignalTime(twoHundredDaysAgo, config, now)).toBe("platinum");
   });
 
   it("gives a signed-in user with no subscription the raw feed for seven days", () => {

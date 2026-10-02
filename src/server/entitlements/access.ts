@@ -34,6 +34,18 @@ export function lowestTierWith(feature: Feature, config: Record<Tier, TierConfig
   return TIER_ORDER.find((t) => t !== "gold" && config[t].features.includes(feature)) ?? null;
 }
 
+/** Cheapest offered plan whose history window still contains `signalTime`. Gold is skipped. */
+export function tierForSignalTime(signalTime: Date, config: Record<Tier, TierConfig>, now = new Date()): Tier | null {
+  return (
+    TIER_ORDER.find((tier) => {
+      if (tier === "gold") return false;
+      const days = config[tier].historyDays;
+      if (days === null) return true;
+      return signalTime >= new Date(now.getTime() - days * 86_400_000);
+    }) ?? null
+  );
+}
+
 export function gate<T>(
   access: Access,
   feature: Feature,

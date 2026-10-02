@@ -14,6 +14,7 @@ export async function POST(req: Request) {
     return apiError(400, "invalid_plan", "Unknown tier or billing period.");
   }
   if (tier === "gold") return apiError(400, "invalid_plan", "Gold is no longer offered.");
+  if (tier === "platinum" && period === "weekly") return apiError(400, "invalid_plan", "Platinum weekly is no longer offered.");
   try {
     const { url } = await startCheckout(user, tier as Tier, period as BillingPeriod);
     return json({ url });
