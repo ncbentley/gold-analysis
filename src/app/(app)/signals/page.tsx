@@ -21,8 +21,8 @@ const PAGE_SIZE = 25;
 const FEATURES = [
   { icon: ChartCandlestick, label: "Replayed on 1-minute XAU/USD bars" },
   { icon: CircleCheck, label: "Targets marked as they are hit" },
-  { icon: SlidersHorizontal, label: "Filter by status, direction and date" },
 ];
+const FILTER_FEATURE = { icon: SlidersHorizontal, label: "Filter by status, direction and date" };
 
 export default async function SignalsPage({ searchParams }: PageProps<"/signals">) {
   const viewer = await getViewer();
@@ -35,6 +35,7 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
       </>
     );
   }
+  const basic = viewer.access.tier !== null || viewer.access.isAdmin;
   const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const filters = parseSignalFilters(sp);
   const [result, signalTypes, sources] = await Promise.all([
@@ -55,7 +56,7 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
       <PageHeader
         title="Live signals"
         icon={Radio}
-        features={FEATURES}
+        features={basic ? [...FEATURES, FILTER_FEATURE] : FEATURES}
         description={
           result.historyCutoff
             ? `Showing signals since ${fmtDate(result.historyCutoff)} (${viewer.access.historyDays}-day history on your plan).`
@@ -69,7 +70,7 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
             signalTypes={signalTypes}
             advanced={can(viewer.access, "filters.advanced")}
             search={can(viewer.access, "search.history")}
-            basic={viewer.access.tier !== null || viewer.access.isAdmin}
+            basic={basic}
           />
         </Suspense>
       </div>

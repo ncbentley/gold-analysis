@@ -38,7 +38,10 @@ export default async function SourcePage({ params }: PageProps<"/sources/[id]">)
   const source = await getSourceBySlugOrId(id, { includeQa: access.isAdmin, allowSlug: access.isAdmin });
   if (!source || (!source.active && !access.isAdmin)) notFound();
 
-  const [stats, recent] = await Promise.all([getSourceStats(source.id), listSignalsForViewer(viewer, { sourceId: source.id }, { limit: 15 })]);
+  const [stats, recent] = await Promise.all([
+    getSourceStats(source.id),
+    listSignalsForViewer(viewer, {}, { limit: 15, sourceScope: source.id }),
+  ]);
   const presented = presentSourceStats(stats, access, config);
   const uid = viewer.user?.id;
 
