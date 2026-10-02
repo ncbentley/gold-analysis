@@ -727,28 +727,13 @@ export async function syncTelegramSource(sourceId: string, opts: { backfill?: nu
     return { ingested: queued, queued };
   } catch (err) {
     const message = telegramErrorMessage(err);
-    await db.update(sources).set({ syncError: message }).where(eq(sources.id, source.id));
+    // Stamp the attempt so the catch-up rotation waits out its stale window
+    // instead of putting this channel at the front of every batch. The job
+    // row itself still retries; this only spaces the next enqueue.
+    await db.update(sources).set({ syncError: message, lastSyncedAt: new Date() }).where(eq(sources.id, source.id));
     if (track) await markTelegramImportFailed(source.id, message);
     throw new Error(message);
   }
-}
-
-export async function syncAllTelegramSources() {
-  const client = await connectTelegram();
-  if (!client) return { skipped: "not_connected" as const };
-  const db = await getDb();
-  const rows = await db.select({ id: sources.id }).from(sources).where(and(eq(sources.sourceType, "telegram"), eq(sources.active, true)));
-  const results: Record<string, number | string> = {};
-  await Promise.all(
-    rows.map(async (r) => {
-      try {
-        results[r.id] = (await syncTelegramSource(r.id)).ingested;
-      } catch (err) {
-        results[r.id] = (err as Error).message;
-      }
-    }),
-  );
-  return results;
 }
 
 /* ------------------------------------------------------------------ */

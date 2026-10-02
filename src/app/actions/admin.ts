@@ -22,6 +22,7 @@ import { getMarketDataConfig, resetMarketData } from "@/server/market-data";
 import { createTwelveDataProvider } from "@/server/market-data/twelvedata-provider";
 import { PARSER_TYPES } from "@/server/parsing";
 import { setSetting, SETTING_KEYS } from "@/server/settings";
+import { enqueueDueTelegramSyncs } from "@/server/telegram/schedule";
 import {
   cancelTelegramLogin,
   completeTelegramLogin,
@@ -377,7 +378,7 @@ export async function telegramVerifyAction(form: FormData) {
   await attempt("/admin/telegram", async () => {
     const res = await completeTelegramLogin({ code: str(form, "code").replace(/\s/g, "") || undefined, password: str(form, "password") || undefined }, actor);
     if (res.needsPassword) return "This account has two-step verification. Enter your Telegram password.";
-    await enqueueJob("TELEGRAM_SYNC", {}, { dedupeKey: "telegram-sync" });
+    await enqueueDueTelegramSyncs();
     return `Signed in as ${res.me.name}.`;
   });
 }

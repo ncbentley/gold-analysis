@@ -9,7 +9,8 @@ import { processRawEvent } from "@/server/normalization";
 import { repairShortZones } from "@/server/parsing/repair-zones";
 import { refreshSourceStats } from "@/server/statistics/service";
 import { finishImportIfIdle } from "@/server/telegram/import-status";
-import { syncAllTelegramSources, syncTelegramSource } from "@/server/telegram";
+import { enqueueDueTelegramSyncs } from "@/server/telegram/schedule";
+import { syncTelegramSource } from "@/server/telegram";
 import { JOB_CONCURRENCY } from "./limits";
 import { enqueueJob, JOB_TYPES, type JobType } from "./queue";
 
@@ -40,8 +41,13 @@ const handlers: Record<JobType, Handler> = {
     const r = await analyzeSourcePatterns(String(p.sourceId), { force: Boolean(p.force) });
     return { skipped: r.skipped };
   },
-  TELEGRAM_SYNC: async (p) =>
-    p.sourceId ? syncTelegramSource(String(p.sourceId), { backfill: Number(p.backfill ?? 0) }) : syncAllTelegramSources(),
+  TELEGRAM_SYNC: async (p) => {
+    // Jobs with no channel are the old full sweep. They stacked because each
+    // one ran longer than the timer. Per-channel catch-up is queued by
+    // enqueueDueTelegramSyncs; running one of these only retires the row.
+    if (!p.sourceId) return { skipped: "per-channel" };
+    return syncTelegramSource(String(p.sourceId), { backfill: Number(p.backfill ?? 0) });
+  },
   PROCESS_EVENT: async (p) => {
     const rawEventId = String(p.rawEventId ?? "");
     if (!rawEventId) return { skipped: true };
@@ -224,6 +230,6 @@ export async function requeueStaleJobs() {
 
 export async function scheduleRecurring(kind: "minute" | "telegram" | "hourly") {
   if (kind === "minute") await enqueueJob("MARKET_DATA_SYNC", {}, { dedupeKey: "market-sync" });
-  if (kind === "telegram") await enqueueJob("TELEGRAM_SYNC", {}, { dedupeKey: "telegram-sync" });
+  if (kind === "telegram") await enqueueDueTelegramSyncs();
   if (kind === "hourly") await enqueueJob("RECONCILE_SUBSCRIPTIONS", {}, { dedupeKey: "reconcile" });
 }

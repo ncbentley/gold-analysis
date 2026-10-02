@@ -1,5 +1,5 @@
 import { connectTelegram } from "@/server/telegram";
-import { LANE_POLL_MS } from "./limits";
+import { LANE_POLL_MS, TELEGRAM_SCHEDULE_MS } from "./limits";
 import { JOB_TYPES, setJobEnqueuedListener, type JobType } from "./queue";
 import { processJobs, requeueStaleJobs, scheduleRecurring } from "./runner";
 
@@ -67,6 +67,6 @@ export function startWorker() {
   })();
 
   setInterval(minute, 60_000).unref();
-  setInterval(telegram, 2 * 60_000).unref();
+  setInterval(telegram, TELEGRAM_SCHEDULE_MS).unref();
   setInterval(hourly, 60 * 60_000).unref();
 }

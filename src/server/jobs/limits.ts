@@ -13,7 +13,7 @@ export const JOB_CONCURRENCY: Record<JobType, number> = {
   PROCESS_EVENT: 16,
   AI_ANALYZE_SIGNAL: 8,
   AI_ANALYZE_SOURCE: 2,
-  TELEGRAM_SYNC: 2, // same number as TELEGRAM_CONCURRENCY below
+  TELEGRAM_SYNC: 2, // one channel per slot; same number as TELEGRAM_CONCURRENCY below
   MARKET_DATA_SYNC: 2,
   MARKET_DATA_BACKFILL: 1,
   RECALC_OUTCOME: 4,
@@ -39,6 +39,29 @@ export const LANE_POLL_MS: Record<JobType, number> = {
   REPAIR_QUOTE_PARSES: 2_000,
   RECONCILE_SUBSCRIPTIONS: 2_000,
 };
+
+/**
+ * Catch-up is a rotation, not a sweep of every channel.
+ *
+ * Live updates already store posts as they arrive. This timer only backfills
+ * channels that have gone quiet, so a dropped socket cannot leave a gap.
+ *
+ * History fetches share TELEGRAM_CONCURRENCY (2). A quiet channel is one
+ * messages.getHistory. At about one second per call that is ~120 channels a
+ * minute; a backfill page or a FLOOD_WAIT uses the same two slots.
+ *
+ * The worker asks for the next batch every TELEGRAM_SCHEDULE_MS.
+ * TELEGRAM_SYNC_BATCH is what those two slots can finish inside that window
+ * (~40s of calls against a 2 minute tick). Channels already queued or running
+ * count against the batch, so a slow tick does not stack another copy.
+ *
+ * 500 channels at 80 per tick come around about every 13 minutes.
+ * TELEGRAM_CATCHUP_STALE_MS is shorter than that, so a channel that just
+ * received a live post is skipped and the batch goes to channels that are behind.
+ */
+export const TELEGRAM_SCHEDULE_MS = 2 * 60_000;
+export const TELEGRAM_CATCHUP_STALE_MS = 10 * 60_000;
+export const TELEGRAM_SYNC_BATCH = 80;
 
 /**
  * In-flight Telegram API calls shared by history pages.

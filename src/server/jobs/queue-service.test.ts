@@ -97,6 +97,7 @@ describe("adding a telegram source", () => {
     const db = await getDb();
     const [row] = await db.select().from(sources).where(eq(sources.id, created.sourceId));
     expect(describeSourceImport(row.importStatus)).toBe("failed");
+    expect(row.lastSyncedAt).toBeTruthy();
   });
 });
 
