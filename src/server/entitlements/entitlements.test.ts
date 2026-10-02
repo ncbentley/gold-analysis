@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Signal, SignalOutcome, SignalTarget } from "@/server/db/schema";
 import { presentSignalDetail, presentSourceStats } from "@/server/presenters";
 import { computeSourceStatistics } from "@/server/statistics/compute";
-import { ANONYMOUS, buildAccess, can, gate, historyCutoff, lowestTierWith, requireFeature } from "./access";
+import { ANONYMOUS, buildAccess, can, freeAccess, gate, historyCutoff, lowestTierWith, requireFeature } from "./access";
 import { DEFAULT_TIER_CONFIG, type TierConfig } from "./config";
 
 const config = DEFAULT_TIER_CONFIG;
@@ -128,7 +128,8 @@ describe("access", () => {
   it("tiers are cumulative by default", () => {
     for (const f of config.silver.features) expect(can(gold, f)).toBe(true);
     for (const f of config.gold.features) expect(can(platinum, f)).toBe(true);
-    expect(can(silver, "sources.stats.summary")).toBe(false);
+    expect(can(silver, "sources.stats.summary")).toBe(true);
+    expect(can(silver, "sources.stats.recent")).toBe(false);
     expect(can(gold, "ai.summary")).toBe(false);
   });
 
@@ -140,10 +141,10 @@ describe("access", () => {
   it("reports the lowest tier that unlocks a feature", () => {
     expect(lowestTierWith("signals.core", config)).toBe("silver");
     expect(lowestTierWith("similar.summary", config)).toBe("gold");
-    expect(lowestTierWith("ai.patterns", config)).toBe("platinum");
-    expect(lowestTierWith("consensus.grade", config)).toBe("gold");
-    expect(lowestTierWith("consensus.timing", config)).toBe("gold");
-    expect(lowestTierWith("consensus.mapping", config)).toBe("platinum");
+    expect(lowestTierWith("ai.patterns", config)).toBeNull();
+    expect(lowestTierWith("consensus.grade", config)).toBeNull();
+    expect(lowestTierWith("consensus.timing", config)).toBeNull();
+    expect(lowestTierWith("consensus.mapping", config)).toBeNull();
     expect(lowestTierWith("export.csv", config)).toBeNull();
   });
 
@@ -161,6 +162,25 @@ describe("access", () => {
   it("platinum has unlimited history", () => {
     expect(historyCutoff(platinum, now)).toBeNull();
   });
+
+  it("gives a signed-in user with no subscription the raw feed for seven days", () => {
+    const free = freeAccess();
+    expect(free.tier).toBeNull();
+    expect(can(free, "signals.core")).toBe(true);
+    expect(can(free, "signals.basic_result")).toBe(true);
+    expect(historyCutoff(free, now)?.toISOString()).toBe("2026-01-25T12:00:00.000Z");
+  });
+
+  it("gives gold the same features and history as platinum", () => {
+    expect([...gold.features].sort()).toEqual([...platinum.features].sort());
+    expect(gold.historyDays).toBe(platinum.historyDays);
+  });
+
+  it("keeps advanced filters, consensus, and AI off silver", () => {
+    expect(can(silver, "filters.advanced")).toBe(false);
+    expect(can(silver, "consensus.grade")).toBe(false);
+    expect(can(silver, "ai.summary")).toBe(false);
+  });
 });
 
 describe("signal detail projection", () => {
@@ -177,37 +197,39 @@ describe("signal detail projection", () => {
     for (const secret of ["SECRET_LABEL", "SECRET_SUMMARY", "SECRET_TAG", '"mfe"', '"bestPrice"', '"timeline"']) {
       expect(json).not.toContain(secret);
     }
-    expect(d.sourceStats?.summary.locked).toBe(true);
+    expect(d.sourceStats?.summary.locked).toBe(false);
     expect(d.consensus.grade.locked).toBe(true);
     expect(d.consensus.timing.locked).toBe(true);
     expect(d.consensus.mapping.locked).toBe(true);
-    expect(json).not.toContain('"winRate"');
     expect(json).not.toContain("Consensus Score");
   });
 
-  it("gold gets statistics and summaries but not AI or detailed excursions", () => {
+  it("gold gets the same detail as platinum, without AI or consensus", () => {
     const d = detailFor(gold);
     expect(d.outcome.excursionSummary).toEqual({ locked: false, data: { mfeR: 1, maeR: 0.4 } });
     expect(d.similar.summary.locked).toBe(false);
-    expect(d.similar.details).toMatchObject({ locked: true, requiredTier: "platinum" });
-    expect(d.outcome.excursionDetail.locked).toBe(true);
+    expect(d.similar.details.locked).toBe(false);
+    expect(d.outcome.excursionDetail).toMatchObject({ locked: false, data: { bestPrice: 3405 } });
     expect(d.sourceStats?.summary.locked).toBe(false);
-    expect(d.sourceStats?.extended.locked).toBe(true);
-    expect(d.consensus.grade.locked).toBe(false);
-    expect(d.consensus.timing.locked).toBe(false);
+    expect(d.sourceStats?.extended.locked).toBe(false);
+    expect(d.consensus.grade.locked).toBe(true);
+    expect(d.consensus.timing.locked).toBe(true);
     expect(d.consensus.mapping.locked).toBe(true);
+    expect(d.ai.classification.locked).toBe(true);
+    expect(d.ai.summary.locked).toBe(true);
     const json = JSON.stringify(d);
     expect(json).not.toContain("SECRET_SUMMARY");
-    expect(json).not.toContain('"bestPrice"');
+    expect(json).not.toContain("SECRET_LABEL");
   });
 
-  it("platinum gets everything", () => {
+  it("platinum gets full history features without AI", () => {
     const d = detailFor(platinum);
-    expect(d.ai.classification).toMatchObject({ locked: false, data: { label: "SECRET_LABEL" } });
-    expect(d.ai.summary).toMatchObject({ locked: false, data: { summary: "SECRET_SUMMARY" } });
+    expect(d.ai.classification.locked).toBe(true);
+    expect(d.ai.summary.locked).toBe(true);
     expect(d.outcome.excursionDetail).toMatchObject({ locked: false, data: { bestPrice: 3405 } });
     expect(d.outcome.timeToTarget).toMatchObject({ locked: false, data: [{ index: 1, minutesFromEntry: 30 }] });
     expect(d.similar.details.locked).toBe(false);
+    expect(JSON.stringify(d)).not.toContain("SECRET_SUMMARY");
   });
 
   it("keeps original posts off member payloads, including platinum", () => {
@@ -221,9 +243,10 @@ describe("signal detail projection", () => {
 });
 
 describe("source stats projection", () => {
-  it("only exposes totals to silver", () => {
+  it("exposes the summary to silver and locks the rest", () => {
     const s = presentSourceStats(stats, silver, config);
     expect(s.totalSignals).toBe(1);
-    expect(s.summary.locked && s.recent.locked && s.timeOfDay.locked && s.extended.locked).toBe(true);
+    expect(s.summary.locked).toBe(false);
+    expect(s.recent.locked && s.timeOfDay.locked && s.extended.locked).toBe(true);
   });
 });
