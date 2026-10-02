@@ -174,4 +174,99 @@ describe("replaceConsolidatedIdeas", () => {
     expect(later?.entryMin).toBe(entryMin);
     expect(laterRows.filter((row) => row.signalIds.includes(firstSignal.id))).toHaveLength(1);
   });
+
+  it("keeps a replaced post on the frozen idea instead of freezing it alone", async () => {
+    const db = await getDb();
+    const t0 = Date.now() - 2 * 60 * 60_000;
+    const [sourceA] = await db
+      .insert(sources)
+      .values({ name: "Desk E", slug: "desk-e", sourceType: "manual", parserType: "text-generic" })
+      .returning();
+    const [sourceB] = await db
+      .insert(sources)
+      .values({ name: "Desk F", slug: "desk-f", sourceType: "manual", parserType: "text-generic" })
+      .returning();
+    const [firstEvent] = await db
+      .insert(rawEvents)
+      .values({
+        sourceId: sourceA.id,
+        rawText: "buy 4800",
+        publishedAt: new Date(t0),
+        contentHash: "idea-e1",
+      })
+      .returning();
+    const [otherEvent] = await db
+      .insert(rawEvents)
+      .values({
+        sourceId: sourceB.id,
+        rawText: "buy 4801",
+        publishedAt: new Date(t0 + 5 * 60_000),
+        contentHash: "idea-f",
+      })
+      .returning();
+    const [secondEvent] = await db
+      .insert(rawEvents)
+      .values({
+        sourceId: sourceA.id,
+        rawText: "buy 4800.5",
+        publishedAt: new Date(t0 + 10 * 60_000),
+        contentHash: "idea-e2",
+      })
+      .returning();
+    const [firstPost] = await db
+      .insert(signals)
+      .values({
+        sourceId: sourceA.id,
+        originEventId: firstEvent.id,
+        direction: "LONG",
+        entryType: "MARKET",
+        entryMin: 4800,
+        entryMax: 4800,
+        signalTime: new Date(t0),
+        parserConfidence: 1,
+        status: "ACTIVE",
+      })
+      .returning();
+    const [otherPost] = await db
+      .insert(signals)
+      .values({
+        sourceId: sourceB.id,
+        originEventId: otherEvent.id,
+        direction: "LONG",
+        entryType: "MARKET",
+        entryMin: 4801,
+        entryMax: 4801,
+        signalTime: new Date(t0 + 5 * 60_000),
+        parserConfidence: 1,
+        status: "ACTIVE",
+      })
+      .returning();
+    const [secondPost] = await db
+      .insert(signals)
+      .values({
+        sourceId: sourceA.id,
+        originEventId: secondEvent.id,
+        direction: "LONG",
+        entryType: "MARKET",
+        entryMin: 4800.5,
+        entryMax: 4800.5,
+        signalTime: new Date(t0 + 10 * 60_000),
+        parserConfidence: 1,
+        status: "ACTIVE",
+      })
+      .returning();
+
+    const members = [firstPost.id, secondPost.id, otherPost.id];
+    await replaceConsolidatedIdeas(t0 + 45 * 60_000);
+    const stored = (await db.select().from(consolidatedIdeas)).filter((row) => members.some((id) => row.signalIds.includes(id)));
+    expect(stored).toHaveLength(1);
+    expect(stored[0].signalIds).toEqual(expect.arrayContaining(members));
+
+    await replaceConsolidatedIdeas(t0 + 46 * 60_000);
+    const later = (await db.select().from(consolidatedIdeas)).filter((row) => members.some((id) => row.signalIds.includes(id)));
+    expect(later).toHaveLength(1);
+    expect(later[0].id).toBe(stored[0].id);
+    expect(later[0].signalIds).toEqual(expect.arrayContaining(members));
+    expect(later.some((row) => row.signalIds.length === 1 && row.signalIds[0] === firstPost.id)).toBe(false);
+  });
 });

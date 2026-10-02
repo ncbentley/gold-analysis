@@ -11,8 +11,9 @@ function stableIdeaId(signalIds: string[]) {
 }
 
 function toRow(idea: GroupedIdea) {
+  const signalIds = [...idea.signalIds, ...idea.replacedSignalIds];
   return {
-    id: stableIdeaId(idea.signalIds),
+    id: stableIdeaId(signalIds),
     direction: idea.direction,
     entryMin: idea.entryMin,
     entryMax: idea.entryMax,
@@ -21,7 +22,7 @@ function toRow(idea: GroupedIdea) {
     exitSpreadStops: idea.exitSpreadStops,
     exitSpreadTargets: idea.exitSpreadTargets,
     sourceCount: idea.sourceCount,
-    signalIds: idea.signalIds,
+    signalIds,
     newestSignalAt: new Date(idea.newestSignalAt),
     frozenAt: idea.frozenAt === null ? null : new Date(idea.frozenAt),
   };

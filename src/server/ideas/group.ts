@@ -25,6 +25,7 @@ export interface GroupedIdea {
   exitSpreadTargets: number[];
   sourceCount: number;
   signalIds: string[];
+  replacedSignalIds: string[];
   newestSignalAt: number;
   frozenAt: number | null;
 }
@@ -37,22 +38,25 @@ export function groupSignals(signals: GroupSignal[], now: number): GroupedIdea[]
     .filter((s) => !s.qa && s.status !== "INVALID" && s.status !== "CANCELLED" && s.status !== "MANUAL_REVIEW")
     .filter((s) => Number.isFinite(s.entryMin) && Number.isFinite(s.entryMax))
     .sort((a, b) => a.signalTime - b.signalTime);
-  const open: GroupSignal[][] = [];
+  const open: { rows: GroupSignal[]; replacedSignalIds: string[] }[] = [];
   for (const signal of usable) {
-    const cluster = open.find((rows) => {
+    const cluster = open.find(({ rows }) => {
       const newest = rows.reduce((m, r) => Math.max(m, r.signalTime), 0);
       if (signal.signalTime - newest > QUIET_MS) return false;
       if (rows[0].direction !== signal.direction) return false;
       return rows.some((row) => sameZone(row, signal));
     });
-    if (!cluster) open.push([signal]);
+    if (!cluster) open.push({ rows: [signal], replacedSignalIds: [] });
     else {
-      const prior = cluster.findIndex((row) => row.sourceId === signal.sourceId);
-      if (prior >= 0) cluster.splice(prior, 1);
-      cluster.push(signal);
+      const prior = cluster.rows.findIndex((row) => row.sourceId === signal.sourceId);
+      if (prior >= 0) {
+        const [removed] = cluster.rows.splice(prior, 1);
+        cluster.replacedSignalIds.push(removed.id);
+      }
+      cluster.rows.push(signal);
     }
   }
-  return open.map((rows) => {
+  return open.map(({ rows, replacedSignalIds }) => {
     const stops = rows.map((r) => r.stopLoss).filter((n): n is number => n !== null);
     const slots = Math.max(...rows.map((r) => r.targets.length));
     const targets = Array.from({ length: slots }, (_, i) => mean(rows.map((r) => r.targets[i]).filter((n): n is number => n !== undefined)));
@@ -67,6 +71,7 @@ export function groupSignals(signals: GroupSignal[], now: number): GroupedIdea[]
       exitSpreadTargets: Array.from({ length: slots }, (_, i) => range(rows.map((r) => r.targets[i]).filter((n): n is number => n !== undefined))),
       sourceCount: new Set(rows.map((r) => r.sourceId)).size,
       signalIds: rows.map((r) => r.id),
+      replacedSignalIds,
       newestSignalAt: newest,
       frozenAt: now - newest >= QUIET_MS ? newest + QUIET_MS : null,
     };

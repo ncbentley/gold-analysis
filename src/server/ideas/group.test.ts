@@ -56,6 +56,7 @@ describe("groupSignals", () => {
       t0 + 10 * 60_000,
     );
     expect(idea.signalIds).toEqual(["b"]);
+    expect(idea.replacedSignalIds).toEqual(["a"]);
     expect(idea.entryMin).toBe(2652);
   });
 
