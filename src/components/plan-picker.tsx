@@ -73,14 +73,14 @@ export async function PlanPicker({ period, highlight, basePath, anchor }: { peri
                 lit && "panel-gold shadow-[0_0_36px_-8px_rgb(245_197_66/0.6)] ring-2 ring-primary/65",
               )}
             >
-              {tier === "gold" && (
+              {tier === "platinum" && (
                 <span className="gold-fill absolute right-4 top-4 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold shadow-[0_0_14px_-3px_rgb(245_197_66/0.7)]">
                   <Flame className="size-3.5" />
                   Most popular
                 </span>
               )}
               <CardHeader>
-                <div className={cn("flex items-center gap-3.5", tier === "gold" && "pr-28")}>
+                <div className={cn("flex items-center gap-3.5", tier === "platinum" && "pr-28")}>
                   <span
                     className={cn(
                       "flex size-12 shrink-0 items-center justify-center rounded-full ring-2",
