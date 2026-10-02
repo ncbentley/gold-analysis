@@ -77,7 +77,11 @@ export interface ListResult {
 }
 
 /** Lists signals visible to the viewer. Enforces history depth and advanced-filter entitlements server-side. */
-export async function listSignalsForViewer(viewer: Viewer, filters: SignalFilters, opts: { limit?: number; offset?: number } = {}): Promise<ListResult> {
+export async function listSignalsForViewer(
+  viewer: Viewer,
+  filters: SignalFilters,
+  opts: { limit?: number; offset?: number; segment?: boolean } = {},
+): Promise<ListResult> {
   const db = await getDb();
   const { access, config } = viewer;
   const ignored: string[] = [];
@@ -86,6 +90,13 @@ export async function listSignalsForViewer(viewer: Viewer, filters: SignalFilter
     for (const k of ["entryType", "signalType", "classification"] as const) if (f[k]) { ignored.push(k); delete f[k]; }
   }
   if (!can(access, "search.history") && f.q) { ignored.push("q"); delete f.q; }
+  if (!access.tier && !access.isAdmin) {
+    for (const k of ["direction", "from", "to", "sourceId", "status"] as const) {
+      // The dashboard still splits its own open and closed sections. Member filters do not.
+      if (k === "status" && opts.segment) continue;
+      if (f[k]) { ignored.push(k); delete f[k]; }
+    }
+  }
 
   const cutoff = historyCutoff(access);
   const conds: SQL[] = [sql`${signals.status} <> 'INVALID'`];
@@ -133,6 +144,23 @@ export async function listSignalsForViewer(viewer: Viewer, filters: SignalFilter
     ignoredFilters: ignored,
     historyCutoff: cutoff?.toISOString() ?? null,
   };
+}
+
+/** Counting constituents, in the given order. Ids with no row are omitted. */
+export async function listSignalListItemsByIds(ids: string[], viewer: Viewer) {
+  if (!ids.length) return [];
+  const db = await getDb();
+  const rows = await db
+    .select({ signal: signals, source: sources, outcome: signalOutcomes })
+    .from(signals)
+    .innerJoin(sources, eq(sources.id, signals.sourceId))
+    .leftJoin(signalOutcomes, and(eq(signalOutcomes.signalId, signals.id), eq(signalOutcomes.isCurrent, true)))
+    .where(inArray(signals.id, ids));
+  const byId = new Map((await hydrate(rows)).map((bundle) => [bundle.signal.id, bundle]));
+  return ids.flatMap((id) => {
+    const bundle = byId.get(id);
+    return bundle ? [presentSignalListItem(bundle, viewer.access, viewer.config)] : [];
+  });
 }
 
 export async function getSignalBundle(signalId: string): Promise<SignalBundle | null> {

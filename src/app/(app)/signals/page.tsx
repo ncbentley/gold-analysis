@@ -69,6 +69,7 @@ export default async function SignalsPage({ searchParams }: PageProps<"/signals"
             signalTypes={signalTypes}
             advanced={can(viewer.access, "filters.advanced")}
             search={can(viewer.access, "search.history")}
+            basic={viewer.access.tier !== null || viewer.access.isAdmin}
           />
         </Suspense>
       </div>

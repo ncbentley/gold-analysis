@@ -84,11 +84,14 @@ export function SignalFilters({
   signalTypes,
   advanced,
   search,
+  basic = true,
 }: {
   sources: Option[];
   signalTypes: string[];
   advanced: boolean;
   search: boolean;
+  /** Direction, date, source, and status. Hidden for a free account. */
+  basic?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -131,32 +134,34 @@ export function SignalFilters({
         pending && "opacity-70",
       )}
     >
-      <DirectionChips value={params.get("direction") ?? ""} onChange={set} />
-      <span aria-hidden className="mx-1 hidden h-6 w-px bg-glow/25 sm:block" />
-      {sources.length > 0 && (
+      {basic && <DirectionChips value={params.get("direction") ?? ""} onChange={set} />}
+      {basic && <span aria-hidden className="mx-1 hidden h-6 w-px bg-glow/25 sm:block" />}
+      {basic && sources.length > 0 && (
         <FilterSelect name="source" label="Sources" options={sources} value={params.get("source") ?? ""} onChange={set} />
       )}
-      <FilterSelect
-        name="status"
-        label="Statuses"
-        value={params.get("status") ?? ""}
-        onChange={set}
-        options={[
-          { value: "OPEN", label: "Open (pending / active)" },
-          { value: "CLOSED", label: "Closed" },
-          { value: "PENDING", label: "Pending" },
-          { value: "ACTIVE", label: "Active" },
-          { value: "PARTIAL", label: "Partial" },
-          { value: "WON", label: "Won" },
-          { value: "LOST", label: "Lost" },
-          { value: "BREAKEVEN", label: "Breakeven" },
-          { value: "EXPIRED", label: "Expired" },
-          { value: "CANCELLED", label: "Cancelled" },
-          { value: "MANUAL_REVIEW", label: "Ambiguous" },
-        ]}
-      />
-      {dateField("from", "From date")}
-      {dateField("to", "To date")}
+      {basic && (
+        <FilterSelect
+          name="status"
+          label="Statuses"
+          value={params.get("status") ?? ""}
+          onChange={set}
+          options={[
+            { value: "OPEN", label: "Open (pending / active)" },
+            { value: "CLOSED", label: "Closed" },
+            { value: "PENDING", label: "Pending" },
+            { value: "ACTIVE", label: "Active" },
+            { value: "PARTIAL", label: "Partial" },
+            { value: "WON", label: "Won" },
+            { value: "LOST", label: "Lost" },
+            { value: "BREAKEVEN", label: "Breakeven" },
+            { value: "EXPIRED", label: "Expired" },
+            { value: "CANCELLED", label: "Cancelled" },
+            { value: "MANUAL_REVIEW", label: "Ambiguous" },
+          ]}
+        />
+      )}
+      {basic && dateField("from", "From date")}
+      {basic && dateField("to", "To date")}
       {lockedHint(
         <FilterSelect
           name="entryType"

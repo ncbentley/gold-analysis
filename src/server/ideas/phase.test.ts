@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ideaPhase, type PhaseInput } from "./phase";
+import { ideaPhase, phaseFromMembers, type PhaseInput, type PhaseMember } from "./phase";
 
 const long: PhaseInput = {
   direction: "LONG",
@@ -46,5 +46,57 @@ describe("ideaPhase", () => {
 
   it("stays available when spot is missing and the trade is still open", () => {
     expect(ideaPhase({ ...long, spot: null })).toBe("available");
+  });
+});
+
+const pending: PhaseMember = { status: "PENDING", outcome: null };
+const enteredOpen: PhaseMember = {
+  status: "ACTIVE",
+  outcome: { entered: true, exitTime: null, classification: "ACTIVE" },
+};
+const enteredClosed: PhaseMember = {
+  status: "WON",
+  outcome: { entered: true, exitTime: new Date("2026-01-02T00:00:00Z"), classification: "WON" },
+};
+const cancelled: PhaseMember = {
+  status: "CANCELLED",
+  outcome: { entered: false, exitTime: null, classification: "CANCELLED" },
+};
+const expired: PhaseMember = { status: "EXPIRED", outcome: null };
+
+function phaseOf(members: Array<PhaseMember | null>, spot: number | null = 2651) {
+  return ideaPhase({ ...long, spot, ...phaseFromMembers(members) });
+}
+
+describe("phaseFromMembers", () => {
+  it("stays available when nothing has filled and spot is still inside the entry", () => {
+    const flags = phaseFromMembers([pending]);
+    expect(flags).toEqual({ entered: false, closed: false, cancelled: false });
+    expect(phaseOf([pending])).toBe("available");
+  });
+
+  it("does not treat a missing roster as closed or cancelled", () => {
+    expect(phaseFromMembers([null, undefined])).toEqual({ entered: false, closed: false, cancelled: false });
+    expect(phaseOf([])).toBe("available");
+  });
+
+  it("is playing out when an entered member has no exit", () => {
+    expect(phaseFromMembers([enteredOpen])).toMatchObject({ entered: true, closed: false, cancelled: false });
+    expect(phaseOf([enteredOpen])).toBe("playing-out");
+  });
+
+  it("is history once every entered member has an exit", () => {
+    expect(phaseFromMembers([enteredClosed, pending])).toMatchObject({ entered: true, closed: true, cancelled: false });
+    expect(phaseOf([enteredClosed, { ...enteredClosed }])).toBe("history");
+  });
+
+  it("is history when every member is cancelled or expired and none has entered", () => {
+    expect(phaseFromMembers([cancelled, expired])).toEqual({ entered: false, closed: false, cancelled: true });
+    expect(phaseOf([cancelled, expired])).toBe("history");
+  });
+
+  it("stays available when one member is cancelled and another is still pending", () => {
+    expect(phaseFromMembers([cancelled, pending])).toEqual({ entered: false, closed: false, cancelled: false });
+    expect(phaseOf([cancelled, pending], 2651)).toBe("available");
   });
 });
