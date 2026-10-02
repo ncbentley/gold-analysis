@@ -26,8 +26,13 @@ import { enqueueDueTelegramSyncs } from "@/server/telegram/schedule";
 import {
   cancelTelegramLogin,
   completeTelegramLogin,
+  enableTelegramSignalTracking,
+  HEADLINE_BACKFILL,
   queueJoinedTelegramChats,
   reconnectTelegram,
+  setTelegramSourceStarred,
+  starJoinedTelegramChat,
+  stopTelegramSignalTracking,
   type JoinedChat,
   signOutTelegram,
   startTelegramLogin,
@@ -459,18 +464,48 @@ export async function saveTelegramTrackingAction(form: FormData) {
   await attempt("/admin/telegram", async () => {
     const removeIds = [...new Set(form.getAll("remove").map(String).filter(Boolean))];
     const chats = form.getAll("add").map(joinedChatFromForm);
-    for (const id of removeIds) await removeSourceFromList(id, actor);
+    for (const id of removeIds) await stopTelegramSignalTracking(id, actor);
     let queuedCount = 0;
-    if (chats.length > 0) {
+    let enabledCount = 0;
+    const fresh: JoinedChat[] = [];
+    for (const chat of chats) {
+      const enabled = await enableTelegramSignalTracking(chat, actor);
+      if (enabled) {
+        if (!enabled.already) enabledCount += 1;
+        continue;
+      }
+      fresh.push(chat);
+    }
+    if (fresh.length > 0) {
       const parserType = PARSER_TYPES[0];
       if (!parserType) throw new Error("No parser is configured.");
-      const saved = await queueJoinedTelegramChats(chats, { isQa: false, parserType, backfill: DEFAULT_TRACK_BACKFILL }, actor);
+      const saved = await queueJoinedTelegramChats(fresh, { isQa: false, parserType, backfill: DEFAULT_TRACK_BACKFILL }, actor);
       queuedCount = saved.queued.length;
     }
-    if (removeIds.length === 0 && queuedCount === 0) return chats.length > 0 ? "Those channels are already tracked." : "No channel changes to save.";
-    const summary = [queuedCount > 0 ? `Now tracking ${queuedCount}` : null, removeIds.length > 0 ? `stopped ${removeIds.length}` : null].filter((part): part is string => Boolean(part));
+    if (removeIds.length === 0 && queuedCount === 0 && enabledCount === 0) return chats.length > 0 ? "Those channels are already tracked." : "No channel changes to save.";
+    const summary = [queuedCount > 0 ? `Now tracking ${queuedCount}` : null, enabledCount > 0 ? `signal tracking on for ${enabledCount}` : null, removeIds.length > 0 ? `stopped ${removeIds.length}` : null].filter((part): part is string => Boolean(part));
     const imported = queuedCount > 0 ? ` New channels import the latest ${DEFAULT_TRACK_BACKFILL} messages.` : "";
     return `${summary.join(", ")}.${imported}`;
+  });
+}
+
+export async function starTelegramChannelAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  await attempt("/admin/telegram", async () => {
+    const starred = str(form, "starred") === "1";
+    const sourceId = str(form, "sourceId");
+    revalidatePath("/dashboard");
+    if (sourceId) {
+      const name = await setTelegramSourceStarred(sourceId, starred, actor);
+      return starred ? `Starred ${name}. Its posts feed the dashboard direction read.` : `Unstarred ${name}.`;
+    }
+    if (!starred) throw new Error("That channel is not starred.");
+    const parserType = PARSER_TYPES[0];
+    if (!parserType) throw new Error("No parser is configured.");
+    const chatValue = form.get("chat");
+    if (chatValue === null) throw new Error("Choose a channel or group the connected account has joined.");
+    const saved = await starJoinedTelegramChat(joinedChatFromForm(chatValue), parserType, actor);
+    return `Starred ${saved.title}. The latest ${HEADLINE_BACKFILL} posts feed the dashboard direction read.`;
   });
 }
 

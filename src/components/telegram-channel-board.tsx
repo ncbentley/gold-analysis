@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, Loader2, Search } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, Loader2, Search, Star } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { saveTelegramTrackingAction, telegramSyncSourceAction } from "@/app/actions/admin";
+import { saveTelegramTrackingAction, starTelegramChannelAction, telegramSyncSourceAction } from "@/app/actions/admin";
 import { StateBadge } from "@/components/admin-bits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -215,6 +215,32 @@ function Column({
   );
 }
 
+function StarButton({ channel }: { channel: BoardChannel }) {
+  const { pending } = useFormStatus();
+  const on = channel.starred;
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      aria-pressed={on}
+      aria-label={on ? `Unstar ${channel.title}` : `Star ${channel.title} for market direction`}
+      className="inline-flex size-7 items-center justify-center rounded-lg text-primary outline-none hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+    >
+      <Star className={cn("size-4", on && "fill-current")} />
+    </button>
+  );
+}
+
+function StarForm({ channel }: { channel: BoardChannel }) {
+  return (
+    <form action={starTelegramChannelAction} onClick={(event) => event.stopPropagation()}>
+      {channel.sourceId ? <input type="hidden" name="sourceId" value={channel.sourceId} /> : <input type="hidden" name="chat" value={chatPayload(channel)} />}
+      <input type="hidden" name="starred" value={channel.starred ? "0" : "1"} />
+      <StarButton channel={channel} />
+    </form>
+  );
+}
+
 function SortHeader({
   label,
   sortKey,
@@ -271,6 +297,9 @@ function ChannelTable({
             <SortHeader label="Channel" sortKey="channel" sort={sort} align="left" onSort={onSort} />
             {trackedSide && <SortHeader label="Win rate" sortKey="winRate" sort={sort} align="right" onSort={onSort} className="w-24" />}
             <th className="w-12 px-2 py-2">
+              <span className="sr-only">Market direction</span>
+            </th>
+            <th className="w-12 px-2 py-2">
               <span className="sr-only">{trackedSide ? "Stop tracking" : "Track"}</span>
             </th>
           </tr>
@@ -278,7 +307,7 @@ function ChannelTable({
         <tbody>
           {channels.map((channel) => {
             const pending = flipped.has(channel.id);
-            const savedHere = channel.tracked && !pending;
+            const savedHere = !pending && (channel.tracked || channel.starred);
             const label = trackedSide ? `Stop tracking ${channel.title}` : `Track ${channel.title}`;
             return (
               <tr
@@ -294,20 +323,21 @@ function ChannelTable({
                 <td className="px-3 py-2.5 align-middle">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="font-semibold">{channel.title}</span>
+                    {channel.starred && <Badge variant="secondary">Direction</Badge>}
                     {channel.isQa && <Badge variant="secondary">QA</Badge>}
                     {channel.sourceId && !channel.active && <Badge variant="outline">disabled</Badge>}
                     {pending && <span className="text-[11px] font-medium text-primary">{trackedSide ? "will track" : "will stop"}</span>}
-                    {trackedSide && channel.importStatus && <StateBadge state={channel.importStatus} />}
+                    {channel.importStatus && (trackedSide || channel.starred) && <StateBadge state={channel.importStatus} />}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                     <Handle channel={channel} />
                     <span className="text-[11px] text-muted-foreground">{channel.kind === "group" ? "Group" : "Channel"}</span>
-                    {trackedSide && channel.sourceId && savedHere && (
+                    {(trackedSide || channel.starred) && channel.sourceId && savedHere && (
                       <Link href={`/admin/events?source=${channel.sourceId}`} onClick={(event) => event.stopPropagation()} className={ACTION}>
                         Events
                       </Link>
                     )}
-                    {trackedSide && canSync && channel.sourceId && channel.active && savedHere && (
+                    {(trackedSide || channel.starred) && canSync && channel.sourceId && channel.active && savedHere && (
                       <form action={telegramSyncSourceAction} className="inline" onClick={(event) => event.stopPropagation()}>
                         <input type="hidden" name="sourceId" value={channel.sourceId} />
                         <button type="submit" className={ACTION}>
@@ -319,6 +349,9 @@ function ChannelTable({
                   {trackedSide && channel.error && <div className="mt-1 max-w-md text-xs text-loss">{channel.error}</div>}
                 </td>
                 {trackedSide && <td className="px-3 py-2.5 text-right font-mono text-xs tabular-nums">{fmtPct(channel.winRate)}</td>}
+                <td className="px-2 py-2.5 text-right">
+                  <StarForm channel={channel} />
+                </td>
                 <td className="px-2 py-2.5 text-right">
                   <button
                     type="button"

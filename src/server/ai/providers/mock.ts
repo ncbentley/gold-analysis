@@ -1,3 +1,4 @@
+import { directionFromFacts } from "@/server/direction/score";
 import type { AiProvider, AiRequest, SignalSetupOutput, SourcePatternsOutput } from "../types";
 import type { SignalFacts, SourcePatternFacts } from "../facts";
 
@@ -181,6 +182,10 @@ export const mockAiProvider: AiProvider = {
       };
     }
     if (req.analysisType === "signal_setup") return signalSetup(req.facts as unknown as SignalFacts, req.promptVersion);
+    if (req.analysisType === "market_direction") {
+      const facts = req.facts as { headlines?: { text: string }[]; spot?: number | null; change60m?: number | null };
+      return directionFromFacts({ headlines: facts.headlines ?? [], spot: facts.spot ?? null, change60m: facts.change60m ?? null });
+    }
     return sourcePatterns(req.facts as unknown as SourcePatternFacts);
   },
 };

@@ -22,6 +22,9 @@ export interface BoardSource {
   importStatus: ImportStatus | null;
   active: boolean;
   isQa: boolean;
+  starred: boolean;
+  /** False when the source is headlines only. */
+  parseSignals: boolean;
 }
 
 /** One joined chat or tracked Telegram source, keyed by the Telegram channel id. */
@@ -38,6 +41,7 @@ export interface BoardChannel {
   importStatus: ImportStatus | null;
   active: boolean;
   isQa: boolean;
+  starred: boolean;
   tracked: boolean;
 }
 
@@ -68,6 +72,7 @@ export function buildChannelBoard(chats: BoardChat[], sources: BoardSource[], wi
       importStatus: null,
       active: true,
       isQa: false,
+      starred: false,
       tracked: false,
     });
   }
@@ -88,7 +93,8 @@ export function buildChannelBoard(chats: BoardChat[], sources: BoardSource[], wi
       importStatus: source.importStatus,
       active: source.active,
       isQa: source.isQa,
-      tracked: true,
+      starred: source.starred,
+      tracked: source.parseSignals,
     });
   }
   return [...byId.values()].sort((a, b) => {

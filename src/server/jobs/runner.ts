@@ -1,5 +1,6 @@
 import { and, asc, eq, isNull, lte, sql } from "drizzle-orm";
 import { analyzeSignal, analyzeSourcePatterns } from "@/server/ai/service";
+import { refreshMarketDirection } from "@/server/direction/service";
 import { reconcileSubscriptions } from "@/server/billing/service";
 import { getDb } from "@/server/db";
 import { jobs, signalOutcomes, signals, type Job } from "@/server/db/schema";
@@ -41,6 +42,7 @@ const handlers: Record<JobType, Handler> = {
     const r = await analyzeSourcePatterns(String(p.sourceId), { force: Boolean(p.force) });
     return { skipped: r.skipped };
   },
+  MARKET_DIRECTION: async () => refreshMarketDirection(),
   TELEGRAM_SYNC: async (p) => {
     // Jobs with no channel are the old full sweep. They stacked because each
     // one ran longer than the timer. Per-channel catch-up is queued by
@@ -231,5 +233,8 @@ export async function requeueStaleJobs() {
 export async function scheduleRecurring(kind: "minute" | "telegram" | "hourly") {
   if (kind === "minute") await enqueueJob("MARKET_DATA_SYNC", {}, { dedupeKey: "market-sync" });
   if (kind === "telegram") await enqueueDueTelegramSyncs();
-  if (kind === "hourly") await enqueueJob("RECONCILE_SUBSCRIPTIONS", {}, { dedupeKey: "reconcile" });
+  if (kind === "hourly") {
+    await enqueueJob("RECONCILE_SUBSCRIPTIONS", {}, { dedupeKey: "reconcile" });
+    await enqueueJob("MARKET_DIRECTION", {}, { dedupeKey: "market-direction" });
+  }
 }

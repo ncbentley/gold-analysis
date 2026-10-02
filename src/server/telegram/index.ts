@@ -10,6 +10,7 @@ type StringSession = InstanceType<typeof sessions.StringSession>;
 const { returnBigInt } = helpers;
 const { computeCheck } = tgPassword;
 import { recordAudit, type Actor } from "@/server/audit";
+import { removeSourceFromList } from "@/server/admin";
 import { getDb } from "@/server/db";
 import { sources, type Source } from "@/server/db/schema";
 import { storeRawEvent, type IncomingEvent } from "@/server/ingestion";
@@ -18,7 +19,7 @@ import { enqueueJob } from "@/server/jobs/queue";
 import { deleteSetting, getSetting, setSetting, SETTING_KEYS } from "@/server/settings";
 import { listJoinedChats, accessHashOf, chatWithLoadedAccessHash, type JoinedChat } from "./dialogs";
 import { readHistoryPages } from "./history";
-import { finishImportIfIdle, markTelegramImportFailed, markTelegramImporting } from "./import-status";
+import { finishImportIfIdle, markTelegramImportFailed, markTelegramImporting, markTelegramImportQueued } from "./import-status";
 import { parseChannelInput, toIncomingEvent } from "./mapping";
 
 export { selectJoinedChat } from "./dialogs";
@@ -429,7 +430,11 @@ export interface AddChannelInput {
   backfill: number;
 }
 
-async function saveLinkedTelegramSource(ch: ResolvedChannel, input: { name?: string; isQa: boolean; parserType: string; backfill: number }, actor: Actor) {
+async function saveLinkedTelegramSource(
+  ch: ResolvedChannel,
+  input: { name?: string; isQa: boolean; parserType: string; backfill: number; parseSignals?: boolean; starred?: boolean },
+  actor: Actor,
+) {
   const db = await getDb();
   const [existing] = await db.select().from(sources).where(eq(sources.telegramChannelId, ch.channelId));
   const linked = {
@@ -441,7 +446,17 @@ async function saveLinkedTelegramSource(ch: ResolvedChannel, input: { name?: str
   if (existing) {
     await db
       .update(sources)
-      .set({ ...linked, active: true, removedAt: null, isQa: input.isQa, name: input.name || existing.name, parserType: input.parserType, importStatus: "queued" })
+      .set({
+        ...linked,
+        active: true,
+        removedAt: null,
+        isQa: input.isQa,
+        name: input.name || existing.name,
+        parserType: input.parserType,
+        importStatus: "queued",
+        ...(typeof input.parseSignals === "boolean" ? { parseSignals: input.parseSignals } : {}),
+        ...(typeof input.starred === "boolean" ? { starred: input.starred } : {}),
+      })
       .where(eq(sources.id, existing.id));
     await recordAudit({ actor, entityType: "source", entityId: existing.id, action: "telegram.channel_relinked", after: { channel: ch.username ?? ch.channelId } });
     return { sourceId: existing.id, created: false, title: ch.title, importStatus: "queued" as const };
@@ -461,6 +476,8 @@ async function saveLinkedTelegramSource(ch: ResolvedChannel, input: { name?: str
       isQa: input.isQa,
       active: true,
       importStatus: "queued",
+      parseSignals: input.parseSignals ?? true,
+      starred: input.starred ?? false,
     })
     .returning({ id: sources.id });
   await recordAudit({
@@ -571,7 +588,7 @@ export async function queueJoinedTelegramChats(
         title,
         broadcast: chat.kind === "channel",
       },
-      input,
+      { ...input, parseSignals: true },
       actor,
     );
     await enqueueJob("TELEGRAM_SYNC", { sourceId: saved.sourceId, backfill: input.backfill }, { dedupeKey: `telegram-sync:${saved.sourceId}` });
@@ -596,6 +613,92 @@ export async function addJoinedTelegramChat(input: { chat: JoinedChat; name?: st
     input,
     actor,
   );
+}
+
+export const HEADLINE_BACKFILL = 40;
+
+async function enqueueHeadlineSync(sourceId: string, backfill: number) {
+  await markTelegramImportQueued(sourceId);
+  await enqueueJob("TELEGRAM_SYNC", { sourceId, backfill }, { dedupeKey: `telegram-sync:${sourceId}` });
+}
+
+/**
+ * Marks a joined chat as a news source for the dashboard direction read.
+ * A channel that is not already tracked is stored as headlines only.
+ */
+export async function starJoinedTelegramChat(chat: JoinedChat, parserType: string, actor: Actor) {
+  const title = chat.title.trim();
+  if (!title || !/^[1-9][0-9]*$/.test(chat.id)) throw new Error("Choose a channel or group the connected account has joined.");
+  const db = await getDb();
+  const [existing] = await db.select().from(sources).where(eq(sources.telegramChannelId, chat.id));
+  if (existing && !existing.removedAt) {
+    await db.update(sources).set({ starred: true }).where(eq(sources.id, existing.id));
+    await recordAudit({ actor, entityType: "source", entityId: existing.id, action: "telegram.channel_starred", after: { channel: chat.username ?? chat.id } });
+    if (existing.lastMessageId == null) await enqueueHeadlineSync(existing.id, HEADLINE_BACKFILL);
+    await enqueueJob("MARKET_DIRECTION", {}, { dedupeKey: "market-direction" });
+    return { sourceId: existing.id, created: false, title: existing.name };
+  }
+  const saved = await saveLinkedTelegramSource(
+    {
+      channelId: chat.id,
+      accessHash: chat.accessHash,
+      username: chat.username,
+      title,
+      broadcast: chat.kind === "channel",
+    },
+    { isQa: false, parserType, backfill: HEADLINE_BACKFILL, parseSignals: false, starred: true },
+    actor,
+  );
+  await enqueueJob("TELEGRAM_SYNC", { sourceId: saved.sourceId, backfill: HEADLINE_BACKFILL }, { dedupeKey: `telegram-sync:${saved.sourceId}` });
+  await enqueueJob("MARKET_DIRECTION", {}, { dedupeKey: "market-direction" });
+  return saved;
+}
+
+/** Stars or unstars a source that is already on the list. Unstarring a headline-only source takes it off the list. */
+export async function setTelegramSourceStarred(sourceId: string, starred: boolean, actor: Actor) {
+  const db = await getDb();
+  const [source] = await db.select().from(sources).where(and(eq(sources.id, sourceId), isNull(sources.removedAt)));
+  if (!source) throw new Error("Source not found");
+  if (starred) {
+    if (!source.starred) {
+      await db.update(sources).set({ starred: true }).where(eq(sources.id, source.id));
+      await recordAudit({ actor, entityType: "source", entityId: source.id, action: "telegram.channel_starred", after: { channel: source.telegramUsername ?? source.telegramChannelId } });
+    }
+    if (source.lastMessageId == null) await enqueueHeadlineSync(source.id, HEADLINE_BACKFILL);
+    await enqueueJob("MARKET_DIRECTION", {}, { dedupeKey: "market-direction" });
+    return source.name;
+  }
+  if (!source.parseSignals) {
+    await removeSourceFromList(source.id, actor);
+    return source.name;
+  }
+  await db.update(sources).set({ starred: false }).where(eq(sources.id, source.id));
+  await recordAudit({ actor, entityType: "source", entityId: source.id, action: "telegram.channel_unstarred", after: { channel: source.telegramUsername ?? source.telegramChannelId } });
+  return source.name;
+}
+
+/** Turns signal parsing on for a headline source that is already active. Returns null when the chat is not on the list. */
+export async function enableTelegramSignalTracking(chat: JoinedChat, actor: Actor) {
+  const db = await getDb();
+  const [existing] = await db.select().from(sources).where(and(eq(sources.telegramChannelId, chat.id), isNull(sources.removedAt)));
+  if (!existing) return null;
+  if (existing.parseSignals) return { sourceId: existing.id, already: true };
+  await db.update(sources).set({ parseSignals: true }).where(eq(sources.id, existing.id));
+  await recordAudit({ actor, entityType: "source", entityId: existing.id, action: "telegram.signals_enabled", after: { channel: chat.username ?? chat.id } });
+  return { sourceId: existing.id, already: false };
+}
+
+/** Stops signal parsing. A starred source stays on the list as headlines. Anything else leaves the list. */
+export async function stopTelegramSignalTracking(sourceId: string, actor: Actor) {
+  const db = await getDb();
+  const [source] = await db.select().from(sources).where(and(eq(sources.id, sourceId), isNull(sources.removedAt)));
+  if (!source) throw new Error("Source not found");
+  if (source.starred) {
+    await db.update(sources).set({ parseSignals: false }).where(eq(sources.id, source.id));
+    await recordAudit({ actor, entityType: "source", entityId: source.id, action: "telegram.signals_stopped", after: { starred: true } });
+    return source.name;
+  }
+  return removeSourceFromList(source.id, actor);
 }
 
 function inputPeer(source: Source) {
@@ -646,12 +749,15 @@ async function queueIncoming(source: Source, event: IncomingEvent | null, messag
   }
   if (!event) return null;
   const stored = await storeRawEvent(source.id, event);
-  if (stored.status === "stored") {
+  if (stored.status === "stored" && source.parseSignals) {
     await enqueueJob(
       "PROCESS_EVENT",
       { rawEventId: stored.rawEventId, sourceId: source.id, ...(opts?.live ? { live: true } : {}) },
       { dedupeKey: `event:${stored.rawEventId}` },
     );
+  }
+  if (stored.status === "stored" && source.starred) {
+    await enqueueJob("MARKET_DIRECTION", {}, { dedupeKey: "market-direction" });
   }
   return stored;
 }

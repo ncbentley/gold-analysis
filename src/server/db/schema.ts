@@ -161,6 +161,10 @@ export const sources = pgTable(
     importStatus: text("import_status", { enum: ["queued", "importing", "caught_up", "failed"] }),
     /** Set when an admin takes the source off the list. The row stays so past signals remain. */
     removedAt: ts("removed_at"),
+    /** Posts from a starred source feed the dashboard market-direction read. */
+    starred: boolean("starred").notNull().default(false),
+    /** False for a headline-only source. Its posts are stored and never parsed as trades. */
+    parseSignals: boolean("parse_signals").notNull().default(true),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -409,6 +413,27 @@ export const sourceStats = pgTable("source_stats", {
   calcVersion: text("calc_version").notNull(),
   statsJson: jsonb("stats_json").$type<Record<string, unknown>>().notNull(),
   computedAt: ts("computed_at").notNull().defaultNow(),
+});
+
+export const DIRECTION_LEANS = ["bid", "defensive", "offered"] as const;
+export type DirectionLean = (typeof DIRECTION_LEANS)[number];
+
+export interface DirectionHeadlineRecord {
+  sourceId: string;
+  sourceName: string;
+  text: string;
+  publishedAt: string;
+}
+
+/** One row each time starred headlines are read against the latest gold price. */
+export const marketDirectionSnapshots = pgTable("market_direction_snapshots", {
+  id: id(),
+  lean: text("lean", { enum: DIRECTION_LEANS }).notNull(),
+  summary: text("summary").notNull(),
+  headlines: jsonb("headlines").$type<DirectionHeadlineRecord[]>().notNull(),
+  spot: doublePrecision("spot"),
+  change60m: doublePrecision("change_60m"),
+  createdAt: createdAt(),
 });
 
 /* ------------------------------------------------------------------ */

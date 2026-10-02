@@ -2,6 +2,7 @@ import { Activity, ChartCandlestick, Coins, History, Hourglass, LayoutDashboard,
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AffiliateStrip } from "@/components/affiliate-strip";
+import { DirectionPanel } from "@/components/direction-panel";
 import { LiveRefresh } from "@/components/live-refresh";
 import { LockedPanel } from "@/components/locked";
 import { PageHeader, SectionTitle } from "@/components/page-header";
@@ -11,6 +12,7 @@ import { TopSources } from "@/components/top-sources";
 import { fmtAge, fmtPrice } from "@/lib/format";
 import { can, lowestTierWith } from "@/server/entitlements/access";
 import { getViewer } from "@/server/entitlements/service";
+import { latestMarketDirection } from "@/server/direction/service";
 import { getRecentBars } from "@/server/market-data";
 import { listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
 import { nowMs } from "@/lib/clock";
@@ -78,10 +80,11 @@ export default async function DashboardPage() {
     );
   }
 
-  const [open, closed, ranking] = await Promise.all([
+  const [open, closed, ranking, direction] = await Promise.all([
     listSignalsForViewer(viewer, { status: "OPEN" }, { limit: 20 }),
     listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 10 }),
     listTopSourcesForViewer(viewer, 5),
+    latestMarketDirection(),
   ]);
   const activeCount = open.items.filter((s) => s.status !== "PENDING").length;
   const pendingCount = open.items.filter((s) => s.status === "PENDING").length;
@@ -90,7 +93,12 @@ export default async function DashboardPage() {
     <>
       <LiveRefresh />
       {header}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <DirectionPanel
+        direction={direction}
+        now={now}
+        empty={access.isAdmin ? "Star a channel on the Telegram page. Its posts feed this read." : "No direction read yet."}
+      />
+      <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Active trades" value={activeCount} hint="entered, not closed" icon={Activity} tone="gold" />
         <Stat label="Pending entries" value={pendingCount} hint="waiting for fill" icon={Hourglass} />
         <Stat label="Tracked sources" value={ranking.sourceCount} icon={Radar} />

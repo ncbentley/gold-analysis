@@ -29,6 +29,8 @@ const source = (patch: Partial<BoardSource> & Pick<BoardSource, "id" | "telegram
   importStatus: "caught_up",
   active: true,
   isQa: false,
+  starred: false,
+  parseSignals: true,
   ...patch,
 });
 
@@ -44,6 +46,7 @@ function row(patch: Partial<BoardChannel> & Pick<BoardChannel, "id" | "title">):
     importStatus: null,
     active: true,
     isQa: false,
+    starred: false,
     tracked: true,
     ...patch,
   };
@@ -68,6 +71,15 @@ describe("buildChannelBoard", () => {
     expect(board).toEqual([
       expect.objectContaining({ id: "9", title: "Left behind", kind: "group", tracked: true, link: null, winRate: null }),
     ]);
+  });
+
+  it("keeps a starred headline source off the tracked side", () => {
+    const board = buildChannelBoard(
+      [chat({ id: "7", title: "GoldNews", username: "goldnews" })],
+      [source({ id: "s7", name: "GoldNews", telegramChannelId: "7", telegramUsername: "goldnews", starred: true, parseSignals: false })],
+      new Map(),
+    );
+    expect(board).toEqual([expect.objectContaining({ id: "7", title: "GoldNews", starred: true, tracked: false, sourceId: "s7" })]);
   });
 
   it("ignores webhook sources", () => {
