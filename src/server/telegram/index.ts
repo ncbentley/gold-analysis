@@ -53,17 +53,31 @@ interface State {
   me: TelegramUser | null;
   lastError: string | null;
   pending: PendingLogin | null;
+  /** Session string the live client was built from. A newer login must replace that client. */
+  boundSession: string | null;
+  /** Session string Telegram has already revoked. Further connects would keep failing the same way. */
+  revokedSession: string | null;
 }
 
 const g = globalThis as unknown as { __gsiTelegram?: State };
 function state(): State {
-  g.__gsiTelegram ??= { client: null, connecting: null, me: null, lastError: null, pending: null };
+  g.__gsiTelegram ??= { client: null, connecting: null, me: null, lastError: null, pending: null, boundSession: null, revokedSession: null };
   return g.__gsiTelegram;
+}
+
+// A web process with JOBS_WORKER=off must not keep a socket opened by an older build.
+if (process.env.JOBS_WORKER === "off" && g.__gsiTelegram?.client) {
+  const client = g.__gsiTelegram.client;
+  g.__gsiTelegram.client = null;
+  g.__gsiTelegram.boundSession = null;
+  void client.destroy().catch(() => {});
 }
 
 function makeClient(api: ApiCredentials, session: string) {
   return new TelegramClient(new StringSession(session), api.apiId, api.apiHash, {
     connectionRetries: 5,
+    // The library reconnects this same auth key. A second TelegramClient for the same
+    // session is what makes Telegram answer AUTH_KEY_DUPLICATED and revoke the key.
     autoReconnect: true,
     deviceModel: "Aurum Ledger",
     appVersion: "1.0",
@@ -113,15 +127,35 @@ const FRIENDLY: Record<string, string> = {
   INVITE_REQUEST_SENT: "A join request was sent. Add the channel again once the channel admin approves it.",
   CHANNELS_TOO_MUCH: "This Telegram account has joined too many channels.",
   CHANNEL_PRIVATE: "This channel is private or the account was removed from it.",
+  AUTH_KEY_DUPLICATED: "Telegram cancelled this session because it was connected from two places at once. Sign in again.",
+  AUTH_KEY_INVALID: "The Telegram session is no longer valid. Sign in again.",
   AUTH_KEY_UNREGISTERED: "The Telegram session was signed out. Sign in again.",
   SESSION_REVOKED: "The Telegram session was revoked from another device. Sign in again.",
 };
 
+const REVOKED_AUTH = new Set(["AUTH_KEY_DUPLICATED", "AUTH_KEY_INVALID", "AUTH_KEY_UNREGISTERED", "SESSION_REVOKED"]);
+
+function telegramErrorCode(err: unknown) {
+  const e = err as { errorMessage?: string; message?: string };
+  return e?.errorMessage || e?.message || "";
+}
+
 export function telegramErrorMessage(err: unknown) {
   const e = err as { errorMessage?: string; seconds?: number; message?: string };
   if (e?.errorMessage === "FLOOD" || e?.seconds) return `Telegram rate limit: wait ${e.seconds ?? "a few"} seconds and try again.`;
-  if (e?.errorMessage && FRIENDLY[e.errorMessage]) return FRIENDLY[e.errorMessage];
+  const code = telegramErrorCode(err);
+  if (FRIENDLY[code]) return FRIENDLY[code];
   return e?.errorMessage ?? e?.message ?? String(err);
+}
+
+function rememberRevokedSession(err: unknown, session?: string | null) {
+  const code = telegramErrorCode(err);
+  if (!REVOKED_AUTH.has(code)) return false;
+  const st = state();
+  const bound = session || st.boundSession;
+  if (bound) st.revokedSession = bound;
+  st.lastError = telegramErrorMessage(err);
+  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -132,6 +166,18 @@ function queueOwnsTelegram() {
   return process.env.JOBS_WORKER === "off" && Boolean(process.env.QUEUE_URL);
 }
 
+async function queueFailure(res: Response, fallback: string) {
+  const text = (await res.text()).trim();
+  if (!text) return fallback;
+  if (FRIENDLY[text]) return FRIENDLY[text];
+  try {
+    const body = JSON.parse(text) as { lastError?: string | null; error?: string };
+    return body.lastError || body.error || text;
+  } catch {
+    return text;
+  }
+}
+
 async function queueFetch(path: string, method = "GET") {
   const secret = process.env.APP_SECRET;
   if (!secret) throw new Error("APP_SECRET is not set, so this app cannot ask the queue service.");
@@ -140,7 +186,7 @@ async function queueFetch(path: string, method = "GET") {
     headers: { "x-app-secret": secret },
     cache: "no-store",
   });
-  if (!res.ok) throw new Error("The queue service did not answer.");
+  if (!res.ok) throw new Error(await queueFailure(res, "The queue service did not answer."));
   return res.json() as Promise<{ connected?: boolean; lastError?: string | null }>;
 }
 
@@ -238,20 +284,26 @@ export async function completeTelegramLogin(input: { code?: string; password?: s
   }
 
   const me = describeUser(user);
-  await setSetting(SETTING_KEYS.telegramSession, { session: (p.client.session as StringSession).save(), me } satisfies StoredSession);
+  const saved = (p.client.session as StringSession).save();
+  const handoff = process.env.JOBS_WORKER === "off";
   if (st.client && st.client !== p.client) await st.client.destroy().catch(() => {});
   st.pending = null;
   st.me = me;
   st.lastError = null;
-  // The queue service owns the live session. Keeping a second client here can
-  // invalidate the auth key, so the app drops its socket after the session is saved.
-  if (process.env.JOBS_WORKER === "off") {
+  st.revokedSession = null;
+  // The queue service owns the live session. Drop this socket before the session
+  // is visible, or the queue can connect the same auth key while this one is still up.
+  if (handoff) {
     await p.client.destroy().catch(() => {});
     st.client = null;
+    st.boundSession = null;
   } else {
     st.client = p.client;
+    st.boundSession = saved;
     installHandlers(p.client);
   }
+  await setSetting(SETTING_KEYS.telegramSession, { session: saved, me } satisfies StoredSession);
+  if (handoff && process.env.QUEUE_URL) await queueFetch("/telegram/connect", "POST").catch(() => {});
   await recordAudit({ actor, entityType: "telegram", entityId: "account", action: "telegram.signed_in", after: { user: me.username ?? me.id } });
   return { needsPassword: false as const, me };
 }
@@ -264,12 +316,31 @@ export async function cancelTelegramLogin() {
 
 export async function signOutTelegram(actor: Actor) {
   const st = state();
+  // Opening a client here while the queue process holds the same auth key revokes it.
+  if (process.env.JOBS_WORKER === "off") {
+    if (st.pending) await st.pending.client.destroy().catch(() => {});
+    st.pending = null;
+    st.client = null;
+    st.boundSession = null;
+    st.me = null;
+    st.lastError = null;
+    if (process.env.QUEUE_URL) {
+      await queueFetch("/telegram/sign-out", "POST");
+      await recordAudit({ actor, entityType: "telegram", entityId: "account", action: "telegram.signed_out" });
+      return;
+    }
+    await deleteSetting(SETTING_KEYS.telegramSession);
+    await recordAudit({ actor, entityType: "telegram", entityId: "account", action: "telegram.signed_out" });
+    return;
+  }
   const client = st.client ?? (await connectTelegram());
   if (client) {
     await withTimeout(client.invoke(new Api.auth.LogOut())).catch(() => {});
     await client.destroy().catch(() => {});
   }
   st.client = null;
+  st.boundSession = null;
+  st.revokedSession = null;
   st.me = null;
   st.lastError = null;
   await deleteSetting(SETTING_KEYS.telegramSession);
@@ -278,27 +349,58 @@ export async function signOutTelegram(actor: Actor) {
 
 /** Connects with the stored session. Safe to call often; reuses a live connection. */
 export async function connectTelegram(): Promise<TelegramClient | null> {
+  // Only the queue process may open the stored auth key. The web process asking
+  // for dialogs goes through the queue so two sockets never share that key.
+  if (process.env.JOBS_WORKER === "off") {
+    const st = state();
+    if (st.client) {
+      const client = st.client;
+      st.client = null;
+      st.boundSession = null;
+      void client.destroy().catch(() => {});
+    }
+    return null;
+  }
   const st = state();
-  if (st.client?.connected) return st.client;
+  if (st.client?.connected && st.revokedSession !== st.boundSession) return st.client;
   if (!st.connecting) {
     st.connecting = (async () => {
       try {
         const [api, session] = await Promise.all([getSetting<ApiCredentials>(SETTING_KEYS.telegramApi), getSetting<StoredSession>(SETTING_KEYS.telegramSession)]);
         if (!api || !session) return;
-        if (st.client) await st.client.destroy().catch(() => {});
-        const client = makeClient(api, session.session);
+        if (st.revokedSession && st.revokedSession === session.session) {
+          st.lastError = st.lastError ?? FRIENDLY.AUTH_KEY_DUPLICATED;
+          return;
+        }
+        if (st.revokedSession && st.revokedSession !== session.session) st.revokedSession = null;
+        // A new login replaced the session. Close the old socket before opening the new key.
+        // A client that is already up keeps its socket; replacing it would use the auth key twice.
+        if (st.client && st.boundSession && st.boundSession !== session.session) {
+          await st.client.destroy().catch(() => {});
+          st.client = null;
+          st.boundSession = null;
+        }
+        const client = st.client ?? makeClient(api, session.session);
         try {
-          await withTimeout(client.connect());
+          if (!client.connected) await withTimeout(client.connect());
           // GetState throws on a real failure. checkAuthorization turns every
           // failure, including a dropped socket, into `false`, and deleting the
           // stored login on that false result signed the account out on restart.
           await withTimeout(client.invoke(new Api.updates.GetState()));
         } catch (err) {
-          await client.destroy().catch(() => {});
+          if (rememberRevokedSession(err, session.session) || !client.connected) {
+            await client.destroy().catch(() => {});
+            st.client = null;
+            st.boundSession = null;
+          } else {
+            st.client = client;
+            st.boundSession = session.session;
+          }
           throw err;
         }
         installHandlers(client);
         st.client = client;
+        st.boundSession = session.session;
         st.me = session.me;
         st.lastError = null;
         try {
@@ -308,12 +410,14 @@ export async function connectTelegram(): Promise<TelegramClient | null> {
           const saved = (client.session as StringSession).save();
           const identityChanged = me.id !== session.me.id || me.username !== session.me.username || me.name !== session.me.name;
           if (saved && (saved !== session.session || identityChanged)) {
+            st.boundSession = saved;
             await setSetting(SETTING_KEYS.telegramSession, { session: saved, me } satisfies StoredSession);
           }
         } catch (err) {
           console.error("[telegram] session refresh failed:", telegramErrorMessage(err));
         }
       } catch (err) {
+        rememberRevokedSession(err);
         st.lastError = telegramErrorMessage(err);
         console.error("[telegram] connect failed:", st.lastError);
       } finally {
@@ -339,29 +443,39 @@ export interface ResolvedChannel {
 
 async function requireClient() {
   const client = await connectTelegram();
-  if (!client) throw new Error("Telegram is not connected. Sign in on the Telegram page first.");
+  if (!client) throw new Error(state().lastError ?? "Telegram is not connected. Sign in on the Telegram page first.");
   return client;
 }
 
 /** Channels and groups the connected account is already in. Empty when Telegram is not connected. */
 export async function listJoinedTelegramChats(): Promise<{ connected: true; chats: JoinedChat[] } | { connected: false; chats: [] }> {
-  if (process.env.QUEUE_URL && process.env.JOBS_WORKER === "off") {
+  if (process.env.JOBS_WORKER === "off") {
+    if (!process.env.QUEUE_URL) throw new Error("JOBS_WORKER=off, so this app does not open a Telegram session. Set QUEUE_URL to the queue service.");
     const secret = process.env.APP_SECRET;
     if (!secret) throw new Error("APP_SECRET is not set, so this app cannot ask the queue service for Telegram chats.");
     const res = await fetch(new URL("/telegram/dialogs", process.env.QUEUE_URL), {
       headers: { "x-app-secret": secret },
       cache: "no-store",
     });
-    if (!res.ok) throw new Error("The queue service could not list Telegram chats.");
+    if (!res.ok) throw new Error(await queueFailure(res, "The queue service could not list Telegram chats."));
     const body = (await res.json()) as { connected: boolean; chats: JoinedChat[] };
     return body.connected ? { connected: true, chats: body.chats } : { connected: false, chats: [] };
   }
   const client = await connectTelegram();
-  if (!client) return { connected: false, chats: [] };
+  if (!client) {
+    if (state().revokedSession && state().lastError) throw new Error(state().lastError);
+    return { connected: false, chats: [] };
+  }
   try {
     const chats = await withTimeout(listJoinedChats(client));
     return { connected: true, chats };
   } catch (err) {
+    if (rememberRevokedSession(err)) {
+      await client.destroy().catch(() => {});
+      const st = state();
+      st.client = null;
+      st.boundSession = null;
+    }
     throw new Error(telegramErrorMessage(err));
   }
 }

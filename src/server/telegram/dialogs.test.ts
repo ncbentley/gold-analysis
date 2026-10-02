@@ -5,7 +5,7 @@ import { runMigrations } from "@/server/db/migrate";
 import { sources } from "@/server/db/schema";
 import { removeSourceFromList } from "@/server/admin";
 import { listSources } from "@/server/signals/queries";
-import { addJoinedTelegramChat, listJoinedTelegramChats, telegramStatus } from "@/server/telegram";
+import { addJoinedTelegramChat, listJoinedTelegramChats, telegramErrorMessage, telegramStatus } from "@/server/telegram";
 import { joinedChatsFromDialogs, listJoinedChats, selectJoinedChat, chatWithLoadedAccessHash, type DialogEntityLike, type DialogLike } from "./dialogs";
 
 function dialog(entity: DialogEntityLike, extra: Partial<DialogLike> = {}): DialogLike {
@@ -189,6 +189,30 @@ describe("addJoinedTelegramChat", () => {
       const status = await telegramStatus();
       expect(status.connected).toBe(true);
       expect(status.lastError).toBeNull();
+    } finally {
+      globalThis.fetch = original;
+      if (previous.jobs === undefined) delete process.env.JOBS_WORKER;
+      else process.env.JOBS_WORKER = previous.jobs;
+      if (previous.url === undefined) delete process.env.QUEUE_URL;
+      else process.env.QUEUE_URL = previous.url;
+      if (previous.secret === undefined) delete process.env.APP_SECRET;
+      else process.env.APP_SECRET = previous.secret;
+    }
+  });
+
+  it("shows the queue service's Telegram error when listing chats fails", async () => {
+    const previous = {
+      jobs: process.env.JOBS_WORKER,
+      url: process.env.QUEUE_URL,
+      secret: process.env.APP_SECRET,
+    };
+    process.env.JOBS_WORKER = "off";
+    process.env.QUEUE_URL = "http://queue.test";
+    process.env.APP_SECRET = "test-secret";
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("AUTH_KEY_DUPLICATED", { status: 500 })) as typeof fetch;
+    try {
+      await expect(listJoinedTelegramChats()).rejects.toThrow(telegramErrorMessage({ errorMessage: "AUTH_KEY_DUPLICATED" }));
     } finally {
       globalThis.fetch = original;
       if (previous.jobs === undefined) delete process.env.JOBS_WORKER;

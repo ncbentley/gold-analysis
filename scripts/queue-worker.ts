@@ -58,6 +58,19 @@ async function main() {
       }
       return;
     }
+    if (req.method === "POST" && req.url === "/telegram/sign-out") {
+      try {
+        const { SYSTEM } = await import("@/server/audit");
+        const { signOutTelegram } = await import("@/server/telegram");
+        await signOutTelegram(SYSTEM);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(500, { "content-type": "text/plain" });
+        res.end(err instanceof Error ? err.message : "telegram sign-out failed");
+      }
+      return;
+    }
     if (req.method === "GET" && req.url === "/telegram/dialogs") {
       try {
         const { listJoinedTelegramChats } = await import("@/server/telegram");

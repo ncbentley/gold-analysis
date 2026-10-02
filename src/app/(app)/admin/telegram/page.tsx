@@ -19,7 +19,7 @@ export default async function AdminTelegramPage({ searchParams }: PageProps<"/ad
   const sp = await searchParams;
   let status = await telegramStatus();
   const queueOwnsTelegram = process.env.JOBS_WORKER === "off" && Boolean(process.env.QUEUE_URL);
-  if (!queueOwnsTelegram && status.signedIn && !status.connected && !status.pending) {
+  if (process.env.JOBS_WORKER !== "off" && status.signedIn && !status.connected && !status.pending) {
     await Promise.race([connectTelegram(), new Promise((resolve) => setTimeout(resolve, 4000))]);
     status = await telegramStatus();
   }
