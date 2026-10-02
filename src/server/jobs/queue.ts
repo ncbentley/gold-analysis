@@ -16,6 +16,7 @@ export const JOB_TYPES = [
   "RECALC_ALL_SIGNALS",
   "REPAIR_QUOTE_PARSES",
   "RECONCILE_SUBSCRIPTIONS",
+  "CONSOLIDATE_SIGNALS",
 ] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 
