@@ -11,9 +11,8 @@ function stableIdeaId(signalIds: string[]) {
 }
 
 function toRow(idea: GroupedIdea) {
-  const signalIds = [...idea.signalIds, ...idea.replacedSignalIds];
   return {
-    id: stableIdeaId(signalIds),
+    id: stableIdeaId(idea.signalIds),
     direction: idea.direction,
     entryMin: idea.entryMin,
     entryMax: idea.entryMax,
@@ -22,7 +21,8 @@ function toRow(idea: GroupedIdea) {
     exitSpreadStops: idea.exitSpreadStops,
     exitSpreadTargets: idea.exitSpreadTargets,
     sourceCount: idea.sourceCount,
-    signalIds,
+    signalIds: idea.signalIds,
+    replacedSignalIds: idea.replacedSignalIds,
     newestSignalAt: new Date(idea.newestSignalAt),
     frozenAt: idea.frozenAt === null ? null : new Date(idea.frozenAt),
   };
@@ -32,10 +32,10 @@ export async function replaceConsolidatedIdeas(now = Date.now()) {
   const db = await getDb();
   const since = new Date(now - WINDOW_MS);
   const frozen = await db
-    .select({ signalIds: consolidatedIdeas.signalIds })
+    .select({ signalIds: consolidatedIdeas.signalIds, replacedSignalIds: consolidatedIdeas.replacedSignalIds })
     .from(consolidatedIdeas)
     .where(isNotNull(consolidatedIdeas.frozenAt));
-  const frozenSignalIds = new Set(frozen.flatMap((row) => row.signalIds));
+  const frozenSignalIds = new Set(frozen.flatMap((row) => [...row.signalIds, ...row.replacedSignalIds]));
   const rows = await db
     .select({ signal: signals, source: sources })
     .from(signals)

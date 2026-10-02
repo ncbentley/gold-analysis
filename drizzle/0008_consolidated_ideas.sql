@@ -9,6 +9,7 @@ CREATE TABLE "consolidated_ideas" (
   "exit_spread_targets" jsonb NOT NULL,
   "source_count" integer NOT NULL,
   "signal_ids" jsonb NOT NULL,
+  "replaced_signal_ids" jsonb DEFAULT '[]' NOT NULL,
   "newest_signal_at" timestamptz NOT NULL,
   "frozen_at" timestamptz,
   "created_at" timestamptz DEFAULT now() NOT NULL,

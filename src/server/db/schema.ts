@@ -299,6 +299,7 @@ export const consolidatedIdeas = pgTable("consolidated_ideas", {
   exitSpreadTargets: jsonb("exit_spread_targets").$type<number[]>().notNull(),
   sourceCount: integer("source_count").notNull(),
   signalIds: jsonb("signal_ids").$type<string[]>().notNull(),
+  replacedSignalIds: jsonb("replaced_signal_ids").$type<string[]>().notNull().default([]),
   newestSignalAt: ts("newest_signal_at").notNull(),
   frozenAt: ts("frozen_at"),
   createdAt: createdAt(),

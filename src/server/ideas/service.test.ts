@@ -256,17 +256,25 @@ describe("replaceConsolidatedIdeas", () => {
       })
       .returning();
 
-    const members = [firstPost.id, secondPost.id, otherPost.id];
+    const counting = [secondPost.id, otherPost.id];
     await replaceConsolidatedIdeas(t0 + 45 * 60_000);
-    const stored = (await db.select().from(consolidatedIdeas)).filter((row) => members.some((id) => row.signalIds.includes(id)));
+    const stored = (await db.select().from(consolidatedIdeas)).filter((row) =>
+      counting.some((id) => row.signalIds.includes(id)) || row.replacedSignalIds.includes(firstPost.id),
+    );
     expect(stored).toHaveLength(1);
-    expect(stored[0].signalIds).toEqual(expect.arrayContaining(members));
+    expect(stored[0].signalIds).toEqual(expect.arrayContaining(counting));
+    expect(stored[0].signalIds).toHaveLength(2);
+    expect(stored[0].replacedSignalIds).toEqual([firstPost.id]);
 
     await replaceConsolidatedIdeas(t0 + 46 * 60_000);
-    const later = (await db.select().from(consolidatedIdeas)).filter((row) => members.some((id) => row.signalIds.includes(id)));
+    const later = (await db.select().from(consolidatedIdeas)).filter((row) =>
+      counting.some((id) => row.signalIds.includes(id)) || row.signalIds.includes(firstPost.id) || row.replacedSignalIds.includes(firstPost.id),
+    );
     expect(later).toHaveLength(1);
     expect(later[0].id).toBe(stored[0].id);
-    expect(later[0].signalIds).toEqual(expect.arrayContaining(members));
+    expect(later[0].signalIds).toEqual(expect.arrayContaining(counting));
+    expect(later[0].signalIds).toHaveLength(2);
+    expect(later[0].replacedSignalIds).toEqual([firstPost.id]);
     expect(later.some((row) => row.signalIds.length === 1 && row.signalIds[0] === firstPost.id)).toBe(false);
   });
 });
