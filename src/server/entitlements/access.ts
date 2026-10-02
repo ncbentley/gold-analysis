@@ -31,7 +31,7 @@ export function can(access: Access, feature: Feature) {
 }
 
 export function lowestTierWith(feature: Feature, config: Record<Tier, TierConfig>): Tier | null {
-  return TIER_ORDER.find((t) => config[t].features.includes(feature)) ?? null;
+  return TIER_ORDER.find((t) => t !== "gold" && config[t].features.includes(feature)) ?? null;
 }
 
 export function gate<T>(

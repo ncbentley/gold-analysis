@@ -13,6 +13,7 @@ export async function POST(req: Request) {
   if (!(TIERS as readonly string[]).includes(tier) || !(PERIODS as readonly string[]).includes(period)) {
     return apiError(400, "invalid_plan", "Unknown tier or billing period.");
   }
+  if (tier === "gold") return apiError(400, "invalid_plan", "Gold is no longer offered.");
   try {
     const { url } = await startCheckout(user, tier as Tier, period as BillingPeriod);
     return json({ url });

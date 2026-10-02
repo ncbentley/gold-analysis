@@ -10,6 +10,7 @@ function parsePlan(form: FormData) {
   const tier = String(form.get("tier"));
   const period = String(form.get("period"));
   if (!(TIERS as readonly string[]).includes(tier) || !(PERIODS as readonly string[]).includes(period)) throw new Error("Invalid plan");
+  if (tier === "gold") throw new Error("Gold is no longer offered.");
   return { tier: tier as Tier, period: period as BillingPeriod };
 }
 

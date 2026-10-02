@@ -140,7 +140,7 @@ describe("access", () => {
 
   it("reports the lowest tier that unlocks a feature", () => {
     expect(lowestTierWith("signals.core", config)).toBe("silver");
-    expect(lowestTierWith("similar.summary", config)).toBe("gold");
+    expect(lowestTierWith("similar.summary", config)).toBe("platinum");
     expect(lowestTierWith("ai.patterns", config)).toBeNull();
     expect(lowestTierWith("consensus.grade", config)).toBeNull();
     expect(lowestTierWith("consensus.timing", config)).toBeNull();

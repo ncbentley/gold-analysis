@@ -125,7 +125,7 @@ describe("pipeline", () => {
 
   it("locks signals older than the tier's history window", async () => {
     const res = await getSignalDetailForViewer(signalId, viewer("silver", DEFAULT_TIER_CONFIG));
-    expect(res).toMatchObject({ kind: "history_locked", requiredTier: "gold" });
+    expect(res).toMatchObject({ kind: "history_locked", requiredTier: "platinum" });
     const list = await listSignalsForViewer(viewer("gold", DEFAULT_TIER_CONFIG), {});
     expect(list.items.map((item) => item.id)).toContain(signalId);
   });

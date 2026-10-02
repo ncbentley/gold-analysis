@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { listPlans } from "@/server/billing/service";
-import { TIER_LABEL, TIER_ORDER } from "@/server/entitlements/config";
+import { FREE_HISTORY_DAYS, TIER_LABEL } from "@/server/entitlements/config";
 import { getTierConfig } from "@/server/entitlements/service";
 import { listPublicSampleSignals, listSources } from "@/server/signals/queries";
 import { getTopSources } from "@/server/statistics/service";
@@ -27,15 +27,27 @@ const STEPS = [
   { icon: ShieldCheck, title: "Audit", body: "Every manual correction or override keeps the original, the new value, who changed it and why." },
 ];
 
-const TIER_PITCH: Record<string, { tagline: string; bullets: string[] }> = {
-  silver: { tagline: "The signals, as they happen", bullets: ["Live signals and status updates", "Every source tracked under its own nickname", "Final result for closed trades"] },
-  gold: {
-    tagline: "Know how each source performs",
-    bullets: ["Everything in Silver", "Source win rate, average R and expectancy", "Recent 10 / 30 trade form", "Time of day, direction and signal type breakdowns", "Similar-trade summary and MFE / MAE"],
+const PLAN_CARDS = ["free", "silver", "platinum"] as const;
+
+const TIER_PITCH: Record<(typeof PLAN_CARDS)[number], { tagline: string; bullets: string[] }> = {
+  free: {
+    tagline: "The raw feed",
+    bullets: ["Live signals with entry, stop and targets", "Final result after a trade closes"],
+  },
+  silver: {
+    tagline: "How each source performs",
+    bullets: ["Everything in Free", "Source win rate, average R and expectancy"],
   },
   platinum: {
     tagline: "The full research desk",
-    bullets: ["Everything in Gold", "Full history and search", "Advanced filters", "AI setup classification and pattern analysis", "Similar-trade details and trade timelines", "Session, weekday and percentile statistics"],
+    bullets: [
+      "Everything in Silver",
+      "Recent form, time of day, direction and signal type",
+      "Full history and search",
+      "Advanced filters",
+      "Similar trades, excursion and time to target",
+      "Session, weekday and percentile statistics",
+    ],
   },
 };
 
@@ -150,35 +162,34 @@ export default async function LandingPage() {
         <SectionTitle icon={Crown} title="Plans" className={SECTION} />
         <p className="text-muted-foreground">Weekly, monthly or annual billing. Cancel any time; access continues until the end of the paid period.</p>
         <div className="mt-8 grid gap-4 md:grid-cols-3">
-          {TIER_ORDER.map((tier) => {
-            const plan = monthly.get(tier);
-            const gold = tier === "gold";
-            const TierIcon = TIER_ICON[tier];
+          {PLAN_CARDS.map((tier) => {
+            const featured = tier === "platinum";
+            const plan = tier === "free" ? null : monthly.get(tier);
+            const TierIcon = tier === "free" ? Radio : TIER_ICON[tier];
+            const history = tier === "free" ? `${FREE_HISTORY_DAYS} days` : config[tier].historyDays ? `${config[tier].historyDays} days` : "full";
             return (
-              <Card key={tier} className={cn(gold && "panel-gold ring-primary/55 shadow-[0_0_28px_-8px_rgb(245_197_66/0.55)]")}>
+              <Card key={tier} className={cn(featured && "panel-gold ring-primary/55 shadow-[0_0_28px_-8px_rgb(245_197_66/0.55)]")}>
                 <CardHeader>
                   <div className="flex items-center gap-3">
                     <span
                       className={cn(
                         "flex size-11 shrink-0 items-center justify-center rounded-xl ring-1",
-                        gold ? "bg-primary/10 text-primary ring-primary/55" : "bg-glow/10 text-[#8db6ff] ring-glow/50",
+                        featured ? "bg-primary/10 text-primary ring-primary/55" : "bg-glow/10 text-[#8db6ff] ring-glow/50",
                       )}
                     >
                       <TierIcon className="size-5" />
                     </span>
                     <div>
-                      <CardTitle className={cn("text-lg", gold && "gold-text")}>{TIER_LABEL[tier]}</CardTitle>
+                      <CardTitle className={cn("text-lg", featured && "gold-text")}>{tier === "free" ? "Free" : TIER_LABEL[tier]}</CardTitle>
                       <CardDescription>{TIER_PITCH[tier].tagline}</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {plan && (
-                    <div className={cn("font-heading text-3xl font-extrabold tabular-nums tracking-tight", gold && "gold-text")}>
-                      {fmtMoney(plan.amountCents, plan.currency)}
-                      <span className="font-sans text-sm font-normal text-muted-foreground"> / month</span>
-                    </div>
-                  )}
+                  <div className={cn("font-heading text-3xl font-extrabold tabular-nums tracking-tight", featured && "gold-text")}>
+                    {tier === "free" ? "Free" : plan ? fmtMoney(plan.amountCents, plan.currency) : "—"}
+                    {tier !== "free" && <span className="font-sans text-sm font-normal text-muted-foreground"> / month</span>}
+                  </div>
                   <ul className="mt-4 space-y-1.5 text-sm">
                     {TIER_PITCH[tier].bullets.map((b) => (
                       <li key={b} className="flex gap-2">
@@ -187,9 +198,7 @@ export default async function LandingPage() {
                       </li>
                     ))}
                   </ul>
-                  <div className="mt-3 text-[11px] text-muted-foreground">
-                    History: {config[tier].historyDays ? `${config[tier].historyDays} days` : "full"}
-                  </div>
+                  <div className="mt-3 text-[11px] text-muted-foreground">History: {history}</div>
                 </CardContent>
               </Card>
             );

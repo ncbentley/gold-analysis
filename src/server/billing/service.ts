@@ -57,6 +57,7 @@ export async function listUserSubscriptions(userId: string) {
 }
 
 export async function startCheckout(user: { id: string; email: string }, tier: Tier, period: BillingPeriod) {
+  if (tier === "gold") throw new Error("Gold is no longer offered.");
   const plan = await getPlan(tier, period);
   if (!plan || !plan.active) throw new Error("Plan not available");
   await trackEvent("checkout_started", user.id, { tier, period, mode: billingMode() });
