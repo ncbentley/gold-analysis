@@ -42,7 +42,7 @@ export default async function TopSourcesPage() {
         rows={ranking.rows}
         eligibleCount={ranking.eligibleCount}
         sourceCount={ranking.sourceCount}
-        lockedHref="/upgrade?tier=gold&feature=sources.stats.summary"
+        lockedHref="/upgrade?tier=silver&feature=sources.stats.summary"
         hrefBase="/sources"
       />
     </>

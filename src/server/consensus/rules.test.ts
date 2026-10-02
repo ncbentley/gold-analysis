@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildAccess } from "@/server/entitlements/access";
-import { DEFAULT_TIER_CONFIG } from "@/server/entitlements/config";
+import { buildAccess, type Access } from "@/server/entitlements/access";
+import { DEFAULT_TIER_CONFIG, type Feature } from "@/server/entitlements/config";
 import { accessForPreview } from "@/server/entitlements/view-as";
 import { presentSignalDetail } from "@/server/presenters";
 import {
@@ -14,6 +14,10 @@ import {
 } from "./rules";
 
 const t0 = new Date("2026-09-28T12:00:00Z");
+
+function withFeatures(access: Access, extra: Feature[]): Access {
+  return { ...access, features: new Set([...access.features, ...extra]) };
+}
 
 function signal(
   id: string,
@@ -197,7 +201,7 @@ describe("tier visibility", () => {
   });
 
   it("shows gold the score and timing breakdown without the performer mapping or channel names", () => {
-    const access = accessForPreview(DEFAULT_TIER_CONFIG, "gold");
+    const access = withFeatures(accessForPreview(DEFAULT_TIER_CONFIG, "gold"), ["consensus.grade", "consensus.timing"]);
     const detail = detailFor(access);
     expect(detail.consensus.grade.locked).toBe(false);
     expect(detail.consensus.timing.locked).toBe(false);
@@ -215,7 +219,7 @@ describe("tier visibility", () => {
   });
 
   it("shows platinum the anonymized performer mapping and still hides channel identity", () => {
-    const access = accessForPreview(DEFAULT_TIER_CONFIG, "platinum");
+    const access = withFeatures(accessForPreview(DEFAULT_TIER_CONFIG, "platinum"), ["consensus.grade", "consensus.mapping"]);
     const detail = detailFor(access);
     expect(detail.consensus.mapping.locked).toBe(false);
     if (detail.consensus.mapping.locked || detail.consensus.grade.locked) return;

@@ -16,30 +16,35 @@ describe("admin view-as", () => {
     expect(silver.tier).toBe("silver");
     expect(silver.isAdmin).toBe(false);
     expect(can(silver, "signals.core")).toBe(true);
-    expect(can(silver, "sources.stats.summary")).toBe(false);
+    expect(can(silver, "sources.stats.summary")).toBe(true);
+    expect(can(silver, "sources.stats.recent")).toBe(false);
     expect(can(silver, "consensus.grade")).toBe(false);
     expect(can(silver, "consensus.mapping")).toBe(false);
-    expect(silver.historyDays).toBe(30);
+    expect(silver.historyDays).toBe(180);
 
     const gold = accessForPreview(DEFAULT_TIER_CONFIG, "gold");
     expect(can(gold, "sources.stats.summary")).toBe(true);
-    expect(can(gold, "consensus.grade")).toBe(true);
-    expect(can(gold, "consensus.timing")).toBe(true);
+    expect(can(gold, "filters.advanced")).toBe(true);
+    expect(can(gold, "consensus.grade")).toBe(false);
+    expect(can(gold, "consensus.timing")).toBe(false);
     expect(can(gold, "consensus.mapping")).toBe(false);
     expect(can(gold, "ai.summary")).toBe(false);
-    expect(gold.historyDays).toBe(180);
+    expect(gold.historyDays).toBeNull();
 
     const platinum = accessForPreview(DEFAULT_TIER_CONFIG, "platinum");
-    expect(can(platinum, "ai.patterns")).toBe(true);
-    expect(can(platinum, "consensus.mapping")).toBe(true);
+    expect(can(platinum, "filters.advanced")).toBe(true);
+    expect(can(platinum, "ai.patterns")).toBe(false);
+    expect(can(platinum, "consensus.mapping")).toBe(false);
     expect(platinum.historyDays).toBeNull();
   });
 
   it("can preview a signed-in visitor with no plan", () => {
     const access = accessForPreview(DEFAULT_TIER_CONFIG, "none");
     expect(access.tier).toBeNull();
-    expect(access.features.size).toBe(0);
-    expect(access.historyDays).toBe(0);
+    expect(can(access, "signals.core")).toBe(true);
+    expect(can(access, "signals.basic_result")).toBe(true);
+    expect(can(access, "sources.stats.summary")).toBe(false);
+    expect(access.historyDays).toBe(7);
   });
 
   it("ignores unknown preview values", () => {

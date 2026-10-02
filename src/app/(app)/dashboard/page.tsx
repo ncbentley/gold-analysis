@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AffiliateStrip } from "@/components/affiliate-strip";
 import { DirectionPanel } from "@/components/direction-panel";
+import { IdeaList } from "@/components/idea-list";
 import { LiveRefresh } from "@/components/live-refresh";
 import { LockedPanel } from "@/components/locked";
 import { PageHeader, SectionTitle } from "@/components/page-header";
@@ -14,6 +15,7 @@ import { can, lowestTierWith } from "@/server/entitlements/access";
 import { getViewer } from "@/server/entitlements/service";
 import { latestMarketDirection } from "@/server/direction/service";
 import { getRecentBars } from "@/server/market-data";
+import { listIdeasForViewer } from "@/server/ideas/service";
 import { listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
 import { nowMs } from "@/lib/clock";
 
@@ -80,14 +82,20 @@ export default async function DashboardPage() {
     );
   }
 
-  const [open, closed, ranking, direction] = await Promise.all([
-    listSignalsForViewer(viewer, { status: "OPEN" }, { limit: 20 }),
-    listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 10 }),
+  const silver = access.tier === "silver";
+  const spot = lastBar?.close ?? null;
+  const [open, closed, ideas, ranking, direction] = await Promise.all([
+    silver ? null : listSignalsForViewer(viewer, { status: "OPEN" }, { limit: 20, segment: true }),
+    silver ? null : listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 10, segment: true }),
+    silver ? listIdeasForViewer(viewer, spot) : null,
     listTopSourcesForViewer(viewer, 5),
     latestMarketDirection(),
   ]);
-  const activeCount = open.items.filter((s) => s.status !== "PENDING").length;
-  const pendingCount = open.items.filter((s) => s.status === "PENDING").length;
+  const activeCount = open?.items.filter((s) => s.status !== "PENDING").length ?? 0;
+  const pendingCount = open?.items.filter((s) => s.status === "PENDING").length ?? 0;
+  const liveIdeas = ideas?.filter((idea) => idea.phase !== "history") ?? [];
+  const historyIdeas = ideas?.filter((idea) => idea.phase === "history") ?? [];
+  const sourceCount = ideas?.reduce((sum, idea) => sum + idea.sourceCount, 0) ?? 0;
 
   return (
     <>
@@ -99,26 +107,56 @@ export default async function DashboardPage() {
         empty={access.isAdmin ? "Star a channel on the Telegram page. Its posts feed this read." : "No direction read yet."}
       />
       <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Active trades" value={activeCount} hint="entered, not closed" icon={Activity} tone="gold" />
-        <Stat label="Pending entries" value={pendingCount} hint="waiting for fill" icon={Hourglass} />
-        <Stat label="Tracked sources" value={ranking.sourceCount} icon={Radar} />
-        <Stat
-          label="Signals in your window"
-          value={open.total + closed.total}
-          hint={access.historyDays ? `last ${access.historyDays} days` : "full history"}
-          icon={History}
-        />
+        {silver ? (
+          <>
+            <Stat label="Available" value={ideas?.filter((idea) => idea.phase === "available").length ?? 0} hint="can still be filled" icon={Hourglass} />
+            <Stat label="Playing out" value={ideas?.filter((idea) => idea.phase === "playing-out").length ?? 0} hint="entered, not closed" icon={Activity} tone="gold" />
+            <Stat
+              label="History"
+              value={historyIdeas.length}
+              hint={access.historyDays ? `last ${access.historyDays} days` : "full history"}
+              icon={History}
+            />
+            <Stat label="Source count" value={sourceCount} hint="across these ideas" icon={Radar} />
+          </>
+        ) : (
+          <>
+            <Stat label="Active trades" value={activeCount} hint="entered, not closed" icon={Activity} tone="gold" />
+            <Stat label="Pending entries" value={pendingCount} hint="waiting for fill" icon={Hourglass} />
+            <Stat label="Tracked sources" value={ranking.sourceCount} icon={Radar} />
+            <Stat
+              label="Signals in your window"
+              value={(open?.total ?? 0) + (closed?.total ?? 0)}
+              hint={access.historyDays ? `last ${access.historyDays} days` : "full history"}
+              icon={History}
+            />
+          </>
+        )}
       </div>
 
-      <section className="mt-8">
-        <SectionTitle icon={Activity} title="Active & pending" action={<ViewAll href="/signals?status=OPEN" />} />
-        <SignalList items={open.items} now={now} empty="No open signals right now. New signals appear here within moments of being posted." />
-      </section>
-
-      <section className="mt-8">
-        <SectionTitle icon={History} title="Recently closed" action={<ViewAll href="/signals?status=CLOSED" />} />
-        <SignalList items={closed.items} now={now} empty="No closed signals in your history window yet." />
-      </section>
+      {silver ? (
+        <>
+          <section className="mt-8">
+            <SectionTitle icon={Activity} title="Available & playing out" />
+            <IdeaList items={liveIdeas} now={now} empty="No ideas are available or playing out right now." />
+          </section>
+          <section className="mt-8">
+            <SectionTitle icon={History} title="History" />
+            <IdeaList items={historyIdeas} now={now} empty="No ideas in your history window yet." />
+          </section>
+        </>
+      ) : (
+        <>
+          <section className="mt-8">
+            <SectionTitle icon={Activity} title="Active & pending" action={<ViewAll href="/signals" />} />
+            <SignalList items={open?.items ?? []} now={now} empty="No open signals right now. New signals appear here within moments of being posted." />
+          </section>
+          <section className="mt-8">
+            <SectionTitle icon={History} title="Recently closed" action={<ViewAll href="/signals" />} />
+            <SignalList items={closed?.items ?? []} now={now} empty="No closed signals in your history window yet." />
+          </section>
+        </>
+      )}
 
       <section className="mt-8">
         <SectionTitle icon={Trophy} title="Top sources" action={<ViewAll href="/sources" />} />
@@ -127,7 +165,7 @@ export default async function DashboardPage() {
           hrefBase="/sources"
           eligibleCount={ranking.eligibleCount}
           sourceCount={ranking.sourceCount}
-          lockedHref="/upgrade?tier=gold&feature=sources.stats.summary"
+          lockedHref="/upgrade?tier=silver&feature=sources.stats.summary"
         />
       </section>
 

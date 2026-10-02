@@ -458,7 +458,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
                 </GatedView>
               </div>
             ) : (
-              <LockedPanel feature="sources.stats.summary" requiredTier="gold" title="Historical context" userId={uid} compact />
+              <LockedPanel feature="sources.stats.summary" requiredTier="silver" title="Historical context" userId={uid} compact />
             )}
           </Section>
           <AffiliateStrip placement="signal_detail" />

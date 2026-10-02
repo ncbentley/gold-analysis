@@ -56,7 +56,19 @@ export async function listUserSubscriptions(userId: string) {
   return db.select().from(subscriptions).where(eq(subscriptions.userId, userId)).orderBy(desc(subscriptions.createdAt));
 }
 
+/** Retired prices stay in the catalog for existing subscriptions, but new checkout cannot sell them. */
+function rejectRetiredCheckout(tier: Tier, period: BillingPeriod) {
+  if (tier === "gold") throw new Error("Gold is no longer offered.");
+  if (tier === "platinum" && period === "weekly") throw new Error("Platinum weekly is no longer offered.");
+}
+
+/** Gold and weekly Platinum keep access through the period already paid, then stop. */
+export function stopsAtPeriodEnd(sub: { tier: Tier; period: BillingPeriod }) {
+  return sub.tier === "gold" || (sub.tier === "platinum" && sub.period === "weekly");
+}
+
 export async function startCheckout(user: { id: string; email: string }, tier: Tier, period: BillingPeriod) {
+  rejectRetiredCheckout(tier, period);
   const plan = await getPlan(tier, period);
   if (!plan || !plan.active) throw new Error("Plan not available");
   await trackEvent("checkout_started", user.id, { tier, period, mode: billingMode() });
@@ -84,6 +96,7 @@ export async function startCheckout(user: { id: string; email: string }, tier: T
 
 /** Local test-mode checkout. Replaces any current subscription (upgrade/downgrade immediately). */
 export async function completeMockCheckout(userId: string, tier: Tier, period: BillingPeriod) {
+  rejectRetiredCheckout(tier, period);
   if (billingMode() !== "mock") throw new Error("Mock checkout is disabled when Stripe is configured");
   const db = await getDb();
   const now = new Date();
@@ -204,6 +217,7 @@ export async function handleStripeEvent(event: Stripe.Event) {
  */
 export async function reconcileSubscriptions(now = new Date()) {
   const db = await getDb();
+  const scheduled = await scheduleRetiredStripePlans(now);
   const due = await db
     .select()
     .from(subscriptions)
@@ -212,7 +226,7 @@ export async function reconcileSubscriptions(now = new Date()) {
   let expired = 0;
   for (const sub of due) {
     if (sub.provider === "mock") {
-      if (sub.cancelAtPeriodEnd) {
+      if (sub.cancelAtPeriodEnd || stopsAtPeriodEnd(sub)) {
         await db.update(subscriptions).set({ status: "expired" }).where(eq(subscriptions.id, sub.id));
         expired++;
       } else {
@@ -222,11 +236,38 @@ export async function reconcileSubscriptions(now = new Date()) {
           .where(eq(subscriptions.id, sub.id));
         renewed++;
       }
-    } else if (sub.providerSubscriptionId && process.env.STRIPE_SECRET_KEY) {
+    } else if (sub.provider === "stripe" && sub.providerSubscriptionId && process.env.STRIPE_SECRET_KEY) {
       const stripe = await getStripe();
       await syncStripeSubscription(await stripe.subscriptions.retrieve(sub.providerSubscriptionId));
     }
   }
-  if (renewed || expired) await recordAudit({ actor: SYSTEM, entityType: "subscription", entityId: "*", action: "subscription.reconciled", after: { renewed, expired } });
-  return { renewed, expired };
+  if (renewed || expired || scheduled) {
+    await recordAudit({ actor: SYSTEM, entityType: "subscription", entityId: "*", action: "subscription.reconciled", after: { renewed, expired, scheduled } });
+  }
+  return { renewed, expired, scheduled };
+}
+
+/** Still-entitled Stripe Gold and weekly Platinum are set to cancel when the paid period ends. */
+async function scheduleRetiredStripePlans(now: Date) {
+  if (!process.env.STRIPE_SECRET_KEY) return 0;
+  const db = await getDb();
+  const open = await db
+    .select()
+    .from(subscriptions)
+    .where(
+      and(
+        eq(subscriptions.provider, "stripe"),
+        inArray(subscriptions.status, [...ENTITLED_STATUSES]),
+        gt(subscriptions.currentPeriodEnd, now),
+        eq(subscriptions.cancelAtPeriodEnd, false),
+      ),
+    );
+  const retiring = open.filter((sub) => sub.provider === "stripe" && sub.providerSubscriptionId && stopsAtPeriodEnd(sub));
+  if (!retiring.length) return 0;
+  const stripe = await getStripe();
+  for (const sub of retiring) {
+    await stripe.subscriptions.update(sub.providerSubscriptionId!, { cancel_at_period_end: true });
+    await db.update(subscriptions).set({ cancelAtPeriodEnd: true, canceledAt: now }).where(eq(subscriptions.id, sub.id));
+  }
+  return retiring.length;
 }

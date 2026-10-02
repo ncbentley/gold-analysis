@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/server/auth";
 import { getEntitledSubscription } from "@/server/billing/service";
 import { getDb } from "@/server/db";
 import { tierEntitlements, TIERS, type Tier, type User } from "@/server/db/schema";
-import { ANONYMOUS, buildAccess, type Access } from "./access";
+import { ANONYMOUS, buildAccess, freeAccess, type Access } from "./access";
 import { ALL_FEATURES, DEFAULT_TIER_CONFIG, type Feature, type TierConfig } from "./config";
 import { accessForPreview, parseViewAs, VIEW_AS_COOKIE, type ViewAs } from "./view-as";
 
@@ -35,7 +35,7 @@ export async function accessForUser(user: User | null, config?: Record<Tier, Tie
   if (!user) return ANONYMOUS;
   if (user.role === "admin") return buildAccess(null, cfg, true);
   const sub = await getEntitledSubscription(user.id);
-  return buildAccess(sub?.tier ?? null, cfg);
+  return sub ? buildAccess(sub.tier, cfg) : freeAccess();
 }
 
 export interface Viewer {
@@ -59,6 +59,10 @@ export const getViewer = cache(async (scope: "member" | "admin" = "member"): Pro
   const requested = user?.role === "admin" ? parseViewAs((await cookies()).get(VIEW_AS_COOKIE)?.value) : null;
   const viewAs = scope === "member" ? requested : null;
   const access =
-    user?.role === "admin" ? accessForPreview(config, viewAs) : buildAccess(subscription?.tier ?? null, config);
+    user?.role === "admin"
+      ? accessForPreview(config, viewAs)
+      : user && !subscription
+        ? freeAccess()
+        : buildAccess(subscription?.tier ?? null, config);
   return { user, access, config, subscription, viewAs: requested };
 });

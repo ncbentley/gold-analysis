@@ -30,32 +30,25 @@ export const FEATURE_CATALOG = {
 export type Feature = keyof typeof FEATURE_CATALOG;
 export const ALL_FEATURES = Object.keys(FEATURE_CATALOG) as Feature[];
 
-const SILVER: Feature[] = ["signals.core", "signals.basic_result"];
-const GOLD: Feature[] = [
+export const FREE_FEATURES: Feature[] = ["signals.core", "signals.basic_result"];
+export const FREE_HISTORY_DAYS = 7;
+
+const SILVER: Feature[] = [...FREE_FEATURES, "sources.stats.summary"];
+const PLATINUM: Feature[] = [
   ...SILVER,
-  "sources.stats.summary",
   "sources.stats.recent",
   "sources.stats.time_of_day",
   "sources.stats.direction",
   "sources.stats.signal_type",
-  "similar.summary",
-  "outcome.excursion_summary",
-  "consensus.grade",
-  "consensus.timing",
-];
-const PLATINUM: Feature[] = [
-  ...GOLD,
-  "consensus.mapping",
   "sources.history.full",
   "sources.stats.extended",
-  "filters.advanced",
-  "search.history",
-  "ai.classification",
-  "ai.summary",
-  "ai.patterns",
+  "similar.summary",
   "similar.details",
+  "outcome.excursion_summary",
   "outcome.excursion_detail",
   "outcome.time_to_target",
+  "filters.advanced",
+  "search.history",
 ];
 
 export interface TierConfig {
@@ -65,8 +58,8 @@ export interface TierConfig {
 
 /** Seed defaults. The live configuration is stored in the tier_entitlements table. */
 export const DEFAULT_TIER_CONFIG: Record<Tier, TierConfig> = {
-  silver: { features: SILVER, historyDays: 30 },
-  gold: { features: GOLD, historyDays: 180 },
+  silver: { features: SILVER, historyDays: 180 },
+  gold: { features: PLATINUM, historyDays: null },
   platinum: { features: PLATINUM, historyDays: null },
 };
 

@@ -1,5 +1,5 @@
 import type { Tier } from "@/server/db/schema";
-import { ALL_FEATURES, TIER_ORDER, type Feature, type TierConfig } from "./config";
+import { ALL_FEATURES, FREE_FEATURES, FREE_HISTORY_DAYS, TIER_ORDER, type Feature, type TierConfig } from "./config";
 
 export interface Access {
   tier: Tier | null;
@@ -14,9 +14,14 @@ export type Gated<T> =
 
 export const ANONYMOUS: Access = { tier: null, isAdmin: false, features: new Set(), historyDays: 0 };
 
+export function freeAccess(): Access {
+  return { tier: null, isAdmin: false, features: new Set(FREE_FEATURES), historyDays: FREE_HISTORY_DAYS };
+}
+
 export function buildAccess(tier: Tier | null, config: Record<Tier, TierConfig>, isAdmin = false): Access {
   if (isAdmin) return { tier: "platinum", isAdmin: true, features: new Set(ALL_FEATURES), historyDays: null };
   if (!tier) return ANONYMOUS;
+  if (tier === "gold") return buildAccess("platinum", config);
   const c = config[tier];
   return { tier, isAdmin: false, features: new Set(c.features), historyDays: c.historyDays };
 }
@@ -26,7 +31,19 @@ export function can(access: Access, feature: Feature) {
 }
 
 export function lowestTierWith(feature: Feature, config: Record<Tier, TierConfig>): Tier | null {
-  return TIER_ORDER.find((t) => config[t].features.includes(feature)) ?? null;
+  return TIER_ORDER.find((t) => t !== "gold" && config[t].features.includes(feature)) ?? null;
+}
+
+/** Cheapest offered plan whose history window still contains `signalTime`. Gold is skipped. */
+export function tierForSignalTime(signalTime: Date, config: Record<Tier, TierConfig>, now = new Date()): Tier | null {
+  return (
+    TIER_ORDER.find((tier) => {
+      if (tier === "gold") return false;
+      const days = config[tier].historyDays;
+      if (days === null) return true;
+      return signalTime >= new Date(now.getTime() - days * 86_400_000);
+    }) ?? null
+  );
 }
 
 export function gate<T>(

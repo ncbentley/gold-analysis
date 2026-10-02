@@ -57,6 +57,20 @@
       "when": 1791244800000,
       "tag": "0007_starred_headlines",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791331200000,
+      "tag": "0008_consolidated_ideas",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791417600000,
+      "tag": "0009_refine_entitlements",
+      "breakpoints": true
     }
   ]
 }

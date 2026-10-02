@@ -116,7 +116,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         )}
         {!isAdmin && !viewer.subscription && user.emailVerifiedAt && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-primary/15 bg-primary/[0.04] px-4 py-2 text-sm lg:px-8">
-            <span>You don’t have an active membership, so signal data is locked.</span>
+            <span>Your feed is open for the last 7 days. Silver adds 180 days of history and the consolidated feed.</span>
             <Link href="/billing#plans" className="font-medium text-primary underline-offset-2 hover:underline">
               Compare packages
             </Link>

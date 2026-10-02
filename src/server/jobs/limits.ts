@@ -23,6 +23,7 @@ export const JOB_CONCURRENCY: Record<JobType, number> = {
   REFRESH_SOURCE_STATS: 2,
   REPAIR_QUOTE_PARSES: 1,
   RECONCILE_SUBSCRIPTIONS: 1,
+  CONSOLIDATE_SIGNALS: 1,
 };
 
 /** How soon an idle lane looks again. Enqueue wakes the lane immediately. */
@@ -40,6 +41,7 @@ export const LANE_POLL_MS: Record<JobType, number> = {
   REFRESH_SOURCE_STATS: 2_000,
   REPAIR_QUOTE_PARSES: 2_000,
   RECONCILE_SUBSCRIPTIONS: 2_000,
+  CONSOLIDATE_SIGNALS: 2_000,
 };
 
 /**

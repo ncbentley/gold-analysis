@@ -14,6 +14,7 @@ import { ingestRawEvent } from "@/server/ingestion";
 import { processJobs } from "@/server/jobs/runner";
 import { syncMarketData } from "@/server/market-data";
 import { correctSignal } from "@/server/normalization";
+import { OUTCOME_RULES } from "@/server/outcomes/engine";
 import { overrideOutcome } from "@/server/outcomes/service";
 import { getSignalDetailForViewer, getSourceBySlugOrId, listSignalsForViewer, listSources } from "@/server/signals/queries";
 
@@ -98,7 +99,7 @@ describe("pipeline", () => {
   it("computes a deterministic outcome from stored bars", async () => {
     const db = await getDb();
     const [o] = await db.select().from(signalOutcomes).where(eq(signalOutcomes.signalId, signalId));
-    expect(o.calcVersion).toBe("outcome-v3");
+    expect(o.calcVersion).toBe(OUTCOME_RULES.version);
     expect(o.entered).toBe(true);
     expect(o.mfe).not.toBeNull();
     expect(["WON", "LOST", "BREAKEVEN", "AMBIGUOUS", "OPEN"]).toContain(o.classification);
@@ -114,13 +115,12 @@ describe("pipeline", () => {
     expect(silver.detail.consensus.grade.locked).toBe(true);
     expect(JSON.stringify(silver.detail)).not.toContain("setupClassification");
     expect(JSON.stringify(silver.detail.consensus)).not.toContain("Consensus Score");
-    expect(platinum.detail.ai.classification.locked).toBe(false);
-    expect(platinum.detail.ai.meta?.promptVersion).toBe("signal-setup-v1");
-    expect(platinum.detail.consensus.grade.locked).toBe(false);
-    expect(platinum.detail.consensus.mapping.locked).toBe(false);
-    if (!platinum.detail.consensus.grade.locked) {
-      expect(platinum.detail.consensus.grade.data?.label).toMatch(/^Consensus Score: \d+\/100 - Grade [A-F]$/);
-    }
+    expect(platinum.detail.ai.classification.locked).toBe(true);
+    expect(platinum.detail.ai.summary.locked).toBe(true);
+    expect(platinum.detail.ai.meta).toBeNull();
+    expect(platinum.detail.consensus.grade.locked).toBe(true);
+    expect(platinum.detail.consensus.mapping.locked).toBe(true);
+    expect(JSON.stringify(platinum.detail.consensus)).not.toContain("Consensus Score");
     expect(JSON.stringify(platinum.detail)).not.toContain("Test Desk");
   });
 
@@ -128,11 +128,11 @@ describe("pipeline", () => {
     const res = await getSignalDetailForViewer(signalId, viewer("silver", DEFAULT_TIER_CONFIG));
     expect(res).toMatchObject({ kind: "history_locked", requiredTier: "platinum" });
     const list = await listSignalsForViewer(viewer("gold", DEFAULT_TIER_CONFIG), {});
-    expect(list.items).toHaveLength(0);
+    expect(list.items.map((item) => item.id)).toContain(signalId);
   });
 
   it("ignores advanced filters for tiers without them", async () => {
-    const res = await listSignalsForViewer(viewer("gold"), { entryType: "ZONE", q: "BUY" });
+    const res = await listSignalsForViewer(viewer("silver"), { entryType: "ZONE", q: "BUY" });
     expect(res.ignoredFilters.sort()).toEqual(["entryType", "q"]);
     expect(res.items.length).toBe(1);
     const plat = await listSignalsForViewer(viewer("platinum"), { entryType: "ZONE" });

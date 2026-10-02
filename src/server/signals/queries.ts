@@ -10,7 +10,7 @@ import {
   SIGNAL_STATUSES,
   type SignalStatus,
 } from "@/server/db/schema";
-import { buildAccess, can, historyCutoff, lowestTierWith } from "@/server/entitlements/access";
+import { buildAccess, can, historyCutoff, lowestTierWith, tierForSignalTime, type Access } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
 import { presentSignalDetail, presentSignalListItem, presentSourceStats, sourceDisplayName, type SignalBundle } from "@/server/presenters";
 import { OUTCOME_RULES } from "@/server/outcomes/engine";
@@ -76,16 +76,53 @@ export interface ListResult {
   historyCutoff: string | null;
 }
 
+export interface SignalQueryScope {
+  /** Dashboard open/closed split. Not a member status filter. */
+  segment?: boolean;
+  /** Source page scope. A member `source` query param is still ignored for a free account. */
+  sourceScope?: string;
+}
+
+/** Drops filters the viewer cannot use, then applies a server-only source scope. */
+export function resolveSignalFilters(access: Access, filters: SignalFilters, opts: SignalQueryScope = {}) {
+  const ignored: string[] = [];
+  const applied = { ...filters };
+  if (!can(access, "filters.advanced")) {
+    for (const k of ["entryType", "signalType", "classification"] as const) if (applied[k]) { ignored.push(k); delete applied[k]; }
+  }
+  if (!can(access, "search.history") && applied.q) { ignored.push("q"); delete applied.q; }
+  if (!access.tier && !access.isAdmin) {
+    for (const k of ["direction", "from", "to", "sourceId", "status"] as const) {
+      if (k === "status" && opts.segment) continue;
+      if (applied[k]) { ignored.push(k); delete applied[k]; }
+    }
+  }
+  if (opts.sourceScope) applied.sourceId = opts.sourceScope;
+  return { applied, ignored };
+}
+
+/** Same feed gates as `listSignalsForViewer`: invalid, QA, and history depth. */
+export function signalVisibleToViewer(
+  access: Access,
+  signal: { status: string; signalTime: Date; sourceIsQa: boolean },
+  now = new Date(),
+) {
+  if (signal.status === "INVALID") return false;
+  if (signal.sourceIsQa && !access.isAdmin) return false;
+  const cutoff = historyCutoff(access, now);
+  if (cutoff && signal.signalTime < cutoff) return false;
+  return true;
+}
+
 /** Lists signals visible to the viewer. Enforces history depth and advanced-filter entitlements server-side. */
-export async function listSignalsForViewer(viewer: Viewer, filters: SignalFilters, opts: { limit?: number; offset?: number } = {}): Promise<ListResult> {
+export async function listSignalsForViewer(
+  viewer: Viewer,
+  filters: SignalFilters,
+  opts: { limit?: number; offset?: number } & SignalQueryScope = {},
+): Promise<ListResult> {
   const db = await getDb();
   const { access, config } = viewer;
-  const ignored: string[] = [];
-  const f = { ...filters };
-  if (!can(access, "filters.advanced")) {
-    for (const k of ["entryType", "signalType", "classification"] as const) if (f[k]) { ignored.push(k); delete f[k]; }
-  }
-  if (!can(access, "search.history") && f.q) { ignored.push("q"); delete f.q; }
+  const { applied: f, ignored } = resolveSignalFilters(access, filters, opts);
 
   const cutoff = historyCutoff(access);
   const conds: SQL[] = [sql`${signals.status} <> 'INVALID'`];
@@ -135,6 +172,29 @@ export async function listSignalsForViewer(viewer: Viewer, filters: SignalFilter
   };
 }
 
+/** Counting constituents, in the given order. Ids with no row are omitted. */
+export async function listSignalListItemsByIds(ids: string[], viewer: Viewer) {
+  if (!ids.length) return [];
+  const db = await getDb();
+  const rows = await db
+    .select({ signal: signals, source: sources, outcome: signalOutcomes })
+    .from(signals)
+    .innerJoin(sources, eq(sources.id, signals.sourceId))
+    .leftJoin(signalOutcomes, and(eq(signalOutcomes.signalId, signals.id), eq(signalOutcomes.isCurrent, true)))
+    .where(inArray(signals.id, ids));
+  const byId = new Map((await hydrate(rows)).map((bundle) => [bundle.signal.id, bundle]));
+  return ids.flatMap((id) => {
+    const bundle = byId.get(id);
+    if (!bundle) return [];
+    const visible = signalVisibleToViewer(viewer.access, {
+      status: bundle.signal.status,
+      signalTime: bundle.signal.signalTime,
+      sourceIsQa: bundle.source.isQa,
+    });
+    return visible ? [presentSignalListItem(bundle, viewer.access, viewer.config)] : [];
+  });
+}
+
 export async function getSignalBundle(signalId: string): Promise<SignalBundle | null> {
   const db = await getDb();
   const rows = await db
@@ -159,8 +219,11 @@ export async function getSignalDetailForViewer(signalId: string, viewer: Viewer)
   if (!bundle || bundle.signal.status === "INVALID") return { kind: "not_found" };
   if (bundle.source.isQa && !access.isAdmin) return { kind: "not_found" };
   if (!can(access, "signals.core")) return { kind: "no_access", requiredTier: lowestTierWith("signals.core", config) };
-  const cutoff = historyCutoff(access);
-  if (cutoff && bundle.signal.signalTime < cutoff) return { kind: "history_locked", requiredTier: lowestTierWith("sources.history.full", config) };
+  const now = new Date();
+  const cutoff = historyCutoff(access, now);
+  if (cutoff && bundle.signal.signalTime < cutoff) {
+    return { kind: "history_locked", requiredTier: tierForSignalTime(bundle.signal.signalTime, config, now) };
+  }
 
   const db = await getDb();
   const [origin] = await db.select().from(rawEvents).where(eq(rawEvents.id, bundle.signal.originEventId));

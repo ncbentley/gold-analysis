@@ -8,6 +8,7 @@ import { ensureMarketDataCoverage, syncMarketData } from "@/server/market-data";
 import { openSignalIds, recalculateOutcome } from "@/server/outcomes/service";
 import { processRawEvent } from "@/server/normalization";
 import { repairShortZones } from "@/server/parsing/repair-zones";
+import { replaceConsolidatedIdeas } from "@/server/ideas/service";
 import { refreshSourceStats } from "@/server/statistics/service";
 import { finishImportIfIdle } from "@/server/telegram/import-status";
 import { enqueueDueTelegramSyncs } from "@/server/telegram/schedule";
@@ -79,6 +80,10 @@ const handlers: Record<JobType, Handler> = {
     return { recalculated: rows.length };
   },
   RECONCILE_SUBSCRIPTIONS: async () => reconcileSubscriptions(),
+  CONSOLIDATE_SIGNALS: async () => {
+    const count = await replaceConsolidatedIdeas();
+    return { ideas: count };
+  },
 };
 
 async function claimNext(type: JobType): Promise<Job | null> {
@@ -231,7 +236,10 @@ export async function requeueStaleJobs() {
 }
 
 export async function scheduleRecurring(kind: "minute" | "telegram" | "hourly") {
-  if (kind === "minute") await enqueueJob("MARKET_DATA_SYNC", {}, { dedupeKey: "market-sync" });
+  if (kind === "minute") {
+    await enqueueJob("MARKET_DATA_SYNC", {}, { dedupeKey: "market-sync" });
+    await enqueueJob("CONSOLIDATE_SIGNALS", {}, { dedupeKey: "consolidate-signals" });
+  }
   if (kind === "telegram") await enqueueDueTelegramSyncs();
   if (kind === "hourly") {
     await enqueueJob("RECONCILE_SUBSCRIPTIONS", {}, { dedupeKey: "reconcile" });

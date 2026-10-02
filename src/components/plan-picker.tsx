@@ -15,21 +15,22 @@ import { getViewer } from "@/server/entitlements/service";
 const TAGLINE: Record<Tier, string> = {
   silver: "Live signals with final results",
   gold: "Source performance and how a zone lines up in time",
-  platinum: "Anonymized consensus, full history and AI analysis",
+  platinum: "Full history, advanced filters, and detailed stats",
 };
 
 const PERIOD_TITLE: Record<BillingPeriod, string> = { weekly: "Weekly", monthly: "Monthly", annual: "Annual" };
 
 export function parsePlanParams(sp: Record<string, string | string[] | undefined>, fallback?: { tier?: string; period?: BillingPeriod }) {
   const period = (PERIODS as readonly string[]).includes(String(sp.period)) ? (sp.period as BillingPeriod) : (fallback?.period ?? "monthly");
-  const highlight = typeof sp.tier === "string" ? sp.tier : (fallback?.tier ?? "gold");
+  const highlight = typeof sp.tier === "string" ? sp.tier : (fallback?.tier ?? "platinum");
   return { period, highlight };
 }
 
 /** Period tabs and tier cards; tab links stay on `basePath` so the picker can live on any page. */
 export async function PlanPicker({ period, highlight, basePath, anchor }: { period: BillingPeriod; highlight: string; basePath: string; anchor?: string }) {
   const { user, config, subscription } = await getViewer();
-  const plans = await listPlans();
+  const offeredTiers = TIER_ORDER.filter((tier) => tier !== "gold");
+  const plans = (await listPlans()).filter((plan) => plan.tier !== "gold" && !(plan.tier === "platinum" && plan.period === "weekly"));
   const byKey = new Map(plans.map((p) => [`${p.tier}:${p.period}`, p]));
   const monthlyCents = (tier: Tier) => byKey.get(`${tier}:monthly`)?.amountCents ?? 0;
 
@@ -55,10 +56,10 @@ export async function PlanPicker({ period, highlight, basePath, anchor }: { peri
         </div>
       </div>
 
-      <div className="mt-7 grid gap-5 lg:grid-cols-3">
-        {TIER_ORDER.map((tier, i) => {
+      <div className="mt-7 grid gap-5 lg:grid-cols-2">
+        {offeredTiers.map((tier, i) => {
           const plan = byKey.get(`${tier}:${period}`);
-          const prev = i > 0 ? new Set(config[TIER_ORDER[i - 1]].features) : new Set<string>();
+          const prev = i > 0 ? new Set(config[offeredTiers[i - 1]].features) : new Set<string>();
           const added = config[tier].features.filter((f) => !prev.has(f));
           const isCurrent = subscription?.tier === tier && subscription.period === period;
           const saving = plan && period === "annual" ? 1 - plan.amountCents / (monthlyCents(tier) * 12) : 0;
@@ -72,14 +73,14 @@ export async function PlanPicker({ period, highlight, basePath, anchor }: { peri
                 lit && "panel-gold shadow-[0_0_36px_-8px_rgb(245_197_66/0.6)] ring-2 ring-primary/65",
               )}
             >
-              {tier === "gold" && (
+              {tier === "platinum" && (
                 <span className="gold-fill absolute right-4 top-4 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold shadow-[0_0_14px_-3px_rgb(245_197_66/0.7)]">
                   <Flame className="size-3.5" />
                   Most popular
                 </span>
               )}
               <CardHeader>
-                <div className={cn("flex items-center gap-3.5", tier === "gold" && "pr-28")}>
+                <div className={cn("flex items-center gap-3.5", tier === "platinum" && "pr-28")}>
                   <span
                     className={cn(
                       "flex size-12 shrink-0 items-center justify-center rounded-full ring-2",
@@ -103,7 +104,7 @@ export async function PlanPicker({ period, highlight, basePath, anchor }: { peri
                   <div className="text-sm text-muted-foreground">Not offered for this period.</div>
                 )}
                 <div className="mt-5 border-t border-glow/15 pt-4 text-xs font-semibold text-primary/85">
-                  {i === 0 ? "Includes" : `Everything in ${TIER_LABEL[TIER_ORDER[i - 1]]}, plus`}
+                  {i === 0 ? "Includes" : `Everything in ${TIER_LABEL[offeredTiers[i - 1]]}, plus`}
                 </div>
                 <ul className="mt-2.5 space-y-2 text-sm">
                   {added.map((f) => (
