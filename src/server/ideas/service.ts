@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { getDb } from "@/server/db";
 import { consolidatedIdeas, signalOutcomes, signalTargets, signals, sources } from "@/server/db/schema";
-import { historyCutoff } from "@/server/entitlements/access";
+import { historyCutoff, lowestTierWith } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
 import { listSignalListItemsByIds } from "@/server/signals/queries";
 import { groupSignals, type GroupedIdea } from "./group";
@@ -165,12 +165,22 @@ export async function listIdeasForViewer(viewer: Viewer, spot: number | null): P
     .sort((a, b) => PHASE_RANK[a.phase] - PHASE_RANK[b.phase] || Date.parse(b.newestSignalAt) - Date.parse(a.newestSignalAt));
 }
 
-export async function getIdeaForViewer(id: string, viewer: Viewer, spot: number | null) {
+export type IdeaForViewer =
+  | { kind: "not_found" }
+  | { kind: "history_locked"; requiredTier: string | null }
+  | { kind: "ok"; idea: ListedIdea; items: Awaited<ReturnType<typeof listSignalListItemsByIds>> };
+
+export async function getIdeaForViewer(id: string, viewer: Viewer, spot: number | null): Promise<IdeaForViewer> {
   const db = await getDb();
   const [row] = await db.select().from(consolidatedIdeas).where(eq(consolidatedIdeas.id, id));
-  if (!row) return null;
+  if (!row) return { kind: "not_found" };
+  const cutoff = historyCutoff(viewer.access);
+  if (cutoff && row.newestSignalAt < cutoff) {
+    return { kind: "history_locked", requiredTier: lowestTierWith("sources.history.full", viewer.config) };
+  }
   const members = await membersById(row.signalIds);
   return {
+    kind: "ok",
     idea: listedIdea(row, members, spot),
     items: await listSignalListItemsByIds(row.signalIds, viewer),
   };

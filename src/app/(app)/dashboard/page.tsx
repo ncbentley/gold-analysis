@@ -148,11 +148,11 @@ export default async function DashboardPage() {
       ) : (
         <>
           <section className="mt-8">
-            <SectionTitle icon={Activity} title="Active & pending" action={<ViewAll href="/signals?status=OPEN" />} />
+            <SectionTitle icon={Activity} title="Active & pending" action={<ViewAll href="/signals" />} />
             <SignalList items={open?.items ?? []} now={now} empty="No open signals right now. New signals appear here within moments of being posted." />
           </section>
           <section className="mt-8">
-            <SectionTitle icon={History} title="Recently closed" action={<ViewAll href="/signals?status=CLOSED" />} />
+            <SectionTitle icon={History} title="Recently closed" action={<ViewAll href="/signals" />} />
             <SignalList items={closed?.items ?? []} now={now} empty="No closed signals in your history window yet." />
           </section>
         </>

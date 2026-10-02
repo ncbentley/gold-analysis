@@ -39,17 +39,33 @@ export default async function IdeaPage({ params }: PageProps<"/ideas/[id]">) {
   }
   const [lastBar] = (await getRecentBars(1)).slice(-1);
   const result = await getIdeaForViewer(id, viewer, lastBar?.close ?? null);
-  if (!result) notFound();
+  if (result.kind === "not_found") notFound();
+  const back = (
+    <Link
+      href="/dashboard"
+      className="mb-3 inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <ArrowLeft className="size-4" /> Dashboard
+    </Link>
+  );
+  if (result.kind === "history_locked") {
+    return (
+      <>
+        {back}
+        <LockedPanel
+          feature="sources.history.full"
+          requiredTier={result.requiredTier}
+          title="This idea is older than your plan’s history window"
+          userId={viewer.user?.id}
+        />
+      </>
+    );
+  }
   const { idea, items } = result;
 
   return (
     <>
-      <Link
-        href="/dashboard"
-        className="mb-3 inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <ArrowLeft className="size-4" /> Dashboard
-      </Link>
+      {back}
       <PageHeader
         size="sm"
         icon={Layers}
