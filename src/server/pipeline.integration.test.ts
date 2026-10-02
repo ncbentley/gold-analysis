@@ -14,6 +14,7 @@ import { ingestRawEvent } from "@/server/ingestion";
 import { processJobs } from "@/server/jobs/runner";
 import { syncMarketData } from "@/server/market-data";
 import { correctSignal } from "@/server/normalization";
+import { OUTCOME_RULES } from "@/server/outcomes/engine";
 import { overrideOutcome } from "@/server/outcomes/service";
 import { getSignalDetailForViewer, getSourceBySlugOrId, listSignalsForViewer, listSources } from "@/server/signals/queries";
 
@@ -98,7 +99,7 @@ describe("pipeline", () => {
   it("computes a deterministic outcome from stored bars", async () => {
     const db = await getDb();
     const [o] = await db.select().from(signalOutcomes).where(eq(signalOutcomes.signalId, signalId));
-    expect(o.calcVersion).toBe("outcome-v3");
+    expect(o.calcVersion).toBe(OUTCOME_RULES.version);
     expect(o.entered).toBe(true);
     expect(o.mfe).not.toBeNull();
     expect(["WON", "LOST", "BREAKEVEN", "AMBIGUOUS", "OPEN"]).toContain(o.classification);
@@ -116,7 +117,7 @@ describe("pipeline", () => {
     expect(JSON.stringify(silver.detail.consensus)).not.toContain("Consensus Score");
     expect(platinum.detail.ai.classification.locked).toBe(true);
     expect(platinum.detail.ai.summary.locked).toBe(true);
-    expect(platinum.detail.ai.meta?.promptVersion).toBe("signal-setup-v1");
+    expect(platinum.detail.ai.meta).toBeNull();
     expect(platinum.detail.consensus.grade.locked).toBe(true);
     expect(platinum.detail.consensus.mapping.locked).toBe(true);
     expect(JSON.stringify(platinum.detail.consensus)).not.toContain("Consensus Score");

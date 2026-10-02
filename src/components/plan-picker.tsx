@@ -15,7 +15,7 @@ import { getViewer } from "@/server/entitlements/service";
 const TAGLINE: Record<Tier, string> = {
   silver: "Live signals with final results",
   gold: "Source performance and how a zone lines up in time",
-  platinum: "Anonymized consensus, full history and AI analysis",
+  platinum: "Full history, advanced filters, and detailed stats",
 };
 
 const PERIOD_TITLE: Record<BillingPeriod, string> = { weekly: "Weekly", monthly: "Monthly", annual: "Annual" };
