@@ -56,3 +56,49 @@ export function matchesTopSourceRow(
   if (!inBounds(row.metrics?.expectancy ?? null, filter.expectancy)) return false;
   return true;
 }
+
+export type TopSourceSortKey = "rank" | "source" | "closedTrades" | "winRate" | "expectancy";
+export type TopSourceSortDir = "asc" | "desc";
+
+export interface TopSourceSort {
+  key: TopSourceSortKey;
+  dir: TopSourceSortDir;
+}
+
+const NUMERIC_SORT = new Set<TopSourceSortKey>(["closedTrades", "winRate", "expectancy"]);
+
+/** A new column starts high-to-low for numbers and A-to-Z for names. Clicking the active column flips direction. */
+export function toggleTopSourceSort(current: TopSourceSort, key: TopSourceSortKey): TopSourceSort {
+  if (current.key === key) return { key, dir: current.dir === "asc" ? "desc" : "asc" };
+  return { key, dir: NUMERIC_SORT.has(key) ? "desc" : "asc" };
+}
+
+export interface RankedTopSource {
+  rank: number;
+  row: { name: string; closedTrades: number; metrics: { winRate: number | null; expectancy: number | null } | null };
+}
+
+function sortValue(item: RankedTopSource, key: TopSourceSortKey): number | null {
+  if (key === "closedTrades") return item.row.closedTrades;
+  if (key === "winRate") return displayedWinRatePercent(item.row.metrics?.winRate ?? null);
+  if (key === "expectancy") return item.row.metrics?.expectancy ?? null;
+  return item.rank;
+}
+
+/** Missing win rates and expectancy stay at the bottom in either direction. Ties keep the original rank. */
+export function sortTopSources<T extends RankedTopSource>(items: readonly T[], sort: TopSourceSort): T[] {
+  const sign = sort.dir === "asc" ? 1 : -1;
+  return [...items].sort((a, b) => {
+    if (sort.key === "source") {
+      const names = a.row.name.localeCompare(b.row.name, undefined, { sensitivity: "base" });
+      return names === 0 ? a.rank - b.rank : names * sign;
+    }
+    const left = sortValue(a, sort.key);
+    const right = sortValue(b, sort.key);
+    if (left === null && right === null) return a.rank - b.rank;
+    if (left === null) return 1;
+    if (right === null) return -1;
+    if (left === right) return a.rank - b.rank;
+    return (left - right) * sign;
+  });
+}

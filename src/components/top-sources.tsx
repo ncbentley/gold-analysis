@@ -1,7 +1,7 @@
 "use client";
 
 import { Popover } from "@base-ui/react/popover";
-import { ListFilter, Lock } from "lucide-react";
+import { ChevronDown, ChevronUp, ChevronsUpDown, ListFilter, Lock } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { RValue } from "@/components/signal-bits";
@@ -13,8 +13,12 @@ import {
   filterActive,
   interpretBound,
   matchesTopSourceRow,
+  sortTopSources,
+  toggleTopSourceSort,
   type NumericBounds,
   type TopSourceNumericFilter,
+  type TopSourceSort,
+  type TopSourceSortKey,
 } from "@/lib/top-source-filters";
 import { cn } from "@/lib/utils";
 import { TOP_SOURCES_MIN_TRADES } from "@/server/statistics/compute";
@@ -128,23 +132,48 @@ function ColumnFilter({
   );
 }
 
+function SortButton({ label, sortKey, sort, onSort }: { label: string; sortKey: TopSourceSortKey; sort: TopSourceSort; onSort: (key: TopSourceSortKey) => void }) {
+  const active = sort.key === sortKey;
+  const Icon = active ? (sort.dir === "asc" ? ChevronUp : ChevronDown) : ChevronsUpDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+        active && "text-foreground",
+      )}
+    >
+      {label}
+      <Icon className={cn("size-3.5", !active && "opacity-50")} />
+    </button>
+  );
+}
+
 function NumericHead({
   label,
+  sortKey,
   unit,
   draft,
   onChange,
   interpret,
+  sort,
+  onSort,
 }: {
   label: string;
+  sortKey: TopSourceSortKey;
   unit?: string;
   draft: BoundDraft;
   onChange: (next: BoundDraft) => void;
   interpret: (raw: string) => { value: number | null; invalid: boolean };
+  sort: TopSourceSort;
+  onSort: (key: TopSourceSortKey) => void;
 }) {
+  const active = sort.key === sortKey;
   return (
-    <TableHead className="text-right">
-      <span className="inline-flex items-center gap-1">
-        {label}
+    <TableHead aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className="text-right">
+      <span className="inline-flex items-center gap-0.5">
+        <SortButton label={label} sortKey={sortKey} sort={sort} onSort={onSort} />
         <ColumnFilter label={label} unit={unit} draft={draft} onChange={onChange} interpret={interpret} />
       </span>
     </TableHead>
@@ -168,6 +197,7 @@ export function TopSources({
   const [closedTrades, setClosedTrades] = useState<BoundDraft>(EMPTY_DRAFT);
   const [winRate, setWinRate] = useState<BoundDraft>(EMPTY_DRAFT);
   const [expectancy, setExpectancy] = useState<BoundDraft>(EMPTY_DRAFT);
+  const [sort, setSort] = useState<TopSourceSort>({ key: "expectancy", dir: "desc" });
 
   const filter = useMemo<TopSourceNumericFilter>(() => {
     const trades = toBounds(closedTrades, interpretBound);
@@ -183,8 +213,14 @@ export function TopSources({
   const filtering = filterActive(filter);
   const inverted = boundsInverted(filter.closedTrades) || boundsInverted(filter.winRatePercent) || boundsInverted(filter.expectancy);
   const ranked = rows.map((row, index) => ({ row, rank: index + 1 }));
-  const shown = ranked.filter(({ row }) => matchesTopSourceRow(row, filter));
+  const shown = sortTopSources(
+    ranked.filter(({ row }) => matchesTopSourceRow(row, filter)),
+    sort,
+  );
   const draftsActive = [closedTrades, winRate, expectancy].some((draft) => draft.min.trim() !== "" || draft.max.trim() !== "");
+  function onSort(key: TopSourceSortKey) {
+    setSort((current) => toggleTopSourceSort(current, key));
+  }
 
   if (rows.length === 0) {
     return (
@@ -199,11 +235,15 @@ export function TopSources({
       <Table>
         <TableHeader>
           <TableRow className="bg-black/20 hover:bg-black/20">
-            <TableHead className="w-14">Rank</TableHead>
-            <TableHead>Source</TableHead>
-            <NumericHead label="Closed trades" draft={closedTrades} onChange={setClosedTrades} interpret={interpretBound} />
-            <NumericHead label="Win rate" unit="%" draft={winRate} onChange={setWinRate} interpret={interpretBound} />
-            <NumericHead label="Expectancy" unit="R" draft={expectancy} onChange={setExpectancy} interpret={interpretBound} />
+            <TableHead aria-sort={sort.key === "rank" ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className="w-16">
+              <SortButton label="Rank" sortKey="rank" sort={sort} onSort={onSort} />
+            </TableHead>
+            <TableHead aria-sort={sort.key === "source" ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+              <SortButton label="Source" sortKey="source" sort={sort} onSort={onSort} />
+            </TableHead>
+            <NumericHead label="Closed trades" sortKey="closedTrades" draft={closedTrades} onChange={setClosedTrades} interpret={interpretBound} sort={sort} onSort={onSort} />
+            <NumericHead label="Win rate" sortKey="winRate" unit="%" draft={winRate} onChange={setWinRate} interpret={interpretBound} sort={sort} onSort={onSort} />
+            <NumericHead label="Expectancy" sortKey="expectancy" unit="R" draft={expectancy} onChange={setExpectancy} interpret={interpretBound} sort={sort} onSort={onSort} />
           </TableRow>
         </TableHeader>
         <TableBody>
