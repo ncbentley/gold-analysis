@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { cache } from "react";
+import { deliverEmail, usesResend } from "@/server/auth/email";
 import { getDb } from "@/server/db";
 import { authTokens, outboundEmails, sessions, users, type User } from "@/server/db/schema";
 import { randomToken, sha256 } from "@/server/lib/hash";
@@ -63,6 +64,11 @@ export const getCurrentUser = cache(async (): Promise<User | null> => {
 });
 
 export async function sendEmail(to: string, subject: string, body: string) {
+  if (usesResend()) {
+    await deliverEmail(to, subject, body);
+    console.info(`[mail] sent to=${to} subject="${subject}"`);
+    return;
+  }
   const db = await getDb();
   await db.insert(outboundEmails).values({ to, subject, body });
   if (process.env.NODE_ENV !== "test") console.info(`[mail] to=${to} subject="${subject}"\n${body}`);
@@ -93,5 +99,6 @@ export async function sendVerificationEmail(user: Pick<User, "id" | "email">) {
 }
 
 export function devMailboxEnabled() {
+  if (process.env.RESEND_API_KEY) return false;
   return process.env.NODE_ENV !== "production" || process.env.DEV_MAILBOX === "1";
 }

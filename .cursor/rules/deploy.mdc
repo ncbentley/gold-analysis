@@ -1,0 +1,10 @@
+---
+description: Deploy by pushing main so the GitHub Action ships production
+alwaysApply: true
+---
+
+# Deploy
+
+Ship this project by committing and pushing to `main`. The GitHub Action in `.github/workflows/deploy.yml` runs `deploy/deploy.sh` on the VPS.
+
+Do not deploy by running `deploy/deploy.sh` yourself. A push to `main` is the deploy.
