@@ -26,11 +26,12 @@ async function spotNow() {
   return bar?.close ?? null;
 }
 
-async function loadMarket(now: number) {
+async function loadMarket(now: number, since: Date | null) {
   const db = await getDb();
-  const since = new Date(now - LOOKBACK_MS);
   const spot = await spotNow();
-  const ideaRows = await db.select().from(consolidatedIdeas).where(gte(consolidatedIdeas.newestSignalAt, since));
+  const ideaRows = since
+    ? await db.select().from(consolidatedIdeas).where(gte(consolidatedIdeas.newestSignalAt, since))
+    : await db.select().from(consolidatedIdeas);
   const ideaReplay = await replayConsolidatedIdeas(ideaRows, spot);
   const ideas = ideaRows.filter((row) => ideaReplay.get(row.id)?.phase !== "history");
 
@@ -38,11 +39,12 @@ async function loadMarket(now: number) {
     .select({ signal: signals, qa: sources.isQa })
     .from(signals)
     .innerJoin(sources, eq(sources.id, signals.sourceId))
-    .where(and(gte(signals.signalTime, since), isNull(sources.removedAt)));
+    .where(since ? and(gte(signals.signalTime, since), isNull(sources.removedAt)) : isNull(sources.removedAt));
   const usable = signalRows.filter((row) => !row.qa && row.signal.status !== "INVALID" && row.signal.status !== "CANCELLED" && row.signal.status !== "MANUAL_REVIEW");
   const ids = usable.map((row) => row.signal.id);
   const targetRows = ids.length ? await db.select().from(signalTargets).where(inArray(signalTargets.signalId, ids)) : [];
-  const bars = usable.length ? await getEngineBars(since, new Date(now + 60_000)) : [];
+  const earliest = usable.reduce((min, row) => Math.min(min, row.signal.signalTime.getTime()), now);
+  const bars = usable.length ? await getEngineBars(new Date(earliest), new Date(now + 60_000)) : [];
   const liveSignals = usable.filter((row) => {
     const targets = targetRows.filter((target) => target.signalId === row.signal.id).sort((a, b) => a.targetIndex - b.targetIndex).map((target) => target.price).filter((price): price is number => price !== null);
     const phase = replayIdea(
@@ -56,6 +58,7 @@ async function loadMarket(now: number) {
       },
       bars,
       spot,
+      true,
     ).phase;
     return phase !== "history";
   });
@@ -121,7 +124,7 @@ async function callModel(facts: Record<string, unknown>) {
 }
 
 async function pickPhase(pick: BoardPick, startedAt: number, spot: number | null) {
-  return replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), spot);
+  return replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), spot, true);
 }
 
 async function anyPickLive(picks: BoardPick[], startedAt: number, spot: number | null) {
@@ -131,9 +134,10 @@ async function anyPickLive(picks: BoardPick[], startedAt: number, spot: number |
   return false;
 }
 
-export async function refreshBoard(deps: { now?: number; generate?: (facts: Record<string, unknown>) => Promise<unknown> } = {}) {
+export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; generate?: (facts: Record<string, unknown>) => Promise<unknown> } = {}) {
   const now = deps.now ?? Date.now();
-  const market = await loadMarket(now);
+  const market = await loadMarket(now, deps.fullHistory ? null : new Date(now - LOOKBACK_MS));
+  if (deps.fullHistory) console.log(`[board] historical live set: ${market.ideas.length} ideas, ${market.signals.length} signals`);
   const previous = await activePost();
   const live = snapshotOf(
     market.signals.map((signal) => signal.id),
@@ -224,7 +228,7 @@ export async function currentBoard(spot: number | null = null) {
   const bars = await getEngineBars(new Date(from), new Date(Date.now() + 60_000));
   const cards = picks.map(({ slot, pick }, index) => {
     const startedAt = starts[index];
-    const played = replayIdea({ ...pick, startedAt }, bars, price);
+    const played = replayIdea({ ...pick, startedAt }, bars, price, true);
     const card: BoardCard = { postId: post.id, slot, pick, phase: played.phase, startedAt };
     return card;
   });
@@ -239,7 +243,7 @@ export async function boardPick(postId: string, slot: string, spot: number | nul
   if (!pick || (slot !== "primary" && !Number.isInteger(Number(slot)))) return null;
   const price = spot ?? (await spotNow());
   const [startedAt] = await startTimesFor([pick], post.createdAt.getTime(), price);
-  const played = replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), price);
+  const played = replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), price, true);
   const ideaRows = pick.ideaIds.length ? await db.select().from(consolidatedIdeas).where(inArray(consolidatedIdeas.id, pick.ideaIds)) : [];
   return { post, pick, slot: slot === "primary" ? ("primary" as const) : Number(slot), startedAt, phase: played.phase, outcome: played.outcome, ideas: ideaRows };
 }

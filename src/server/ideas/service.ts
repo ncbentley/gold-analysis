@@ -171,7 +171,7 @@ export async function replayConsolidatedIdeas(rows: (typeof consolidatedIdeas.$i
   const played = new Map<string, ReturnType<typeof replayIdea> & { startedAt: number }>();
   for (const row of rows) {
     const startedAt = started.get(row.id) ?? row.newestSignalAt.getTime();
-    played.set(row.id, { ...replayIdea({ ...row, startedAt }, bars, spot), startedAt });
+    played.set(row.id, { ...replayIdea({ ...row, startedAt }, bars, spot, true), startedAt });
   }
   return played;
 }

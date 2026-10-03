@@ -85,8 +85,8 @@ const handlers: Record<JobType, Handler> = {
     const count = await replaceConsolidatedIdeas();
     return { ideas: count };
   },
-  REFRESH_BOARD: async () => {
-    const result = await refreshBoard();
+  REFRESH_BOARD: async (payload) => {
+    const result = await refreshBoard({ fullHistory: payload.fullHistory === true });
     if (result.action === "failed") console.error("[board]", result.error);
     return result;
   },

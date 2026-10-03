@@ -1,4 +1,4 @@
-import { evaluateSignal, type EngineBar, type EngineOutcome } from "@/server/outcomes/engine";
+import { evaluateSignal, OUTCOME_RULES, type EngineBar, type EngineOutcome } from "@/server/outcomes/engine";
 import { ideaPhase, type IdeaPhase } from "./phase";
 
 export interface IdeaLevels {
@@ -16,7 +16,7 @@ export interface IdeaLevels {
  * bars, not from whether every source trade has closed. Minute bars today; the
  * same walk accepts a finer series when one is stored.
  */
-export function replayIdea(idea: IdeaLevels, bars: EngineBar[], spot: number | null): { phase: IdeaPhase; outcome: EngineOutcome } {
+export function replayIdea(idea: IdeaLevels, bars: EngineBar[], spot: number | null, presorted = false): { phase: IdeaPhase; outcome: EngineOutcome } {
   const outcome = evaluateSignal(
     {
       direction: idea.direction,
@@ -30,6 +30,10 @@ export function replayIdea(idea: IdeaLevels, bars: EngineBar[], spot: number | n
       expiryTime: idea.startedAt + 100 * 365 * 24 * 60 * 60_000,
     },
     bars,
+    [],
+    null,
+    OUTCOME_RULES,
+    presorted,
   );
   const closed = outcome.entered && outcome.exitTime !== null && outcome.classification !== "OPEN";
   return {

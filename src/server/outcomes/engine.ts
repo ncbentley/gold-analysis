@@ -124,6 +124,17 @@ export interface EngineOutcome {
 
 const round = (n: number, dp = 4) => Math.round(n * 10 ** dp) / 10 ** dp;
 
+function lowerBoundBar(bars: EngineBar[], t: number) {
+  let lo = 0;
+  let hi = bars.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (bars[mid].t < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 /**
  * @param dataThrough epoch ms up to which market data is known to be complete.
  *   Used to decide whether an unfilled signal is expired or still pending.
@@ -134,15 +145,20 @@ export function evaluateSignal(
   adjustments: EngineAdjustment[] = [],
   dataThrough: number | null = null,
   rules: OutcomeRules = OUTCOME_RULES,
+  presorted = false,
 ): EngineOutcome {
   const dir = signal.direction === "LONG" ? 1 : -1;
   const notes: string[] = [];
   const timeline: TimelineEvent[] = [];
   const firstBarStart = Math.ceil(signal.signalTime / rules.barMs) * rules.barMs;
-  const series = bars.filter((b) => b.t >= firstBarStart).sort((a, b) => a.t - b.t);
+  // A presorted series is the stored minute bars. Walk it from the signal time
+  // without copying or sorting hundreds of thousands of rows per idea.
+  const series = presorted ? bars : bars.filter((b) => b.t >= firstBarStart).sort((a, b) => a.t - b.t);
+  const origin = presorted ? lowerBoundBar(bars, firstBarStart) : 0;
   const adj = [...adjustments].sort((a, b) => a.effectiveAt - b.effectiveAt);
   const expiry = signal.expiryTime ?? signal.signalTime + rules.defaultExpiryMinutes * 60_000;
-  const lastKnown = dataThrough ?? (series.length ? series[series.length - 1].t + rules.barMs : null);
+  const lastBar = origin < series.length ? series[series.length - 1] : undefined;
+  const lastKnown = dataThrough ?? (lastBar ? lastBar.t + rules.barMs : null);
 
   const targets: TargetResult[] = signal.targets.map((price, i) => ({
     index: i + 1,
@@ -186,7 +202,7 @@ export function evaluateSignal(
   let fillPrice = 0;
   let adjCursor = 0;
   let skippedFarQuote = false;
-  for (let i = 0; i < series.length; i++) {
+  for (let i = origin; i < series.length; i++) {
     const bar = series[i];
     if (bar.t >= expiry) {
       if (skippedFarQuote) {

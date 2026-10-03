@@ -76,4 +76,32 @@ describe("refreshBoard", () => {
     expect(await db.select().from(boardPosts).where(eq(boardPosts.active, true))).toHaveLength(0);
     expect(await db.select().from(boardPosts)).toHaveLength(1);
   });
+
+  it("includes an older idea on the one historical pass and leaves it out of the 14-day pass", async () => {
+    const db = await getDb();
+    await db.insert(consolidatedIdeas).values({
+      direction: "SHORT",
+      entryMin: 2400,
+      entryMax: 2400,
+      stopLoss: 2410,
+      targets: [2380],
+      exitSpreadStops: null,
+      exitSpreadTargets: [0],
+      sourceCount: 1,
+      signalIds: [],
+      replacedSignalIds: [],
+      newestSignalAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+    });
+    let calls = 0;
+    const generate = async () => {
+      calls += 1;
+      return returned;
+    };
+    const recent = await refreshBoard({ generate });
+    expect(recent.action).toBe("clear");
+    expect(calls).toBe(0);
+    const historical = await refreshBoard({ fullHistory: true, generate });
+    expect(historical.action).toBe("call");
+    expect(calls).toBe(1);
+  });
 });

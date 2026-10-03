@@ -22,6 +22,9 @@ async function main() {
   const { rebuildConsolidatedIdeas } = await import("@/server/ideas/service");
   const ideas = await rebuildConsolidatedIdeas();
   console.log(`[queue] rebuilt ${ideas} consolidated ideas from the full signal history`);
+  const { enqueueJob } = await import("@/server/jobs/queue");
+  await enqueueJob("REFRESH_BOARD", { fullHistory: true }, { dedupeKey: "refresh-board-history" });
+  console.log("[queue] queued one board pass over every stored signal");
   const port = Number(process.env.QUEUE_PORT ?? 4320);
   const secret = process.env.APP_SECRET ?? "";
   createServer(async (req, res) => {
