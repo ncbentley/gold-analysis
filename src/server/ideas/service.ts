@@ -163,7 +163,7 @@ function listedIdea(row: typeof consolidatedIdeas.$inferSelect, phase: IdeaPhase
   };
 }
 
-async function replayRows(rows: (typeof consolidatedIdeas.$inferSelect)[], spot: number | null) {
+export async function replayConsolidatedIdeas(rows: (typeof consolidatedIdeas.$inferSelect)[], spot: number | null) {
   const times = await startTimes(rows.flatMap((row) => row.signalIds));
   const started = new Map(rows.map((row) => [row.id, ideaStart(row.signalIds, times, row.newestSignalAt)]));
   const from = started.size ? Math.min(...started.values()) : Date.now();
@@ -185,7 +185,7 @@ export async function listIdeasForViewer(viewer: Viewer, spot: number | null): P
     .from(consolidatedIdeas)
     .where(cutoff ? gte(consolidatedIdeas.newestSignalAt, cutoff) : undefined)
     .orderBy(desc(consolidatedIdeas.newestSignalAt));
-  const played = await replayRows(rows, spot);
+  const played = await replayConsolidatedIdeas(rows, spot);
   return rows
     .map((row) => listedIdea(row, played.get(row.id)?.phase ?? "available"))
     .sort((a, b) => PHASE_RANK[a.phase] - PHASE_RANK[b.phase] || Date.parse(b.newestSignalAt) - Date.parse(a.newestSignalAt));
@@ -211,7 +211,7 @@ export async function getIdeaForViewer(id: string, viewer: Viewer, spot: number 
   if (cutoff && row.newestSignalAt < cutoff) {
     return { kind: "history_locked", requiredTier: tierForSignalTime(row.newestSignalAt, viewer.config, now) };
   }
-  const played = await replayRows([row], spot);
+  const played = await replayConsolidatedIdeas([row], spot);
   const replay = played.get(row.id)!;
   return {
     kind: "ok",

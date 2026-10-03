@@ -2,6 +2,7 @@ import { Activity, ChartCandlestick, Coins, History, Hourglass, LayoutDashboard,
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AffiliateStrip } from "@/components/affiliate-strip";
+import { BoardPicks } from "@/components/board-picks";
 import { DirectionPanel } from "@/components/direction-panel";
 import { IdeaList } from "@/components/idea-list";
 import { LiveRefresh } from "@/components/live-refresh";
@@ -12,6 +13,7 @@ import { SignalList } from "@/components/signal-list";
 import { TopSources } from "@/components/top-sources";
 import { fmtAge, fmtPrice } from "@/lib/format";
 import { can, lowestTierWith } from "@/server/entitlements/access";
+import { currentBoard } from "@/server/board/service";
 import { getViewer } from "@/server/entitlements/service";
 import { latestMarketDirection } from "@/server/direction/service";
 import { getRecentBars } from "@/server/market-data";
@@ -41,11 +43,18 @@ export default async function DashboardPage() {
   const [lastBar] = (await getRecentBars(1)).slice(-1);
   const now = nowMs();
 
+  const platinum = access.tier === "platinum" && !access.isAdmin;
   const header = (
     <PageHeader
       title="Dashboard"
       icon={LayoutDashboard}
-      description="Live gold signals from tracked sources, replayed against XAU/USD minute data."
+      description={
+        platinum
+          ? "One primary idea from the model, with a few alternates."
+          : access.tier === "silver"
+            ? "Nearby calls averaged into one idea."
+            : "Live gold signals from tracked sources, replayed against XAU/USD minute data."
+      }
       features={FEATURES}
       actions={
         lastBar && (
@@ -84,19 +93,22 @@ export default async function DashboardPage() {
 
   const silver = access.tier === "silver";
   const spot = lastBar?.close ?? null;
-  const [open, closed, ideas, ranking, direction, openCounts] = await Promise.all([
-    silver ? null : listSignalsForViewer(viewer, { status: "OPEN" }, { limit: 20, segment: true }),
-    silver ? null : listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 10, segment: true }),
+  const [open, closed, ideas, ranking, direction, openCounts, board] = await Promise.all([
+    silver || platinum ? null : listSignalsForViewer(viewer, { status: "OPEN" }, { limit: 20, segment: true }),
+    silver || platinum ? null : listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 10, segment: true }),
     silver ? listIdeasForViewer(viewer, spot) : null,
     listTopSourcesForViewer(viewer, 5),
     latestMarketDirection(),
-    silver ? null : countOpenSignalsForViewer(viewer),
+    silver || platinum ? null : countOpenSignalsForViewer(viewer),
+    platinum ? currentBoard(spot) : null,
   ]);
   const activeCount = openCounts?.active ?? 0;
   const pendingCount = openCounts?.pending ?? 0;
   const liveIdeas = ideas?.filter((idea) => idea.phase !== "history") ?? [];
   const historyIdeas = ideas?.filter((idea) => idea.phase === "history") ?? [];
   const sourceCount = ideas?.reduce((sum, idea) => sum + idea.sourceCount, 0) ?? 0;
+  const boardLive = board?.post?.active ? board.cards.filter((card) => card.phase !== "history") : [];
+  const boardHistory = board?.post?.active ? board.cards.filter((card) => card.phase === "history") : (board?.cards ?? []);
 
   return (
     <>
@@ -108,7 +120,14 @@ export default async function DashboardPage() {
         empty={access.isAdmin ? "Star a channel on the Telegram page. Its posts feed this read." : "No direction read yet."}
       />
       <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {silver ? (
+        {platinum ? (
+          <>
+            <Stat label="Available" value={boardLive.filter((card) => card.phase === "available").length} hint="can still be filled" icon={Hourglass} />
+            <Stat label="Playing out" value={boardLive.filter((card) => card.phase === "playing-out").length} hint="entered, not closed" icon={Activity} tone="gold" />
+            <Stat label="History" value={boardHistory.length} hint="this board" icon={History} />
+            <Stat label="On the board" value={board?.post?.active ? board.cards.length : 0} hint="primary plus alternates" icon={Radar} />
+          </>
+        ) : silver ? (
           <>
             <Stat label="Available" value={ideas?.filter((idea) => idea.phase === "available").length ?? 0} hint="can still be filled" icon={Hourglass} />
             <Stat label="Playing out" value={ideas?.filter((idea) => idea.phase === "playing-out").length ?? 0} hint="entered, not closed" icon={Activity} tone="gold" />
@@ -135,7 +154,18 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      {silver ? (
+      {platinum ? (
+        <>
+          <section className="mt-8">
+            <SectionTitle icon={Activity} title="Board" />
+            <BoardPicks items={boardLive} empty="No idea is available or playing out right now." />
+          </section>
+          <section className="mt-8">
+            <SectionTitle icon={History} title="History" />
+            <BoardPicks items={boardHistory} empty="Nothing from this board has moved to history." />
+          </section>
+        </>
+      ) : silver ? (
         <>
           <section className="mt-8">
             <SectionTitle icon={Activity} title="Available & playing out" />

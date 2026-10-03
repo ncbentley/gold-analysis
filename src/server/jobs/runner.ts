@@ -8,6 +8,7 @@ import { ensureMarketDataCoverage, syncMarketData } from "@/server/market-data";
 import { openSignalIds, recalculateOutcome } from "@/server/outcomes/service";
 import { processRawEvent } from "@/server/normalization";
 import { repairShortZones } from "@/server/parsing/repair-zones";
+import { refreshBoard } from "@/server/board/service";
 import { replaceConsolidatedIdeas } from "@/server/ideas/service";
 import { refreshSourceStats } from "@/server/statistics/service";
 import { finishImportIfIdle } from "@/server/telegram/import-status";
@@ -83,6 +84,11 @@ const handlers: Record<JobType, Handler> = {
   CONSOLIDATE_SIGNALS: async () => {
     const count = await replaceConsolidatedIdeas();
     return { ideas: count };
+  },
+  REFRESH_BOARD: async () => {
+    const result = await refreshBoard();
+    if (result.action === "failed") console.error("[board]", result.error);
+    return result;
   },
 };
 
@@ -235,7 +241,7 @@ export async function requeueStaleJobs() {
     .where(and(eq(jobs.status, "running"), lte(jobs.startedAt, new Date(Date.now() - 10 * 60_000))));
 }
 
-export async function scheduleRecurring(kind: "minute" | "telegram" | "hourly") {
+export async function scheduleRecurring(kind: "minute" | "telegram" | "hourly" | "board") {
   if (kind === "minute") {
     await enqueueJob("MARKET_DATA_SYNC", {}, { dedupeKey: "market-sync" });
     await enqueueJob("CONSOLIDATE_SIGNALS", {}, { dedupeKey: "consolidate-signals" });
@@ -245,4 +251,5 @@ export async function scheduleRecurring(kind: "minute" | "telegram" | "hourly") 
     await enqueueJob("RECONCILE_SUBSCRIPTIONS", {}, { dedupeKey: "reconcile" });
     await enqueueJob("MARKET_DIRECTION", {}, { dedupeKey: "market-direction" });
   }
+  if (kind === "board") await enqueueJob("REFRESH_BOARD", {}, { dedupeKey: "refresh-board" });
 }

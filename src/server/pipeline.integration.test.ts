@@ -20,7 +20,7 @@ import { getSignalDetailForViewer, getSourceBySlugOrId, listSignalsForViewer, li
 
 // Unlimited history so the fixed-date fixture stays visible; the default windows are tested separately.
 const config = Object.fromEntries(TIERS.map((t) => [t, { ...DEFAULT_TIER_CONFIG[t], historyDays: null }])) as typeof DEFAULT_TIER_CONFIG;
-const viewer = (tier: "silver" | "gold" | "platinum", cfg = config): Viewer => ({
+const viewer = (tier: "silver" | "platinum", cfg = config): Viewer => ({
   user: null,
   access: buildAccess(tier, cfg),
   config: cfg,
@@ -60,7 +60,7 @@ beforeAll(async () => {
   expect(res.status).toBe("stored");
   const [sig] = await db.select().from(signals).where(eq(signals.sourceId, sourceId));
   signalId = sig.id;
-  const listed = await listSignalsForViewer(viewer("gold"), {});
+  const listed = await listSignalsForViewer(viewer("platinum"), {});
   expect(listed.items.map((item) => item.id)).toContain(signalId);
   const [aiJob] = await db
     .select({ status: jobs.status })
@@ -127,7 +127,7 @@ describe("pipeline", () => {
   it("locks signals older than the tier's history window", async () => {
     const res = await getSignalDetailForViewer(signalId, viewer("silver", DEFAULT_TIER_CONFIG));
     expect(res).toMatchObject({ kind: "history_locked", requiredTier: "platinum" });
-    const list = await listSignalsForViewer(viewer("gold", DEFAULT_TIER_CONFIG), {});
+    const list = await listSignalsForViewer(viewer("platinum", DEFAULT_TIER_CONFIG), {});
     expect(list.items.map((item) => item.id)).toContain(signalId);
   });
 

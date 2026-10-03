@@ -22,15 +22,6 @@ describe("admin view-as", () => {
     expect(can(silver, "consensus.mapping")).toBe(false);
     expect(silver.historyDays).toBe(180);
 
-    const gold = accessForPreview(DEFAULT_TIER_CONFIG, "gold");
-    expect(can(gold, "sources.stats.summary")).toBe(true);
-    expect(can(gold, "filters.advanced")).toBe(true);
-    expect(can(gold, "consensus.grade")).toBe(false);
-    expect(can(gold, "consensus.timing")).toBe(false);
-    expect(can(gold, "consensus.mapping")).toBe(false);
-    expect(can(gold, "ai.summary")).toBe(false);
-    expect(gold.historyDays).toBeNull();
-
     const platinum = accessForPreview(DEFAULT_TIER_CONFIG, "platinum");
     expect(can(platinum, "filters.advanced")).toBe(true);
     expect(can(platinum, "ai.patterns")).toBe(false);
@@ -50,7 +41,7 @@ describe("admin view-as", () => {
   it("ignores unknown preview values", () => {
     expect(parseViewAs("admin")).toBeNull();
     expect(parseViewAs("diamond")).toBeNull();
-    expect(parseViewAs("gold")).toBe("gold");
+    expect(parseViewAs("gold")).toBeNull();
     expect(parseViewAs("none")).toBe("none");
   });
 });

@@ -200,8 +200,8 @@ describe("tier visibility", () => {
     expect(json).not.toMatch(/Source #\d/);
   });
 
-  it("shows gold the score and timing breakdown without the performer mapping or channel names", () => {
-    const access = withFeatures(accessForPreview(DEFAULT_TIER_CONFIG, "gold"), ["consensus.grade", "consensus.timing"]);
+  it("shows the score and timing breakdown without the performer mapping or channel names", () => {
+    const access = withFeatures(accessForPreview(DEFAULT_TIER_CONFIG, "platinum"), ["consensus.grade", "consensus.timing"]);
     const detail = detailFor(access);
     expect(detail.consensus.grade.locked).toBe(false);
     expect(detail.consensus.timing.locked).toBe(false);

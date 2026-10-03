@@ -52,6 +52,7 @@ export function startWorker() {
   const minute = safe("minute", () => scheduleRecurring("minute"));
   const telegram = safe("telegram", () => scheduleRecurring("telegram"));
   const hourly = safe("hourly", () => scheduleRecurring("hourly"));
+  const board = safe("board", () => scheduleRecurring("board"));
 
   safe("startup", async () => {
     await requeueStaleJobs();
@@ -64,9 +65,11 @@ export function startWorker() {
     }
     await scheduleRecurring("telegram");
     await scheduleRecurring("hourly");
+    await scheduleRecurring("board");
   })();
 
   setInterval(minute, 60_000).unref();
   setInterval(telegram, TELEGRAM_SCHEDULE_MS).unref();
   setInterval(hourly, 60 * 60_000).unref();
+  setInterval(board, 10 * 60_000).unref();
 }

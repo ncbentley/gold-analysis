@@ -13,9 +13,8 @@ import { FEATURE_CATALOG, TIER_LABEL, TIER_ORDER } from "@/server/entitlements/c
 import { getViewer } from "@/server/entitlements/service";
 
 const TAGLINE: Record<Tier, string> = {
-  silver: "Live signals with final results",
-  gold: "Source performance and how a zone lines up in time",
-  platinum: "Full history, advanced filters, and detailed stats",
+  silver: "Nearby calls averaged into one idea",
+  platinum: "One primary idea, plus a few alternates",
 };
 
 const PERIOD_TITLE: Record<BillingPeriod, string> = { weekly: "Weekly", monthly: "Monthly", annual: "Annual" };
@@ -29,8 +28,8 @@ export function parsePlanParams(sp: Record<string, string | string[] | undefined
 /** Period tabs and tier cards; tab links stay on `basePath` so the picker can live on any page. */
 export async function PlanPicker({ period, highlight, basePath, anchor }: { period: BillingPeriod; highlight: string; basePath: string; anchor?: string }) {
   const { user, config, subscription } = await getViewer();
-  const offeredTiers = TIER_ORDER.filter((tier) => tier !== "gold");
-  const plans = (await listPlans()).filter((plan) => plan.tier !== "gold" && !(plan.tier === "platinum" && plan.period === "weekly"));
+  const offeredTiers = TIER_ORDER;
+  const plans = (await listPlans()).filter((plan) => !(plan.tier === "platinum" && plan.period === "weekly"));
   const byKey = new Map(plans.map((p) => [`${p.tier}:${p.period}`, p]));
   const monthlyCents = (tier: Tier) => byKey.get(`${tier}:monthly`)?.amountCents ?? 0;
 

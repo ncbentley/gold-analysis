@@ -7,7 +7,6 @@ import { DEFAULT_TIER_CONFIG, type TierConfig } from "./config";
 
 const config = DEFAULT_TIER_CONFIG;
 const silver = buildAccess("silver", config);
-const gold = buildAccess("gold", config);
 const platinum = buildAccess("platinum", config);
 
 const now = new Date("2026-02-01T12:00:00Z");
@@ -126,11 +125,10 @@ describe("access", () => {
   });
 
   it("tiers are cumulative by default", () => {
-    for (const f of config.silver.features) expect(can(gold, f)).toBe(true);
-    for (const f of config.gold.features) expect(can(platinum, f)).toBe(true);
+    for (const f of config.silver.features) expect(can(platinum, f)).toBe(true);
     expect(can(silver, "sources.stats.summary")).toBe(true);
     expect(can(silver, "sources.stats.recent")).toBe(false);
-    expect(can(gold, "ai.summary")).toBe(false);
+    expect(can(platinum, "ai.summary")).toBe(false);
   });
 
   it("admins get every feature", () => {
@@ -149,7 +147,7 @@ describe("access", () => {
   });
 
   it("follows configuration rather than hard-coded tiers", () => {
-    const custom: Record<"silver" | "gold" | "platinum", TierConfig> = {
+    const custom: Record<"silver" | "platinum", TierConfig> = {
       ...config,
       silver: { features: [...config.silver.features, "ai.summary"], historyDays: 7 },
     };
@@ -178,11 +176,6 @@ describe("access", () => {
     expect(historyCutoff(free, now)?.toISOString()).toBe("2026-01-25T12:00:00.000Z");
   });
 
-  it("gives gold the same features and history as platinum", () => {
-    expect([...gold.features].sort()).toEqual([...platinum.features].sort());
-    expect(gold.historyDays).toBe(platinum.historyDays);
-  });
-
   it("keeps advanced filters, consensus, and AI off silver", () => {
     expect(can(silver, "filters.advanced")).toBe(false);
     expect(can(silver, "consensus.grade")).toBe(false);
@@ -209,24 +202,6 @@ describe("signal detail projection", () => {
     expect(d.consensus.timing.locked).toBe(true);
     expect(d.consensus.mapping.locked).toBe(true);
     expect(json).not.toContain("Consensus Score");
-  });
-
-  it("gold gets the same detail as platinum, without AI or consensus", () => {
-    const d = detailFor(gold);
-    expect(d.outcome.excursionSummary).toEqual({ locked: false, data: { mfeR: 1, maeR: 0.4 } });
-    expect(d.similar.summary.locked).toBe(false);
-    expect(d.similar.details.locked).toBe(false);
-    expect(d.outcome.excursionDetail).toMatchObject({ locked: false, data: { bestPrice: 3405 } });
-    expect(d.sourceStats?.summary.locked).toBe(false);
-    expect(d.sourceStats?.extended.locked).toBe(false);
-    expect(d.consensus.grade.locked).toBe(true);
-    expect(d.consensus.timing.locked).toBe(true);
-    expect(d.consensus.mapping.locked).toBe(true);
-    expect(d.ai.classification.locked).toBe(true);
-    expect(d.ai.summary.locked).toBe(true);
-    const json = JSON.stringify(d);
-    expect(json).not.toContain("SECRET_SUMMARY");
-    expect(json).not.toContain("SECRET_LABEL");
   });
 
   it("platinum gets full history features without AI", () => {

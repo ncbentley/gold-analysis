@@ -1,0 +1,245 @@
+import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
+import { createOpenAiProvider } from "@/server/ai/providers/openai";
+import { getDb } from "@/server/db";
+import { boardPosts, consolidatedIdeas, marketDirectionSnapshots, signalTargets, signals, sourceStats, sources, type BoardPick } from "@/server/db/schema";
+import { replayConsolidatedIdeas } from "@/server/ideas/service";
+import { replayIdea } from "@/server/ideas/replay";
+import type { IdeaPhase } from "@/server/ideas/phase";
+import { getEngineBars, getRecentBars } from "@/server/market-data";
+import { decideBoard, type BoardSnapshot } from "./decide";
+import { parseBoardOutput } from "./parse";
+import { BOARD_EXAMPLE, BOARD_PROMPT_VERSION, BOARD_SYSTEM } from "./prompt";
+
+const LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
+const DEFAULT_MODEL = "deepseek-ai/DeepSeek-V4-Flash";
+
+export interface BoardCard {
+  postId: string;
+  slot: "primary" | number;
+  pick: BoardPick;
+  phase: IdeaPhase;
+  startedAt: number;
+}
+
+async function spotNow() {
+  const [bar] = (await getRecentBars(1)).slice(-1);
+  return bar?.close ?? null;
+}
+
+async function loadMarket(now: number) {
+  const db = await getDb();
+  const since = new Date(now - LOOKBACK_MS);
+  const spot = await spotNow();
+  const ideaRows = await db.select().from(consolidatedIdeas).where(gte(consolidatedIdeas.newestSignalAt, since));
+  const ideaReplay = await replayConsolidatedIdeas(ideaRows, spot);
+  const ideas = ideaRows.filter((row) => ideaReplay.get(row.id)?.phase !== "history");
+
+  const signalRows = await db
+    .select({ signal: signals, qa: sources.isQa })
+    .from(signals)
+    .innerJoin(sources, eq(sources.id, signals.sourceId))
+    .where(and(gte(signals.signalTime, since), isNull(sources.removedAt)));
+  const usable = signalRows.filter((row) => !row.qa && row.signal.status !== "INVALID" && row.signal.status !== "CANCELLED" && row.signal.status !== "MANUAL_REVIEW");
+  const ids = usable.map((row) => row.signal.id);
+  const targetRows = ids.length ? await db.select().from(signalTargets).where(inArray(signalTargets.signalId, ids)) : [];
+  const bars = usable.length ? await getEngineBars(since, new Date(now + 60_000)) : [];
+  const liveSignals = usable.filter((row) => {
+    const targets = targetRows.filter((target) => target.signalId === row.signal.id).sort((a, b) => a.targetIndex - b.targetIndex).map((target) => target.price).filter((price): price is number => price !== null);
+    const phase = replayIdea(
+      {
+        direction: row.signal.direction,
+        entryMin: row.signal.entryMin,
+        entryMax: row.signal.entryMax,
+        stopLoss: row.signal.stopLoss,
+        targets,
+        startedAt: row.signal.signalTime.getTime(),
+      },
+      bars,
+      spot,
+    ).phase;
+    return phase !== "history";
+  });
+
+  const [direction] = await db.select().from(marketDirectionSnapshots).orderBy(desc(marketDirectionSnapshots.createdAt)).limit(1);
+  const memberIds = [...new Set(ideas.flatMap((idea) => idea.signalIds))];
+  const members = memberIds.length
+    ? await db.select({ id: signals.id, sourceId: signals.sourceId }).from(signals).where(inArray(signals.id, memberIds))
+    : [];
+  const sourceIds = [...new Set(members.map((member) => member.sourceId))];
+  const statsRows = sourceIds.length ? await db.select().from(sourceStats).where(inArray(sourceStats.sourceId, sourceIds)) : [];
+  const stats = new Map(statsRows.map((row) => [row.sourceId, row.statsJson]));
+
+  return {
+    spot,
+    ideas,
+    signals: liveSignals.map((row) => row.signal),
+    direction: direction ?? null,
+    directionKey: direction?.id ?? null,
+    sources: sourceIds.map((sourceId) => {
+      const json = stats.get(sourceId) ?? {};
+      return {
+        sourceId,
+        sampleSize: typeof json.closedTrades === "number" ? json.closedTrades : 0,
+        winRate: typeof json.winRate === "number" ? json.winRate : null,
+        expectancy: typeof json.expectancy === "number" ? json.expectancy : null,
+      };
+    }),
+  };
+}
+
+function snapshotOf(signalIds: string[], ideaIds: string[], directionKey: string | null): BoardSnapshot {
+  return { signalIds: [...signalIds].sort(), ideaIds: [...ideaIds].sort(), directionKey };
+}
+
+async function activePost() {
+  const db = await getDb();
+  const [row] = await db.select().from(boardPosts).where(eq(boardPosts.active, true)).orderBy(desc(boardPosts.createdAt)).limit(1);
+  return row ?? null;
+}
+
+async function deactivate() {
+  const db = await getDb();
+  await db.update(boardPosts).set({ active: false }).where(eq(boardPosts.active, true));
+}
+
+async function callModel(facts: Record<string, unknown>) {
+  const apiKey = process.env.DEEPINFRA_API_KEY;
+  if (!apiKey) throw new Error("DEEPINFRA_API_KEY is not set");
+  const model = process.env.AI_BOARD_MODEL || DEFAULT_MODEL;
+  const provider = createOpenAiProvider(apiKey, model, process.env.DEEPINFRA_BASE_URL || "https://api.deepinfra.com/v1/openai", "json_object");
+  return {
+    model,
+    raw: await provider.generate({
+      analysisType: "market_direction",
+      promptVersion: BOARD_PROMPT_VERSION,
+      system: BOARD_SYSTEM,
+      facts,
+      jsonSchema: {},
+      example: BOARD_EXAMPLE,
+    }),
+  };
+}
+
+async function pickPhase(pick: BoardPick, startedAt: number, spot: number | null) {
+  return replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), spot);
+}
+
+async function anyPickLive(picks: BoardPick[], startedAt: number, spot: number | null) {
+  for (const pick of picks) {
+    if ((await pickPhase(pick, startedAt, spot)).phase !== "history") return true;
+  }
+  return false;
+}
+
+export async function refreshBoard(deps: { now?: number; generate?: (facts: Record<string, unknown>) => Promise<unknown> } = {}) {
+  const now = deps.now ?? Date.now();
+  const market = await loadMarket(now);
+  const previous = await activePost();
+  const live = snapshotOf(
+    market.signals.map((signal) => signal.id),
+    market.ideas.map((idea) => idea.id),
+    market.directionKey,
+  );
+  const action = decideBoard(live, previous ? snapshotOf(previous.signalIds, previous.ideaIds, previous.directionKey) : null);
+  if (action === "clear") {
+    await deactivate();
+    return { action };
+  }
+  if (action === "keep") return { action };
+  try {
+    const facts = {
+      news: market.direction
+        ? { lean: market.direction.lean, summary: market.direction.summary, spot: market.direction.spot, change60m: market.direction.change60m, headlines: market.direction.headlines.slice(0, 8).map((headline) => headline.text) }
+        : null,
+      ideas: market.ideas.map((idea) => ({
+        id: idea.id,
+        direction: idea.direction,
+        entryMin: idea.entryMin,
+        entryMax: idea.entryMax,
+        stopLoss: idea.stopLoss,
+        targets: idea.targets,
+        sourceCount: idea.sourceCount,
+      })),
+      signals: market.signals.map((signal) => ({
+        id: signal.id,
+        direction: signal.direction,
+        entryMin: signal.entryMin,
+        entryMax: signal.entryMax,
+        stopLoss: signal.stopLoss,
+        signalTime: signal.signalTime.toISOString(),
+      })),
+      sources: market.sources,
+    };
+    const generated = deps.generate ? { model: "test", raw: await deps.generate(facts) } : await callModel(facts);
+    const parsed = parseBoardOutput(generated.raw, new Set(live.ideaIds));
+    const db = await getDb();
+    await db.transaction(async (tx) => {
+      await tx.update(boardPosts).set({ active: false }).where(eq(boardPosts.active, true));
+      await tx.insert(boardPosts).values({
+        active: true,
+        model: generated.model,
+        promptVersion: BOARD_PROMPT_VERSION,
+        directionKey: live.directionKey,
+        signalIds: live.signalIds,
+        ideaIds: live.ideaIds,
+        primary: parsed.primary,
+        alternates: parsed.alternates,
+      });
+    });
+    return { action: "call" as const };
+  } catch (err) {
+    if (previous && !(await anyPickLive([previous.primary, ...previous.alternates], previous.createdAt.getTime(), market.spot))) await deactivate();
+    return { action: "failed" as const, error: (err as Error).message };
+  }
+}
+
+async function startTimesFor(picks: BoardPick[], fallback: number, spot: number | null) {
+  const ids = [...new Set(picks.flatMap((pick) => pick.ideaIds))];
+  if (!ids.length) return picks.map(() => fallback);
+  const db = await getDb();
+  const rows = await db.select().from(consolidatedIdeas).where(inArray(consolidatedIdeas.id, ids));
+  const replayed = await replayConsolidatedIdeas(rows, spot);
+  return picks.map((pick) => {
+    const starts = pick.ideaIds.flatMap((id) => {
+      const startedAt = replayed.get(id)?.startedAt;
+      return startedAt === undefined ? [] : [startedAt];
+    });
+    return starts.length ? Math.min(...starts) : fallback;
+  });
+}
+
+export async function currentBoard(spot: number | null = null) {
+  const db = await getDb();
+  const [active] = await db.select().from(boardPosts).where(eq(boardPosts.active, true)).orderBy(desc(boardPosts.createdAt)).limit(1);
+  const [latest] = await db.select().from(boardPosts).orderBy(desc(boardPosts.createdAt)).limit(1);
+  const post = active ?? latest;
+  if (!post) return { post: null as null, cards: [] as BoardCard[] };
+  const price = spot ?? (await spotNow());
+  const picks: { slot: "primary" | number; pick: BoardPick }[] = [
+    { slot: "primary", pick: post.primary },
+    ...post.alternates.map((pick, index) => ({ slot: index, pick })),
+  ];
+  const starts = await startTimesFor(picks.map((row) => row.pick), post.createdAt.getTime(), price);
+  const from = Math.min(...starts);
+  const bars = await getEngineBars(new Date(from), new Date(Date.now() + 60_000));
+  const cards = picks.map(({ slot, pick }, index) => {
+    const startedAt = starts[index];
+    const played = replayIdea({ ...pick, startedAt }, bars, price);
+    const card: BoardCard = { postId: post.id, slot, pick, phase: played.phase, startedAt };
+    return card;
+  });
+  return { post, cards };
+}
+
+export async function boardPick(postId: string, slot: string, spot: number | null) {
+  const db = await getDb();
+  const [post] = await db.select().from(boardPosts).where(eq(boardPosts.id, postId));
+  if (!post) return null;
+  const pick = slot === "primary" ? post.primary : post.alternates[Number(slot)];
+  if (!pick || (slot !== "primary" && !Number.isInteger(Number(slot)))) return null;
+  const price = spot ?? (await spotNow());
+  const [startedAt] = await startTimesFor([pick], post.createdAt.getTime(), price);
+  const played = replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), price);
+  const ideaRows = pick.ideaIds.length ? await db.select().from(consolidatedIdeas).where(inArray(consolidatedIdeas.id, pick.ideaIds)) : [];
+  return { post, pick, slot: slot === "primary" ? ("primary" as const) : Number(slot), startedAt, phase: played.phase, outcome: played.outcome, ideas: ideaRows };
+}

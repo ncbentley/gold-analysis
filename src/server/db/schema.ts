@@ -78,7 +78,7 @@ export const outboundEmails = pgTable("outbound_emails", {
 /* Billing and entitlements                                            */
 /* ------------------------------------------------------------------ */
 
-export const TIERS = ["silver", "gold", "platinum"] as const;
+export const TIERS = ["silver", "platinum"] as const;
 export type Tier = (typeof TIERS)[number];
 export const PERIODS = ["weekly", "monthly", "annual"] as const;
 export type BillingPeriod = (typeof PERIODS)[number];
@@ -304,6 +304,30 @@ export const consolidatedIdeas = pgTable("consolidated_ideas", {
   frozenAt: ts("frozen_at"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
+});
+
+export interface BoardPick {
+  direction: "LONG" | "SHORT";
+  entryMin: number;
+  entryMax: number;
+  stopLoss: number | null;
+  targets: number[];
+  writeup: string;
+  ideaIds: string[];
+}
+
+/** One model pass. The active row is the board on screen. Older rows stay as history. */
+export const boardPosts = pgTable("board_posts", {
+  id: id(),
+  active: boolean("active").notNull().default(false),
+  model: text("model"),
+  promptVersion: text("prompt_version").notNull(),
+  directionKey: text("direction_key"),
+  signalIds: jsonb("signal_ids").$type<string[]>().notNull(),
+  ideaIds: jsonb("idea_ids").$type<string[]>().notNull(),
+  primary: jsonb("primary").$type<BoardPick>().notNull(),
+  alternates: jsonb("alternates").$type<BoardPick[]>().notNull(),
+  createdAt: createdAt(),
 });
 
 export const signalTargets = pgTable(

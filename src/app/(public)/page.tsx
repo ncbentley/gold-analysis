@@ -35,19 +35,12 @@ const TIER_PITCH: Record<(typeof PLAN_CARDS)[number], { tagline: string; bullets
     bullets: ["Live signals with entry, stop and targets", "Final result after a trade closes"],
   },
   silver: {
-    tagline: "How each source performs",
-    bullets: ["Everything in Free", "Source win rate, average R and expectancy"],
+    tagline: "The consolidated feed",
+    bullets: ["Everything in Free", "Nearby calls averaged into one idea", "180 days of history"],
   },
   platinum: {
-    tagline: "The full research desk",
-    bullets: [
-      "Everything in Silver",
-      "Recent form, time of day, direction and signal type",
-      "Full history and search",
-      "Advanced filters",
-      "Similar trades, excursion and time to target",
-      "Session, weekday and percentile statistics",
-    ],
+    tagline: "One board",
+    bullets: ["Everything in Silver", "One primary idea from the model, plus alternates", "Full history, advanced filters, and the detailed stats"],
   },
 };
 

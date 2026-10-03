@@ -7,7 +7,6 @@ import { setViewAsAction } from "@/app/actions/view-as";
 const LEVELS = [
   { value: "admin", label: "Admin" },
   { value: "platinum", label: "Platinum" },
-  { value: "gold", label: "Gold" },
   { value: "silver", label: "Silver" },
   { value: "none", label: "No plan" },
 ] as const;
