@@ -10,6 +10,7 @@ import { processRawEvent } from "@/server/normalization";
 import { repairShortZones } from "@/server/parsing/repair-zones";
 import { refreshBoard } from "@/server/board/service";
 import { relabelFeed } from "@/server/feed/relabel";
+import { syncDashboardCache } from "@/server/feed/snapshot";
 import { replaceConsolidatedIdeas } from "@/server/ideas/service";
 import { refreshSourceStats } from "@/server/statistics/service";
 import { finishImportIfIdle } from "@/server/telegram/import-status";
@@ -29,15 +30,21 @@ const handlers: Record<JobType, Handler> = {
     }
     return res;
   },
-  RECALC_OUTCOME: async (p) => recalculateOutcome(String(p.signalId), { force: Boolean(p.force) }),
+  RECALC_OUTCOME: async (p) => {
+    const result = await recalculateOutcome(String(p.signalId), { force: Boolean(p.force) });
+    await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
+    return result;
+  },
   RECALC_OPEN_SIGNALS: async () => {
     const ids = await openSignalIds();
     for (const id of ids) await recalculateOutcome(id);
+    await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     return { recalculated: ids.length };
   },
   REFRESH_SOURCE_STATS: async (p) => {
     const stats = await refreshSourceStats(String(p.sourceId));
     await enqueueJob("AI_ANALYZE_SOURCE", { sourceId: p.sourceId }, { dedupeKey: `ai-source:${p.sourceId}` });
+    await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     return { closedTrades: stats.closedTrades };
   },
   AI_ANALYZE_SIGNAL: async (p) => {
@@ -48,7 +55,11 @@ const handlers: Record<JobType, Handler> = {
     const r = await analyzeSourcePatterns(String(p.sourceId), { force: Boolean(p.force) });
     return { skipped: r.skipped };
   },
-  MARKET_DIRECTION: async () => refreshMarketDirection(),
+  MARKET_DIRECTION: async () => {
+    const result = await refreshMarketDirection();
+    if ("id" in result) await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
+    return result;
+  },
   TELEGRAM_SYNC: async (p) => {
     // Jobs with no channel are the old full sweep. They stacked because each
     // one ran longer than the timer. Per-channel catch-up is queued by
@@ -60,6 +71,9 @@ const handlers: Record<JobType, Handler> = {
     const rawEventId = String(p.rawEventId ?? "");
     if (!rawEventId) return { skipped: true };
     const result = await processRawEvent(rawEventId);
+    if (result.status === "applied" || result.status === "resolved") {
+      await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
+    }
     return { status: result.status };
   },
   MARKET_DATA_BACKFILL: async () => {
@@ -82,21 +96,26 @@ const handlers: Record<JobType, Handler> = {
           .where(isNull(signalOutcomes.id))
       : await db.select({ id: signals.id }).from(signals);
     for (const r of rows) await recalculateOutcome(r.id, { force: !p.onlyMissing });
+    await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     return { recalculated: rows.length };
   },
   RECONCILE_SUBSCRIPTIONS: async () => reconcileSubscriptions(),
   CONSOLIDATE_SIGNALS: async () => {
     const count = await replaceConsolidatedIdeas();
-    await enqueueJob("RELABEL_FEED", {}, { dedupeKey: "relabel-feed" });
+    await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     return { ideas: count };
   },
   REFRESH_BOARD: async (payload) => {
     const result = await refreshBoard({ fullHistory: payload.fullHistory === true });
     if (result.action === "failed") console.error("[board]", result.error);
-    await enqueueJob("RELABEL_FEED", {}, { dedupeKey: "relabel-feed" });
+    await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     return result;
   },
-  RELABEL_FEED: async () => relabelFeed(),
+  RELABEL_FEED: async (payload) => {
+    const labels = payload.cacheOnly === true ? null : await relabelFeed();
+    const wrote = await syncDashboardCache();
+    return { labels, wrote };
+  },
 };
 
 async function claimNext(type: JobType): Promise<Job | null> {

@@ -343,6 +343,14 @@ export interface BoardCardState {
 export const feedRevisions = pgTable("feed_revisions", {
   id: text("id").primaryKey(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
+  fingerprint: text("fingerprint"),
+});
+
+/** Precomputed dashboard for one membership. The page reads this and does not recompute it. */
+export const dashboardSnapshots = pgTable("dashboard_snapshots", {
+  view: text("view").primaryKey(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
 });
 
 export const signalTargets = pgTable(

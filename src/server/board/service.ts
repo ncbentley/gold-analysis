@@ -193,7 +193,6 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
         labeledAt: new Date(now),
       });
     });
-    await bumpFeedRevision();
     return { action: "call" as const };
   } catch (err) {
     if (previous && !(await anyPickLive([previous.primary, ...previous.alternates], previous.createdAt.getTime(), market.spot))) await deactivate();
@@ -244,11 +243,6 @@ async function latestPost() {
   const db = await getDb();
   const [row] = await db.select().from(boardPosts).orderBy(desc(boardPosts.createdAt)).limit(1);
   return row ?? null;
-}
-
-export async function bumpFeedRevision() {
-  const db = await getDb();
-  await db.update(feedRevisions).set({ updatedAt: new Date() }).where(eq(feedRevisions.id, "dashboard"));
 }
 
 export async function feedRevision() {

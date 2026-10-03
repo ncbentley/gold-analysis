@@ -85,6 +85,13 @@
       "when": 1791590400000,
       "tag": "0011_stored_dashboard",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791676800000,
+      "tag": "0012_dashboard_cache",
+      "breakpoints": true
     }
   ]
 }

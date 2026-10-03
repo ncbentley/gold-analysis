@@ -17,7 +17,7 @@ export interface DirectionView {
   headlines: DirectionHeadlineRecord[];
   spot: number | null;
   change60m: number | null;
-  createdAt: Date;
+  createdAt: string | Date;
 }
 
 function clip(text: string) {

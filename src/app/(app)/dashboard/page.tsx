@@ -13,12 +13,8 @@ import { SignalList } from "@/components/signal-list";
 import { TopSources } from "@/components/top-sources";
 import { fmtAge, fmtPrice } from "@/lib/format";
 import { can, lowestTierWith } from "@/server/entitlements/access";
-import { currentBoard } from "@/server/board/service";
+import { dashboardViewFor, readDashboardSnapshot } from "@/server/feed/snapshot";
 import { getViewer } from "@/server/entitlements/service";
-import { latestMarketDirection } from "@/server/direction/service";
-import { getRecentBars } from "@/server/market-data";
-import { listIdeasForViewer } from "@/server/ideas/service";
-import { countOpenSignalsForViewer, listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
 import { nowMs } from "@/lib/clock";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -40,8 +36,9 @@ function ViewAll({ href }: { href: string }) {
 export default async function DashboardPage() {
   const viewer = await getViewer();
   const { access, config, user } = viewer;
-  const [lastBar] = (await getRecentBars(1)).slice(-1);
+  const snap = await readDashboardSnapshot(dashboardViewFor(access));
   const now = nowMs();
+  const lastBar = snap?.spot;
 
   const platinum = access.tier === "platinum" && !access.isAdmin;
   const header = (
@@ -92,28 +89,23 @@ export default async function DashboardPage() {
   }
 
   const silver = access.tier === "silver";
-  const spot = lastBar?.close ?? null;
-  const [open, closed, ideas, ranking, direction, openCounts, board] = await Promise.all([
-    silver || platinum ? null : listSignalsForViewer(viewer, { status: "OPEN" }, { limit: 20, segment: true }),
-    silver || platinum ? null : listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 10, segment: true }),
-    silver ? listIdeasForViewer(viewer, spot) : null,
-    listTopSourcesForViewer(viewer, 5),
-    latestMarketDirection(),
-    silver || platinum ? null : countOpenSignalsForViewer(viewer),
-    platinum ? currentBoard(spot) : null,
-  ]);
-  const activeCount = openCounts?.active ?? 0;
-  const pendingCount = openCounts?.pending ?? 0;
-  const liveIdeas = ideas?.filter((idea) => idea.phase !== "history") ?? [];
-  const historyIdeas = ideas?.filter((idea) => idea.phase === "history") ?? [];
-  const sourceCount = ideas?.reduce((sum, idea) => sum + idea.sourceCount, 0) ?? 0;
-  const boardLive = board?.post?.active ? board.cards.filter((card) => card.phase !== "history") : [];
-  const boardHistory = board?.post?.active ? board.cards.filter((card) => card.phase === "history") : (board?.cards ?? []);
+  const direction = snap?.direction ?? null;
+  const ranking = snap?.ranking ?? { rows: [], eligibleCount: 0, sourceCount: 0 };
+  const liveIdeas = snap?.ideas?.live ?? [];
+  const historyIdeas = snap?.ideas?.history ?? [];
+  const sourceCount = [...liveIdeas, ...historyIdeas].reduce((sum, idea) => sum + idea.sourceCount, 0);
+  const boardLive = snap?.board?.live ?? [];
+  const boardHistory = snap?.board?.history ?? [];
+  const signals = snap?.signals;
 
   return (
     <>
       <FeedRefresh />
       {header}
+      {!snap ? (
+        <p className="text-sm text-muted-foreground">The dashboard is being prepared.</p>
+      ) : (
+        <>
       <DirectionPanel
         direction={direction}
         now={now}
@@ -125,12 +117,12 @@ export default async function DashboardPage() {
             <Stat label="Available" value={boardLive.filter((card) => card.phase === "available").length} hint="can still be filled" icon={Hourglass} />
             <Stat label="Playing out" value={boardLive.filter((card) => card.phase === "playing-out").length} hint="entered, not closed" icon={Activity} tone="gold" />
             <Stat label="History" value={boardHistory.length} hint="this board" icon={History} />
-            <Stat label="On the board" value={board?.post?.active ? board.cards.length : 0} hint="primary plus alternates" icon={Radar} />
+            <Stat label="On the board" value={snap.board?.active ? boardLive.length + boardHistory.length : 0} hint="primary plus alternates" icon={Radar} />
           </>
         ) : silver ? (
           <>
-            <Stat label="Available" value={ideas?.filter((idea) => idea.phase === "available").length ?? 0} hint="can still be filled" icon={Hourglass} />
-            <Stat label="Playing out" value={ideas?.filter((idea) => idea.phase === "playing-out").length ?? 0} hint="entered, not closed" icon={Activity} tone="gold" />
+            <Stat label="Available" value={liveIdeas.filter((idea) => idea.phase === "available").length} hint="can still be filled" icon={Hourglass} />
+            <Stat label="Playing out" value={liveIdeas.filter((idea) => idea.phase === "playing-out").length} hint="entered, not closed" icon={Activity} tone="gold" />
             <Stat
               label="History"
               value={historyIdeas.length}
@@ -141,12 +133,12 @@ export default async function DashboardPage() {
           </>
         ) : (
           <>
-            <Stat label="Active trades" value={activeCount} hint="entered, not closed" icon={Activity} tone="gold" />
-            <Stat label="Pending entries" value={pendingCount} hint="waiting for fill" icon={Hourglass} />
+            <Stat label="Active trades" value={signals?.active ?? 0} hint="entered, not closed" icon={Activity} tone="gold" />
+            <Stat label="Pending entries" value={signals?.pending ?? 0} hint="waiting for fill" icon={Hourglass} />
             <Stat label="Tracked sources" value={ranking.sourceCount} icon={Radar} />
             <Stat
               label="Signals in your window"
-              value={(open?.total ?? 0) + (closed?.total ?? 0)}
+              value={signals?.total ?? 0}
               hint={access.historyDays ? `last ${access.historyDays} days` : "full history"}
               icon={History}
             />
@@ -180,11 +172,11 @@ export default async function DashboardPage() {
         <>
           <section className="mt-8">
             <SectionTitle icon={Activity} title="Active & pending" action={<ViewAll href="/signals" />} />
-            <SignalList items={open?.items ?? []} now={now} empty="No open signals right now. New signals appear here within moments of being posted." />
+            <SignalList items={signals?.open ?? []} now={now} empty="No open signals right now. New signals appear here within moments of being posted." />
           </section>
           <section className="mt-8">
             <SectionTitle icon={History} title="Recently closed" action={<ViewAll href="/signals" />} />
-            <SignalList items={closed?.items ?? []} now={now} empty="No closed signals in your history window yet." />
+            <SignalList items={signals?.closed ?? []} now={now} empty="No closed signals in your history window yet." />
           </section>
         </>
       )}
@@ -203,6 +195,8 @@ export default async function DashboardPage() {
       <div className="mt-8">
         <AffiliateStrip placement="dashboard" />
       </div>
+        </>
+      )}
     </>
   );
 }
