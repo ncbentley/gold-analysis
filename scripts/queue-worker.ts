@@ -19,6 +19,9 @@ function authorized(header: string | string[] | undefined, secret: string) {
 
 async function main() {
   await runMigrations();
+  const { rebuildConsolidatedIdeas } = await import("@/server/ideas/service");
+  const ideas = await rebuildConsolidatedIdeas();
+  console.log(`[queue] rebuilt ${ideas} consolidated ideas from the full signal history`);
   const port = Number(process.env.QUEUE_PORT ?? 4320);
   const secret = process.env.APP_SECRET ?? "";
   createServer(async (req, res) => {

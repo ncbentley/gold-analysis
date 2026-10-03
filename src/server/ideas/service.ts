@@ -32,25 +32,30 @@ function toRow(idea: GroupedIdea) {
   };
 }
 
-export async function replaceConsolidatedIdeas(now = Date.now()) {
+async function groupStoredSignals(now: number, since: Date | null, excludeFrozen: boolean) {
   const db = await getDb();
-  const since = new Date(now - WINDOW_MS);
-  const frozen = await db
-    .select({ signalIds: consolidatedIdeas.signalIds, replacedSignalIds: consolidatedIdeas.replacedSignalIds })
-    .from(consolidatedIdeas)
-    .where(isNotNull(consolidatedIdeas.frozenAt));
-  const frozenSignalIds = new Set(frozen.flatMap((row) => [...row.signalIds, ...row.replacedSignalIds]));
+  const frozenSignalIds = new Set<string>();
+  if (excludeFrozen) {
+    const frozen = await db
+      .select({ signalIds: consolidatedIdeas.signalIds, replacedSignalIds: consolidatedIdeas.replacedSignalIds })
+      .from(consolidatedIdeas)
+      .where(isNotNull(consolidatedIdeas.frozenAt));
+    for (const row of frozen) {
+      for (const id of row.signalIds) frozenSignalIds.add(id);
+      for (const id of row.replacedSignalIds) frozenSignalIds.add(id);
+    }
+  }
   const rows = await db
     .select({ signal: signals, source: sources })
     .from(signals)
     .innerJoin(sources, eq(sources.id, signals.sourceId))
-    .where(and(gte(signals.signalTime, since), isNull(sources.removedAt)));
+    .where(since ? and(gte(signals.signalTime, since), isNull(sources.removedAt)) : isNull(sources.removedAt));
   const openRows = rows.filter((row) => !frozenSignalIds.has(row.signal.id));
   const ids = openRows.map((row) => row.signal.id);
   const targetRows = ids.length
     ? await db.select().from(signalTargets).where(inArray(signalTargets.signalId, ids)).orderBy(asc(signalTargets.targetIndex))
     : [];
-  const grouped = groupSignals(
+  return groupSignals(
     openRows.map((row) => ({
       id: row.signal.id,
       sourceId: row.signal.sourceId,
@@ -65,6 +70,10 @@ export async function replaceConsolidatedIdeas(now = Date.now()) {
     })),
     now,
   );
+}
+
+async function persistIdeas(grouped: GroupedIdea[], replaceFrozen: boolean) {
+  const db = await getDb();
   const values = grouped.map(toRow);
   await db.transaction(async (tx) => {
     for (const row of values) {
@@ -75,15 +84,33 @@ export async function replaceConsolidatedIdeas(now = Date.now()) {
         .onConflictDoUpdate({
           target: consolidatedIdeas.id,
           set: fields,
-          setWhere: isNull(consolidatedIdeas.frozenAt),
+          ...(replaceFrozen ? {} : { setWhere: isNull(consolidatedIdeas.frozenAt) }),
         });
     }
     const keepIds = values.map((row) => row.id);
+    if (!keepIds.length) {
+      await tx.delete(consolidatedIdeas).where(replaceFrozen ? undefined : isNull(consolidatedIdeas.frozenAt));
+      return;
+    }
     await tx.delete(consolidatedIdeas).where(
-      keepIds.length ? and(isNull(consolidatedIdeas.frozenAt), notInArray(consolidatedIdeas.id, keepIds)) : isNull(consolidatedIdeas.frozenAt),
+      replaceFrozen ? notInArray(consolidatedIdeas.id, keepIds) : and(isNull(consolidatedIdeas.frozenAt), notInArray(consolidatedIdeas.id, keepIds)),
     );
   });
   return grouped.length;
+}
+
+/** Regroups the last 48 hours. Frozen ideas, including the historical replay, stay put. */
+export async function replaceConsolidatedIdeas(now = Date.now()) {
+  return persistIdeas(await groupStoredSignals(now, new Date(now - WINDOW_MS), true), false);
+}
+
+/**
+ * One pass over every stored signal, in publish order, with the same 30-minute
+ * and $2 rules the live job uses. Clusters that have been quiet for 30 minutes
+ * are frozen. The next live run leaves those rows alone.
+ */
+export async function rebuildConsolidatedIdeas(now = Date.now()) {
+  return persistIdeas(await groupStoredSignals(now, null, false), true);
 }
 
 export interface ListedIdea {

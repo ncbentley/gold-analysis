@@ -16,7 +16,7 @@ import { getViewer } from "@/server/entitlements/service";
 import { latestMarketDirection } from "@/server/direction/service";
 import { getRecentBars } from "@/server/market-data";
 import { listIdeasForViewer } from "@/server/ideas/service";
-import { listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
+import { countOpenSignalsForViewer, listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
 import { nowMs } from "@/lib/clock";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -84,15 +84,16 @@ export default async function DashboardPage() {
 
   const silver = access.tier === "silver";
   const spot = lastBar?.close ?? null;
-  const [open, closed, ideas, ranking, direction] = await Promise.all([
+  const [open, closed, ideas, ranking, direction, openCounts] = await Promise.all([
     silver ? null : listSignalsForViewer(viewer, { status: "OPEN" }, { limit: 20, segment: true }),
     silver ? null : listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 10, segment: true }),
     silver ? listIdeasForViewer(viewer, spot) : null,
     listTopSourcesForViewer(viewer, 5),
     latestMarketDirection(),
+    silver ? null : countOpenSignalsForViewer(viewer),
   ]);
-  const activeCount = open?.items.filter((s) => s.status !== "PENDING").length ?? 0;
-  const pendingCount = open?.items.filter((s) => s.status === "PENDING").length ?? 0;
+  const activeCount = openCounts?.active ?? 0;
+  const pendingCount = openCounts?.pending ?? 0;
   const liveIdeas = ideas?.filter((idea) => idea.phase !== "history") ?? [];
   const historyIdeas = ideas?.filter((idea) => idea.phase === "history") ?? [];
   const sourceCount = ideas?.reduce((sum, idea) => sum + idea.sourceCount, 0) ?? 0;

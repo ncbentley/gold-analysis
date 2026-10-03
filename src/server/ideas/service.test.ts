@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { consolidatedIdeas, rawEvents, signals, sources } from "@/server/db/schema";
-import { replaceConsolidatedIdeas } from "./service";
+import { rebuildConsolidatedIdeas, replaceConsolidatedIdeas } from "./service";
 
 function ideaId(signalIds: string[]) {
   return createHash("sha256").update([...signalIds].sort().join(",")).digest("hex");
@@ -276,5 +276,73 @@ describe("replaceConsolidatedIdeas", () => {
     expect(later[0].signalIds).toHaveLength(2);
     expect(later[0].replacedSignalIds).toEqual([firstPost.id]);
     expect(later.some((row) => row.signalIds.length === 1 && row.signalIds[0] === firstPost.id)).toBe(false);
+  });
+
+  it("replays history older than the live window into one frozen idea", async () => {
+    const db = await getDb();
+    const t0 = Date.now() - 20 * 24 * 60 * 60_000;
+    const [sourceA] = await db
+      .insert(sources)
+      .values({ name: "Desk G", slug: "desk-g", sourceType: "manual", parserType: "text-generic" })
+      .returning();
+    const [sourceB] = await db
+      .insert(sources)
+      .values({ name: "Desk H", slug: "desk-h", sourceType: "manual", parserType: "text-generic" })
+      .returning();
+    const [firstEvent] = await db
+      .insert(rawEvents)
+      .values({ sourceId: sourceA.id, rawText: "buy 5100", publishedAt: new Date(t0), contentHash: "idea-g" })
+      .returning();
+    const [secondEvent] = await db
+      .insert(rawEvents)
+      .values({ sourceId: sourceB.id, rawText: "buy 5101", publishedAt: new Date(t0 + 10 * 60_000), contentHash: "idea-h" })
+      .returning();
+    const [firstSignal] = await db
+      .insert(signals)
+      .values({
+        sourceId: sourceA.id,
+        originEventId: firstEvent.id,
+        direction: "LONG",
+        entryType: "MARKET",
+        entryMin: 5100,
+        entryMax: 5100,
+        signalTime: new Date(t0),
+        parserConfidence: 1,
+        status: "ACTIVE",
+      })
+      .returning();
+    const [secondSignal] = await db
+      .insert(signals)
+      .values({
+        sourceId: sourceB.id,
+        originEventId: secondEvent.id,
+        direction: "LONG",
+        entryType: "MARKET",
+        entryMin: 5101,
+        entryMax: 5101,
+        signalTime: new Date(t0 + 10 * 60_000),
+        parserConfidence: 1,
+        status: "ACTIVE",
+      })
+      .returning();
+
+    expect(await replaceConsolidatedIdeas(Date.now())).toBeGreaterThanOrEqual(0);
+    const missed = (await db.select().from(consolidatedIdeas)).filter((row) => row.signalIds.includes(firstSignal.id));
+    expect(missed).toHaveLength(0);
+
+    await rebuildConsolidatedIdeas(Date.now());
+    const rebuilt = (await db.select().from(consolidatedIdeas)).filter((row) =>
+      row.signalIds.includes(firstSignal.id) || row.signalIds.includes(secondSignal.id),
+    );
+    expect(rebuilt).toHaveLength(1);
+    expect(rebuilt[0].signalIds).toEqual(expect.arrayContaining([firstSignal.id, secondSignal.id]));
+    expect(rebuilt[0].frozenAt).not.toBeNull();
+
+    await replaceConsolidatedIdeas(Date.now());
+    const kept = (await db.select().from(consolidatedIdeas)).filter((row) =>
+      row.signalIds.includes(firstSignal.id) || row.signalIds.includes(secondSignal.id),
+    );
+    expect(kept).toHaveLength(1);
+    expect(kept[0].id).toBe(rebuilt[0].id);
   });
 });

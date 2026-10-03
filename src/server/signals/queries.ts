@@ -114,6 +114,25 @@ export function signalVisibleToViewer(
   return true;
 }
 
+/** Active and still-pending counts for the raw dashboard. These are totals, not the page of rows. */
+export async function countOpenSignalsForViewer(viewer: Viewer): Promise<{ active: number; pending: number }> {
+  const db = await getDb();
+  const { access } = viewer;
+  const cutoff = historyCutoff(access);
+  const conds: SQL[] = [sql`${signals.status} <> 'INVALID'`];
+  if (!access.isAdmin) conds.push(eq(sources.isQa, false));
+  if (cutoff) conds.push(gte(signals.signalTime, cutoff));
+  const [row] = await db
+    .select({
+      active: sql<number>`count(*) filter (where ${signals.status} in ('ACTIVE', 'PARTIAL'))::int`,
+      pending: sql<number>`count(*) filter (where ${signals.status} = 'PENDING' and ${signals.signalTime} > now() - (${OUTCOME_RULES.defaultExpiryMinutes} * interval '1 minute'))::int`,
+    })
+    .from(signals)
+    .innerJoin(sources, eq(sources.id, signals.sourceId))
+    .where(and(...conds));
+  return { active: row?.active ?? 0, pending: row?.pending ?? 0 };
+}
+
 /** Lists signals visible to the viewer. Enforces history depth and advanced-filter entitlements server-side. */
 export async function listSignalsForViewer(
   viewer: Viewer,
