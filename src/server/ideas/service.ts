@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { getDb } from "@/server/db";
-import { consolidatedIdeas, signalOutcomes, signalTargets, signals, sources } from "@/server/db/schema";
+import { consolidatedIdeas, signalTargets, signals, sources } from "@/server/db/schema";
 import { historyCutoff, tierForSignalTime } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
+import { getEngineBars } from "@/server/market-data";
 import { listSignalListItemsByIds } from "@/server/signals/queries";
+import type { EngineOutcome } from "@/server/outcomes/engine";
 import { groupSignals, type GroupedIdea } from "./group";
-import { ideaPhase, phaseFromMembers, type IdeaPhase, type PhaseMember } from "./phase";
+import type { IdeaPhase } from "./phase";
+import { replayIdea } from "./replay";
 
 const WINDOW_MS = 48 * 60 * 60 * 1000;
 
@@ -127,36 +130,26 @@ export interface ListedIdea {
 
 const PHASE_RANK: Record<IdeaPhase, number> = { available: 0, "playing-out": 1, history: 2 };
 
-async function membersById(ids: string[]) {
+async function startTimes(ids: string[]) {
   const unique = [...new Set(ids)];
-  const map = new Map<string, PhaseMember>();
+  const map = new Map<string, number>();
   if (!unique.length) return map;
   const db = await getDb();
-  const rows = await db
-    .select({
-      id: signals.id,
-      status: signals.status,
-      outcomeId: signalOutcomes.id,
-      entered: signalOutcomes.entered,
-      exitTime: signalOutcomes.exitTime,
-      classification: signalOutcomes.classification,
-    })
-    .from(signals)
-    .leftJoin(signalOutcomes, and(eq(signalOutcomes.signalId, signals.id), eq(signalOutcomes.isCurrent, true)))
-    .where(inArray(signals.id, unique));
-  for (const row of rows) {
-    map.set(row.id, {
-      status: row.status,
-      outcome: row.outcomeId
-        ? { entered: row.entered ?? false, exitTime: row.exitTime, classification: row.classification ?? "" }
-        : null,
-    });
-  }
+  const rows = await db.select({ id: signals.id, signalTime: signals.signalTime }).from(signals).where(inArray(signals.id, unique));
+  for (const row of rows) map.set(row.id, row.signalTime.getTime());
   return map;
 }
 
-function listedIdea(row: typeof consolidatedIdeas.$inferSelect, members: Map<string, PhaseMember>, spot: number | null): ListedIdea {
-  const flags = phaseFromMembers(row.signalIds.map((id) => members.get(id) ?? null));
+function ideaStart(signalIds: string[], times: Map<string, number>, newest: Date) {
+  let start = newest.getTime();
+  for (const id of signalIds) {
+    const time = times.get(id);
+    if (time != null && time < start) start = time;
+  }
+  return start;
+}
+
+function listedIdea(row: typeof consolidatedIdeas.$inferSelect, phase: IdeaPhase): ListedIdea {
   return {
     id: row.id,
     direction: row.direction,
@@ -166,15 +159,21 @@ function listedIdea(row: typeof consolidatedIdeas.$inferSelect, members: Map<str
     targets: row.targets,
     sourceCount: row.sourceCount,
     newestSignalAt: row.newestSignalAt.toISOString(),
-    phase: ideaPhase({
-      direction: row.direction,
-      entryMin: row.entryMin,
-      entryMax: row.entryMax,
-      stopLoss: row.stopLoss,
-      spot,
-      ...flags,
-    }),
+    phase,
   };
+}
+
+async function replayRows(rows: (typeof consolidatedIdeas.$inferSelect)[], spot: number | null) {
+  const times = await startTimes(rows.flatMap((row) => row.signalIds));
+  const started = new Map(rows.map((row) => [row.id, ideaStart(row.signalIds, times, row.newestSignalAt)]));
+  const from = started.size ? Math.min(...started.values()) : Date.now();
+  const bars = rows.length ? await getEngineBars(new Date(from), new Date(Date.now() + 60_000)) : [];
+  const played = new Map<string, ReturnType<typeof replayIdea> & { startedAt: number }>();
+  for (const row of rows) {
+    const startedAt = started.get(row.id) ?? row.newestSignalAt.getTime();
+    played.set(row.id, { ...replayIdea({ ...row, startedAt }, bars, spot), startedAt });
+  }
+  return played;
 }
 
 /** Ideas inside the viewer's history window. Counting `signalIds` only. */
@@ -186,16 +185,22 @@ export async function listIdeasForViewer(viewer: Viewer, spot: number | null): P
     .from(consolidatedIdeas)
     .where(cutoff ? gte(consolidatedIdeas.newestSignalAt, cutoff) : undefined)
     .orderBy(desc(consolidatedIdeas.newestSignalAt));
-  const members = await membersById(rows.flatMap((row) => row.signalIds));
+  const played = await replayRows(rows, spot);
   return rows
-    .map((row) => listedIdea(row, members, spot))
+    .map((row) => listedIdea(row, played.get(row.id)?.phase ?? "available"))
     .sort((a, b) => PHASE_RANK[a.phase] - PHASE_RANK[b.phase] || Date.parse(b.newestSignalAt) - Date.parse(a.newestSignalAt));
 }
 
 export type IdeaForViewer =
   | { kind: "not_found" }
   | { kind: "history_locked"; requiredTier: string | null }
-  | { kind: "ok"; idea: ListedIdea; items: Awaited<ReturnType<typeof listSignalListItemsByIds>> };
+  | {
+      kind: "ok";
+      idea: ListedIdea;
+      items: Awaited<ReturnType<typeof listSignalListItemsByIds>>;
+      startedAt: string;
+      outcome: EngineOutcome;
+    };
 
 export async function getIdeaForViewer(id: string, viewer: Viewer, spot: number | null): Promise<IdeaForViewer> {
   const db = await getDb();
@@ -206,10 +211,13 @@ export async function getIdeaForViewer(id: string, viewer: Viewer, spot: number 
   if (cutoff && row.newestSignalAt < cutoff) {
     return { kind: "history_locked", requiredTier: tierForSignalTime(row.newestSignalAt, viewer.config, now) };
   }
-  const members = await membersById(row.signalIds);
+  const played = await replayRows([row], spot);
+  const replay = played.get(row.id)!;
   return {
     kind: "ok",
-    idea: listedIdea(row, members, spot),
+    idea: listedIdea(row, replay.phase),
+    startedAt: new Date(replay.startedAt).toISOString(),
+    outcome: replay.outcome,
     items: await listSignalListItemsByIds(row.signalIds, viewer),
   };
 }
