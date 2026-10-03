@@ -8,10 +8,19 @@
 # to "http://gold.example.com" behind a named tunnel, or to "gold.example.com"
 # (and publish ports 80 and 443) to let Caddy terminate TLS itself.
 {$SITE_ADDRESS::80} {
-	encode zstd gzip
+	@feed path /api/feed/stream
+	handle @feed {
+		reverse_proxy app:4317 {
+			flush_interval -1
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		}
+	}
 
-	reverse_proxy app:4317 {
-		# Only safe while Cloudflare is the sole way in; otherwise a client could set it.
-		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+	handle {
+		encode zstd gzip
+		reverse_proxy app:4317 {
+			# Only safe while Cloudflare is the sole way in; otherwise a client could set it.
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		}
 	}
 }

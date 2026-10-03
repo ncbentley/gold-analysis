@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, notInArray } from "drizzle-orm";
 import { getDb } from "@/server/db";
 import { consolidatedIdeas, signalTargets, signals, sources } from "@/server/db/schema";
 import { historyCutoff, tierForSignalTime } from "@/server/entitlements/access";
@@ -12,6 +12,7 @@ import type { IdeaPhase } from "./phase";
 import { replayIdea } from "./replay";
 
 const WINDOW_MS = 48 * 60 * 60 * 1000;
+export const MIN_CONSOLIDATED_SOURCES = 3;
 
 function stableIdeaId(signalIds: string[]) {
   return createHash("sha256").update([...signalIds].sort().join(",")).digest("hex");
@@ -176,18 +177,42 @@ export async function replayConsolidatedIdeas(rows: (typeof consolidatedIdeas.$i
   return played;
 }
 
+function asPhase(value: string): IdeaPhase {
+  if (value === "playing-out" || value === "history" || value === "available") return value;
+  return "available";
+}
+
+/** Writes the price label onto ideas that are not already history. History stays history. */
+export async function publishIdeaPhases(spot: number | null) {
+  const db = await getDb();
+  const rows = await db.select().from(consolidatedIdeas).where(ne(consolidatedIdeas.phase, "history"));
+  if (!rows.length) return 0;
+  const played = await replayConsolidatedIdeas(rows, spot);
+  let changed = 0;
+  for (const row of rows) {
+    const phase = played.get(row.id)?.phase ?? "available";
+    if (phase === row.phase) continue;
+    await db.update(consolidatedIdeas).set({ phase }).where(eq(consolidatedIdeas.id, row.id));
+    changed += 1;
+  }
+  return changed;
+}
+
 /** Ideas inside the viewer's history window. Counting `signalIds` only. */
-export async function listIdeasForViewer(viewer: Viewer, spot: number | null): Promise<ListedIdea[]> {
+export async function listIdeasForViewer(viewer: Viewer, _spot: number | null): Promise<ListedIdea[]> {
   const db = await getDb();
   const cutoff = historyCutoff(viewer.access);
   const rows = await db
     .select()
     .from(consolidatedIdeas)
-    .where(cutoff ? gte(consolidatedIdeas.newestSignalAt, cutoff) : undefined)
+    .where(
+      cutoff
+        ? and(gte(consolidatedIdeas.sourceCount, MIN_CONSOLIDATED_SOURCES), gte(consolidatedIdeas.newestSignalAt, cutoff))
+        : gte(consolidatedIdeas.sourceCount, MIN_CONSOLIDATED_SOURCES),
+    )
     .orderBy(desc(consolidatedIdeas.newestSignalAt));
-  const played = await replayConsolidatedIdeas(rows, spot);
   return rows
-    .map((row) => listedIdea(row, played.get(row.id)?.phase ?? "available"))
+    .map((row) => listedIdea(row, asPhase(row.phase)))
     .sort((a, b) => PHASE_RANK[a.phase] - PHASE_RANK[b.phase] || Date.parse(b.newestSignalAt) - Date.parse(a.newestSignalAt));
 }
 

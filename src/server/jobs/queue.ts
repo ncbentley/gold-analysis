@@ -18,6 +18,7 @@ export const JOB_TYPES = [
   "RECONCILE_SUBSCRIPTIONS",
   "CONSOLIDATE_SIGNALS",
   "REFRESH_BOARD",
+  "RELABEL_FEED",
 ] as const;
 export type JobType = (typeof JOB_TYPES)[number];
 

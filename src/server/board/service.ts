@@ -1,7 +1,7 @@
-import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, min } from "drizzle-orm";
 import { createOpenAiProvider } from "@/server/ai/providers/openai";
 import { getDb } from "@/server/db";
-import { boardPosts, consolidatedIdeas, marketDirectionSnapshots, signalTargets, signals, sourceStats, sources, type BoardPick } from "@/server/db/schema";
+import { boardPosts, consolidatedIdeas, feedRevisions, marketDirectionSnapshots, signalTargets, signals, sourceStats, sources, type BoardCardState, type BoardPick } from "@/server/db/schema";
 import { replayConsolidatedIdeas } from "@/server/ideas/service";
 import { replayIdea } from "@/server/ideas/replay";
 import type { IdeaPhase } from "@/server/ideas/phase";
@@ -176,6 +176,7 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
     };
     const generated = deps.generate ? { model: "test", raw: await deps.generate(facts) } : await callModel(facts);
     const parsed = parseBoardOutput(generated.raw, new Set(live.ideaIds));
+    const cardState = await labelPicks([parsed.primary, ...parsed.alternates], market.spot, now);
     const db = await getDb();
     await db.transaction(async (tx) => {
       await tx.update(boardPosts).set({ active: false }).where(eq(boardPosts.active, true));
@@ -188,8 +189,11 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
         ideaIds: live.ideaIds,
         primary: parsed.primary,
         alternates: parsed.alternates,
+        cardState,
+        labeledAt: new Date(now),
       });
     });
+    await bumpFeedRevision();
     return { action: "call" as const };
   } catch (err) {
     if (previous && !(await anyPickLive([previous.primary, ...previous.alternates], previous.createdAt.getTime(), market.spot))) await deactivate();
@@ -197,39 +201,79 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
   }
 }
 
-async function startTimesFor(picks: BoardPick[], fallback: number, spot: number | null) {
-  const ids = [...new Set(picks.flatMap((pick) => pick.ideaIds))];
-  if (!ids.length) return picks.map(() => fallback);
+async function pickStartedAt(ideaIds: string[], fallback: number) {
+  if (!ideaIds.length) return fallback;
   const db = await getDb();
-  const rows = await db.select().from(consolidatedIdeas).where(inArray(consolidatedIdeas.id, ids));
-  const replayed = await replayConsolidatedIdeas(rows, spot);
-  return picks.map((pick) => {
-    const starts = pick.ideaIds.flatMap((id) => {
-      const startedAt = replayed.get(id)?.startedAt;
-      return startedAt === undefined ? [] : [startedAt];
-    });
-    return starts.length ? Math.min(...starts) : fallback;
+  const ideaRows = await db
+    .select({ signalIds: consolidatedIdeas.signalIds, newestSignalAt: consolidatedIdeas.newestSignalAt })
+    .from(consolidatedIdeas)
+    .where(inArray(consolidatedIdeas.id, ideaIds));
+  const signalIds = [...new Set(ideaRows.flatMap((row) => row.signalIds))];
+  if (signalIds.length) {
+    const [row] = await db.select({ t: min(signals.signalTime) }).from(signals).where(inArray(signals.id, signalIds));
+    if (row?.t) return row.t.getTime();
+  }
+  const times = ideaRows.map((row) => row.newestSignalAt.getTime());
+  return times.length ? Math.min(...times) : fallback;
+}
+
+/** Labels the handful of picks on one board. This runs in the queue, not on a page request. */
+export async function labelPicks(picks: BoardPick[], spot: number | null, fallback: number): Promise<BoardCardState[]> {
+  const slots: { slot: "primary" | number; pick: BoardPick }[] = picks.map((pick, index) => ({ slot: index === 0 ? "primary" : index - 1, pick }));
+  const starts = await Promise.all(slots.map((row) => pickStartedAt(row.pick.ideaIds, fallback)));
+  const from = Math.min(...starts);
+  const bars = await getEngineBars(new Date(from), new Date(Date.now() + 60_000));
+  return slots.map((row, index) => {
+    const startedAt = starts[index];
+    const played = replayIdea({ ...row.pick, startedAt }, bars, spot, true);
+    return { slot: row.slot, phase: played.phase, startedAt };
   });
 }
 
-export async function currentBoard(spot: number | null = null) {
+export async function publishBoardCards(spot: number | null) {
+  const post = (await activePost()) ?? (await latestPost());
+  if (!post) return false;
+  const next = await labelPicks([post.primary, ...post.alternates], spot, post.createdAt.getTime());
+  if (JSON.stringify(next) === JSON.stringify(post.cardState)) return false;
   const db = await getDb();
-  const [active] = await db.select().from(boardPosts).where(eq(boardPosts.active, true)).orderBy(desc(boardPosts.createdAt)).limit(1);
-  const [latest] = await db.select().from(boardPosts).orderBy(desc(boardPosts.createdAt)).limit(1);
-  const post = active ?? latest;
+  await db.update(boardPosts).set({ cardState: next, labeledAt: new Date() }).where(eq(boardPosts.id, post.id));
+  return true;
+}
+
+async function latestPost() {
+  const db = await getDb();
+  const [row] = await db.select().from(boardPosts).orderBy(desc(boardPosts.createdAt)).limit(1);
+  return row ?? null;
+}
+
+export async function bumpFeedRevision() {
+  const db = await getDb();
+  await db.update(feedRevisions).set({ updatedAt: new Date() }).where(eq(feedRevisions.id, "dashboard"));
+}
+
+export async function feedRevision() {
+  const db = await getDb();
+  const [row] = await db.select({ updatedAt: feedRevisions.updatedAt }).from(feedRevisions).where(eq(feedRevisions.id, "dashboard"));
+  return row?.updatedAt.toISOString() ?? "";
+}
+
+export async function currentBoard(_spot: number | null = null) {
+  const post = (await activePost()) ?? (await latestPost());
   if (!post) return { post: null as null, cards: [] as BoardCard[] };
-  const price = spot ?? (await spotNow());
   const picks: { slot: "primary" | number; pick: BoardPick }[] = [
     { slot: "primary", pick: post.primary },
     ...post.alternates.map((pick, index) => ({ slot: index, pick })),
   ];
-  const starts = await startTimesFor(picks.map((row) => row.pick), post.createdAt.getTime(), price);
-  const from = Math.min(...starts);
-  const bars = await getEngineBars(new Date(from), new Date(Date.now() + 60_000));
-  const cards = picks.map(({ slot, pick }, index) => {
-    const startedAt = starts[index];
-    const played = replayIdea({ ...pick, startedAt }, bars, price, true);
-    const card: BoardCard = { postId: post.id, slot, pick, phase: played.phase, startedAt };
+  const states = new Map(post.cardState.map((state) => [String(state.slot), state]));
+  const cards = picks.map(({ slot, pick }) => {
+    const state = states.get(String(slot));
+    const card: BoardCard = {
+      postId: post.id,
+      slot,
+      pick,
+      phase: state?.phase ?? "available",
+      startedAt: state?.startedAt ?? post.createdAt.getTime(),
+    };
     return card;
   });
   return { post, cards };
@@ -242,7 +286,8 @@ export async function boardPick(postId: string, slot: string, spot: number | nul
   const pick = slot === "primary" ? post.primary : post.alternates[Number(slot)];
   if (!pick || (slot !== "primary" && !Number.isInteger(Number(slot)))) return null;
   const price = spot ?? (await spotNow());
-  const [startedAt] = await startTimesFor([pick], post.createdAt.getTime(), price);
+  const stored = post.cardState.find((state) => String(state.slot) === (slot === "primary" ? "primary" : String(Number(slot))));
+  const startedAt = stored?.startedAt ?? (await pickStartedAt(pick.ideaIds, post.createdAt.getTime()));
   const played = replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), price, true);
   const ideaRows = pick.ideaIds.length ? await db.select().from(consolidatedIdeas).where(inArray(consolidatedIdeas.id, pick.ideaIds)) : [];
   return { post, pick, slot: slot === "primary" ? ("primary" as const) : Number(slot), startedAt, phase: played.phase, outcome: played.outcome, ideas: ideaRows };

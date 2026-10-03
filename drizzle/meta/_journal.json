@@ -78,6 +78,13 @@
       "when": 1791504000000,
       "tag": "0010_drop_gold_and_board",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791590400000,
+      "tag": "0011_stored_dashboard",
+      "breakpoints": true
     }
   ]
 }

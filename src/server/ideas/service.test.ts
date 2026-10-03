@@ -4,7 +4,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { consolidatedIdeas, rawEvents, signals, sources } from "@/server/db/schema";
-import { rebuildConsolidatedIdeas, replaceConsolidatedIdeas } from "./service";
+import { buildAccess } from "@/server/entitlements/access";
+import { DEFAULT_TIER_CONFIG } from "@/server/entitlements/config";
+import { rebuildConsolidatedIdeas, replaceConsolidatedIdeas, listIdeasForViewer } from "./service";
 
 function ideaId(signalIds: string[]) {
   return createHash("sha256").update([...signalIds].sort().join(",")).digest("hex");
@@ -344,5 +346,50 @@ describe("replaceConsolidatedIdeas", () => {
     );
     expect(kept).toHaveLength(1);
     expect(kept[0].id).toBe(rebuilt[0].id);
+  });
+
+  it("shows an idea on the consolidated view only when three sources agreed", async () => {
+    const db = await getDb();
+    const now = new Date();
+    await db.insert(consolidatedIdeas).values([
+      {
+        direction: "LONG",
+        entryMin: 1111,
+        entryMax: 1111,
+        stopLoss: null,
+        targets: [],
+        exitSpreadStops: null,
+        exitSpreadTargets: [],
+        sourceCount: 2,
+        signalIds: [],
+        replacedSignalIds: [],
+        newestSignalAt: now,
+        phase: "available",
+      },
+      {
+        direction: "SHORT",
+        entryMin: 2222,
+        entryMax: 2222,
+        stopLoss: null,
+        targets: [],
+        exitSpreadStops: null,
+        exitSpreadTargets: [],
+        sourceCount: 3,
+        signalIds: [],
+        replacedSignalIds: [],
+        newestSignalAt: now,
+        phase: "playing-out",
+      },
+    ]);
+    const viewer = {
+      user: null,
+      access: buildAccess("silver", DEFAULT_TIER_CONFIG),
+      config: DEFAULT_TIER_CONFIG,
+      subscription: null,
+      viewAs: null,
+    };
+    const listed = await listIdeasForViewer(viewer, null);
+    expect(listed.some((idea) => idea.entryMin === 1111)).toBe(false);
+    expect(listed.find((idea) => idea.entryMin === 2222)?.phase).toBe("playing-out");
   });
 });

@@ -302,6 +302,7 @@ export const consolidatedIdeas = pgTable("consolidated_ideas", {
   replacedSignalIds: jsonb("replaced_signal_ids").$type<string[]>().notNull().default([]),
   newestSignalAt: ts("newest_signal_at").notNull(),
   frozenAt: ts("frozen_at"),
+  phase: text("phase").notNull().default("available"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -327,7 +328,21 @@ export const boardPosts = pgTable("board_posts", {
   ideaIds: jsonb("idea_ids").$type<string[]>().notNull(),
   primary: jsonb("primary").$type<BoardPick>().notNull(),
   alternates: jsonb("alternates").$type<BoardPick[]>().notNull(),
+  cardState: jsonb("card_state").$type<BoardCardState[]>().notNull().default([]),
+  labeledAt: ts("labeled_at"),
   createdAt: createdAt(),
+});
+
+export interface BoardCardState {
+  slot: "primary" | number;
+  phase: "available" | "playing-out" | "history";
+  startedAt: number;
+}
+
+/** Bumped once when a stored dashboard label changes. Pages read this instead of replaying bars. */
+export const feedRevisions = pgTable("feed_revisions", {
+  id: text("id").primaryKey(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
 });
 
 export const signalTargets = pgTable(

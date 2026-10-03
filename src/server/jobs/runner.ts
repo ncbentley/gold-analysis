@@ -9,6 +9,7 @@ import { openSignalIds, recalculateOutcome } from "@/server/outcomes/service";
 import { processRawEvent } from "@/server/normalization";
 import { repairShortZones } from "@/server/parsing/repair-zones";
 import { refreshBoard } from "@/server/board/service";
+import { relabelFeed } from "@/server/feed/relabel";
 import { replaceConsolidatedIdeas } from "@/server/ideas/service";
 import { refreshSourceStats } from "@/server/statistics/service";
 import { finishImportIfIdle } from "@/server/telegram/import-status";
@@ -22,7 +23,10 @@ type Handler = (payload: Record<string, unknown>) => Promise<unknown>;
 const handlers: Record<JobType, Handler> = {
   MARKET_DATA_SYNC: async () => {
     const res = await syncMarketData();
-    if (res.inserted > 0) await enqueueJob("RECALC_OPEN_SIGNALS", {}, { dedupeKey: "recalc-open" });
+    if (res.inserted > 0) {
+      await enqueueJob("RECALC_OPEN_SIGNALS", {}, { dedupeKey: "recalc-open" });
+      await enqueueJob("RELABEL_FEED", {}, { dedupeKey: "relabel-feed" });
+    }
     return res;
   },
   RECALC_OUTCOME: async (p) => recalculateOutcome(String(p.signalId), { force: Boolean(p.force) }),
@@ -83,13 +87,16 @@ const handlers: Record<JobType, Handler> = {
   RECONCILE_SUBSCRIPTIONS: async () => reconcileSubscriptions(),
   CONSOLIDATE_SIGNALS: async () => {
     const count = await replaceConsolidatedIdeas();
+    await enqueueJob("RELABEL_FEED", {}, { dedupeKey: "relabel-feed" });
     return { ideas: count };
   },
   REFRESH_BOARD: async (payload) => {
     const result = await refreshBoard({ fullHistory: payload.fullHistory === true });
     if (result.action === "failed") console.error("[board]", result.error);
+    await enqueueJob("RELABEL_FEED", {}, { dedupeKey: "relabel-feed" });
     return result;
   },
+  RELABEL_FEED: async () => relabelFeed(),
 };
 
 async function claimNext(type: JobType): Promise<Job | null> {

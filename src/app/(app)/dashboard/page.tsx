@@ -5,7 +5,7 @@ import { AffiliateStrip } from "@/components/affiliate-strip";
 import { BoardPicks } from "@/components/board-picks";
 import { DirectionPanel } from "@/components/direction-panel";
 import { IdeaList } from "@/components/idea-list";
-import { LiveRefresh } from "@/components/live-refresh";
+import { FeedRefresh } from "@/components/feed-refresh";
 import { LockedPanel } from "@/components/locked";
 import { PageHeader, SectionTitle } from "@/components/page-header";
 import { Stat } from "@/components/signal-bits";
@@ -112,7 +112,7 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <LiveRefresh />
+      <FeedRefresh />
       {header}
       <DirectionPanel
         direction={direction}
