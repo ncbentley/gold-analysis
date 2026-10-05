@@ -28,6 +28,20 @@ export function chatUserContent(req: AiRequest) {
   return `${facts}\n\nRespond with one JSON object matching this schema:\n${JSON.stringify(req.jsonSchema)}`;
 }
 
+/** A hung completion has to give the concurrency slot back. Slow models still finish inside this. */
+export function aiRequestTimeoutMs() {
+  const raw = process.env.AI_REQUEST_TIMEOUT_MS;
+  if (raw == null || raw.trim() === "") return 90_000;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return 90_000;
+  return Math.floor(n);
+}
+
+function timedOut(err: unknown) {
+  const name = (err as { name?: string }).name;
+  return name === "TimeoutError" || name === "AbortError";
+}
+
 /** OpenAI-compatible chat completions. Server-side only. The request body is not logged. */
 export function createOpenAiProvider(
   apiKey: string,
@@ -38,22 +52,30 @@ export function createOpenAiProvider(
   return {
     model,
     async generate(req: AiRequest) {
-      const res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model,
-          temperature: 0.2,
-          messages: [
-            { role: "system", content: req.system },
-            {
-              role: "user",
-              content: chatUserContent(req),
-            },
-          ],
-          response_format: responseFormat(req, format),
-        }),
-      });
+      const timeoutMs = aiRequestTimeoutMs();
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model,
+            temperature: 0.2,
+            messages: [
+              { role: "system", content: req.system },
+              {
+                role: "user",
+                content: chatUserContent(req),
+              },
+            ],
+            response_format: responseFormat(req, format),
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      } catch (err) {
+        if (timedOut(err)) throw new Error(`AI provider timed out after ${timeoutMs}ms`);
+        throw err;
+      }
       if (!res.ok) throw new Error(`AI provider HTTP ${res.status}`);
       const body = (await res.json()) as { choices: { message: { content: string } }[] };
       return parseContent(body.choices[0].message.content);

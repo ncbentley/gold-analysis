@@ -1,19 +1,54 @@
 import type { JobType } from "./queue";
 
 /**
+ * DeepInfra's concurrent chat-completion cap. Set `DEEPINFRA_CONCURRENCY` to
+ * the new number after an approved increase. The default is the current account limit.
+ */
+export const DEFAULT_PROVIDER_CONCURRENCY = 200;
+
+/**
+ * Model lanes that keep their slots while signal writeups drain. A live post,
+ * a source writeup, the board, and the direction note are not stuck behind history.
+ */
+const RESERVED_MODEL_SLOTS = {
+  PROCESS_EVENT: 16,
+  AI_ANALYZE_SOURCE: 2,
+  MARKET_DIRECTION: 1,
+  REFRESH_BOARD: 1,
+} as const;
+
+export function providerConcurrency(): number {
+  const raw = process.env.DEEPINFRA_CONCURRENCY;
+  if (raw == null || raw.trim() === "") return DEFAULT_PROVIDER_CONCURRENCY;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_PROVIDER_CONCURRENCY;
+  return Math.floor(n);
+}
+
+/** Chat-completion lanes. Their caps add up to the provider limit. */
+export function modelCallingLanes(cap = providerConcurrency()) {
+  const reserved = Object.values(RESERVED_MODEL_SLOTS).reduce((sum, n) => sum + n, 0);
+  const budget = Math.max(Math.floor(cap), reserved + 1);
+  return {
+    ...RESERVED_MODEL_SLOTS,
+    AI_ANALYZE_SIGNAL: budget - reserved,
+  };
+}
+
+const modelLanes = modelCallingLanes();
+
+/**
  * Each job type has its own lane. A slow Telegram sync, market pull, or AI
  * analysis cannot occupy a slot that a live PROCESS_EVENT needs.
  *
- * PROCESS_EVENT, AI_ANALYZE_SIGNAL, and AI_ANALYZE_SOURCE all call the chat
- * model. Their caps are separate on purpose, and the sum stays under the
- * provider limit (DeepInfra allows 200). Message processing keeps its slots
- * even when a backlog of signal writeups is waiting.
+ * The lanes that call the chat model add up to the DeepInfra concurrent cap.
+ * Signal writeups take every request the reserved lanes do not hold.
  */
 export const JOB_CONCURRENCY: Record<JobType, number> = {
-  PROCESS_EVENT: 16,
-  AI_ANALYZE_SIGNAL: 24,
-  AI_ANALYZE_SOURCE: 2,
-  MARKET_DIRECTION: 1,
+  PROCESS_EVENT: modelLanes.PROCESS_EVENT,
+  AI_ANALYZE_SIGNAL: modelLanes.AI_ANALYZE_SIGNAL,
+  AI_ANALYZE_SOURCE: modelLanes.AI_ANALYZE_SOURCE,
+  MARKET_DIRECTION: modelLanes.MARKET_DIRECTION,
   TELEGRAM_SYNC: 2, // one channel per slot; same number as TELEGRAM_CONCURRENCY below
   MARKET_DATA_SYNC: 2,
   MARKET_DATA_BACKFILL: 1,
@@ -24,7 +59,7 @@ export const JOB_CONCURRENCY: Record<JobType, number> = {
   REPAIR_QUOTE_PARSES: 1,
   RECONCILE_SUBSCRIPTIONS: 1,
   CONSOLIDATE_SIGNALS: 1,
-  REFRESH_BOARD: 1,
+  REFRESH_BOARD: modelLanes.REFRESH_BOARD,
   RELABEL_FEED: 1,
 };
 
