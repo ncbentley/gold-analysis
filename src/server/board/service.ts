@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, min } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { createOpenAiProvider } from "@/server/ai/providers/openai";
 import { getDb } from "@/server/db";
 import { boardPosts, consolidatedIdeas, feedRevisions, marketDirectionSnapshots, signalTargets, signals, sourceStats, sources, type BoardCardState, type BoardPick } from "@/server/db/schema";
@@ -7,7 +7,7 @@ import { replayIdea } from "@/server/ideas/replay";
 import type { IdeaPhase } from "@/server/ideas/phase";
 import { getEngineBars, getRecentBars } from "@/server/market-data";
 import { decideBoard, type BoardSnapshot } from "./decide";
-import { parseBoardOutput } from "./parse";
+import { finishBoardPick, parseBoardOutput } from "./parse";
 import { BOARD_EXAMPLE, BOARD_PROMPT_VERSION, BOARD_SYSTEM } from "./prompt";
 
 const LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
@@ -33,7 +33,7 @@ async function loadMarket(now: number, since: Date | null) {
     ? await db.select().from(consolidatedIdeas).where(gte(consolidatedIdeas.newestSignalAt, since))
     : await db.select().from(consolidatedIdeas);
   const ideaReplay = await replayConsolidatedIdeas(ideaRows, spot);
-  const ideas = ideaRows.filter((row) => ideaReplay.get(row.id)?.phase !== "history");
+  const ideas = ideaRows.filter((row) => ideaReplay.get(row.id)?.phase === "available");
 
   const signalRows = await db
     .select({ signal: signals, qa: sources.isQa })
@@ -60,7 +60,7 @@ async function loadMarket(now: number, since: Date | null) {
       spot,
       true,
     ).phase;
-    return phase !== "history";
+    return phase === "available";
   });
 
   const [direction] = await db.select().from(marketDirectionSnapshots).orderBy(desc(marketDirectionSnapshots.createdAt)).limit(1);
@@ -81,10 +81,7 @@ async function loadMarket(now: number, since: Date | null) {
     sources: sourceIds.map((sourceId) => {
       const json = stats.get(sourceId) ?? {};
       return {
-        sourceId,
         sampleSize: typeof json.closedTrades === "number" ? json.closedTrades : 0,
-        winRate: typeof json.winRate === "number" ? json.winRate : null,
-        expectancy: typeof json.expectancy === "number" ? json.expectancy : null,
       };
     }),
   };
@@ -144,7 +141,8 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
     market.ideas.map((idea) => idea.id),
     market.directionKey,
   );
-  const action = decideBoard(live, previous ? snapshotOf(previous.signalIds, previous.ideaIds, previous.directionKey) : null);
+  let action = decideBoard(live, previous ? snapshotOf(previous.signalIds, previous.ideaIds, previous.directionKey) : null);
+  if (action === "keep" && previous && previous.promptVersion !== BOARD_PROMPT_VERSION) action = "call";
   if (action === "clear") {
     await deactivate();
     return { action };
@@ -172,11 +170,22 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
         stopLoss: signal.stopLoss,
         signalTime: signal.signalTime.toISOString(),
       })),
-      sources: market.sources,
+      sourceRecord: {
+        sources: market.sources.length,
+        largestSample: market.sources.reduce((max, source) => Math.max(max, source.sampleSize), 0),
+        smallSamples: market.sources.filter((source) => source.sampleSize < 10).length,
+      },
     };
     const generated = deps.generate ? { model: "test", raw: await deps.generate(facts) } : await callModel(facts);
     const parsed = parseBoardOutput(generated.raw, new Set(live.ideaIds));
-    const cardState = await labelPicks([parsed.primary, ...parsed.alternates], market.spot, now);
+    const ideaLevels = market.ideas.map((idea) => ({ id: idea.id, stopLoss: idea.stopLoss, targets: idea.targets }));
+    const primary = finishBoardPick(parsed.primary, ideaLevels);
+    if (!primary) throw new Error("Board primary has no stop or targets");
+    const alternates = parsed.alternates.flatMap((pick) => {
+      const done = finishBoardPick(pick, ideaLevels);
+      return done ? [done] : [];
+    });
+    const cardState = await labelPicks([primary, ...alternates], market.spot, now);
     const db = await getDb();
     await db.transaction(async (tx) => {
       await tx.update(boardPosts).set({ active: false }).where(eq(boardPosts.active, true));
@@ -187,8 +196,8 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
         directionKey: live.directionKey,
         signalIds: live.signalIds,
         ideaIds: live.ideaIds,
-        primary: parsed.primary,
-        alternates: parsed.alternates,
+        primary,
+        alternates,
         cardState,
         labeledAt: new Date(now),
       });
@@ -200,32 +209,19 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
   }
 }
 
-async function pickStartedAt(ideaIds: string[], fallback: number) {
-  if (!ideaIds.length) return fallback;
-  const db = await getDb();
-  const ideaRows = await db
-    .select({ signalIds: consolidatedIdeas.signalIds, newestSignalAt: consolidatedIdeas.newestSignalAt })
-    .from(consolidatedIdeas)
-    .where(inArray(consolidatedIdeas.id, ideaIds));
-  const signalIds = [...new Set(ideaRows.flatMap((row) => row.signalIds))];
-  if (signalIds.length) {
-    const [row] = await db.select({ t: min(signals.signalTime) }).from(signals).where(inArray(signals.id, signalIds));
-    if (row?.t) return row.t.getTime();
-  }
-  const times = ideaRows.map((row) => row.newestSignalAt.getTime());
-  return times.length ? Math.min(...times) : fallback;
+/** Price from before the board published the call is not a fill. */
+function callStartedAt(stored: number | undefined, publishedAt: number) {
+  if (stored == null || stored < publishedAt) return publishedAt;
+  return stored;
 }
 
 /** Labels the handful of picks on one board. This runs in the queue, not on a page request. */
 export async function labelPicks(picks: BoardPick[], spot: number | null, fallback: number): Promise<BoardCardState[]> {
   const slots: { slot: "primary" | number; pick: BoardPick }[] = picks.map((pick, index) => ({ slot: index === 0 ? "primary" : index - 1, pick }));
-  const starts = await Promise.all(slots.map((row) => pickStartedAt(row.pick.ideaIds, fallback)));
-  const from = Math.min(...starts);
-  const bars = await getEngineBars(new Date(from), new Date(Date.now() + 60_000));
-  return slots.map((row, index) => {
-    const startedAt = starts[index];
-    const played = replayIdea({ ...row.pick, startedAt }, bars, spot, true);
-    return { slot: row.slot, phase: played.phase, startedAt };
+  const bars = await getEngineBars(new Date(fallback), new Date(Date.now() + 60_000));
+  return slots.map((row) => {
+    const played = replayIdea({ ...row.pick, startedAt: fallback }, bars, spot, true);
+    return { slot: row.slot, phase: played.phase, startedAt: fallback };
   });
 }
 
@@ -266,7 +262,7 @@ export async function currentBoard(_spot: number | null = null) {
       slot,
       pick,
       phase: state?.phase ?? "available",
-      startedAt: state?.startedAt ?? post.createdAt.getTime(),
+      startedAt: callStartedAt(state?.startedAt, post.createdAt.getTime()),
     };
     return card;
   });
@@ -281,7 +277,7 @@ export async function boardPick(postId: string, slot: string, spot: number | nul
   if (!pick || (slot !== "primary" && !Number.isInteger(Number(slot)))) return null;
   const price = spot ?? (await spotNow());
   const stored = post.cardState.find((state) => String(state.slot) === (slot === "primary" ? "primary" : String(Number(slot))));
-  const startedAt = stored?.startedAt ?? (await pickStartedAt(pick.ideaIds, post.createdAt.getTime()));
+  const startedAt = callStartedAt(stored?.startedAt, post.createdAt.getTime());
   const played = replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), price, true);
   const ideaRows = pick.ideaIds.length ? await db.select().from(consolidatedIdeas).where(inArray(consolidatedIdeas.id, pick.ideaIds)) : [];
   return { post, pick, slot: slot === "primary" ? ("primary" as const) : Number(slot), startedAt, phase: played.phase, outcome: played.outcome, ideas: ideaRows };

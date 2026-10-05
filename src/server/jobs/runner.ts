@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull, lte, sql } from "drizzle-orm";
+import { PIPELINE } from "@/server/audit";
 import { analyzeSignal, analyzeSourcePatterns } from "@/server/ai/service";
 import { refreshMarketDirection } from "@/server/direction/service";
 import { reconcileSubscriptions } from "@/server/billing/service";
@@ -70,8 +71,9 @@ const handlers: Record<JobType, Handler> = {
   PROCESS_EVENT: async (p) => {
     const rawEventId = String(p.rawEventId ?? "");
     if (!rawEventId) return { skipped: true };
-    const result = await processRawEvent(rawEventId);
+    const result = await processRawEvent(rawEventId, PIPELINE, { live: p.live === true });
     if (result.status === "applied" || result.status === "resolved") {
+      await enqueueJob("CONSOLIDATE_SIGNALS", {}, { dedupeKey: "consolidate-signals" });
       await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     }
     return { status: result.status };
@@ -102,6 +104,7 @@ const handlers: Record<JobType, Handler> = {
   RECONCILE_SUBSCRIPTIONS: async () => reconcileSubscriptions(),
   CONSOLIDATE_SIGNALS: async () => {
     const count = await replaceConsolidatedIdeas();
+    await enqueueJob("REFRESH_BOARD", {}, { dedupeKey: "refresh-board" });
     await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     return { ideas: count };
   },
@@ -122,10 +125,10 @@ async function claimNext(type: JobType): Promise<Job | null> {
   const db = await getDb();
   // Live posts carry payload.live. Sort that first: run_after is the enqueue
   // time, so a history row queued a few milliseconds earlier would otherwise win.
-  const order =
-    type === "PROCESS_EVENT"
-      ? [sql`case when ${jobs.payloadJson}->>'live' = 'true' then 0 else 1 end`, asc(jobs.runAfter), asc(jobs.createdAt)]
-      : [asc(jobs.runAfter), asc(jobs.createdAt)];
+  const liveFirst = type === "PROCESS_EVENT" || type === "AI_ANALYZE_SIGNAL";
+  const order = liveFirst
+    ? [sql`case when ${jobs.payloadJson}->>'live' = 'true' then 0 else 1 end`, asc(jobs.runAfter), asc(jobs.createdAt)]
+    : [asc(jobs.runAfter), asc(jobs.createdAt)];
   return db.transaction(async (tx) => {
     const [next] = await tx
       .select()

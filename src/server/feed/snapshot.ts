@@ -47,7 +47,7 @@ export interface DashboardCache {
     total: number;
   } | null;
   ideas: { live: ListedIdea[]; history: ListedIdea[] } | null;
-  board: { active: boolean; live: BoardCard[]; history: BoardCard[] } | null;
+  board: { active: boolean; live: BoardCard[]; playing: BoardCard[]; history: BoardCard[] } | null;
 }
 
 async function viewerFor(view: DashboardView, config: Awaited<ReturnType<typeof getTierConfig>>): Promise<Viewer> {
@@ -141,11 +141,12 @@ async function buildSnapshot(view: DashboardView, config: Awaited<ReturnType<typ
   } else if (view === "platinum") {
     const board = await currentBoard(lastBar?.close ?? null);
     const cards = board.post?.active ? board.cards : [];
-    const history = board.post?.active ? board.cards.filter((card) => card.phase === "history") : board.cards;
+    const retired = board.post?.active ? [] : board.cards;
     cache.board = {
       active: board.post?.active ?? false,
-      live: cards.filter((card) => card.phase !== "history"),
-      history,
+      live: cards.filter((card) => card.phase === "available"),
+      playing: cards.filter((card) => card.phase === "playing-out"),
+      history: [...cards.filter((card) => card.phase === "history"), ...retired],
     };
   } else {
     const [open, closed, counts] = await Promise.all([

@@ -11,7 +11,7 @@ import type { JobType } from "./queue";
  */
 export const JOB_CONCURRENCY: Record<JobType, number> = {
   PROCESS_EVENT: 16,
-  AI_ANALYZE_SIGNAL: 8,
+  AI_ANALYZE_SIGNAL: 24,
   AI_ANALYZE_SOURCE: 2,
   MARKET_DIRECTION: 1,
   TELEGRAM_SYNC: 2, // one channel per slot; same number as TELEGRAM_CONCURRENCY below

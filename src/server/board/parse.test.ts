@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBoardOutput } from "./parse";
+import { finishBoardPick, parseBoardOutput } from "./parse";
 
 const primary = {
   direction: "LONG" as const,
@@ -22,5 +22,25 @@ describe("parseBoardOutput", () => {
     expect(parsed.primary.ideaIds).toEqual(["known"]);
     expect(parsed.alternates).toHaveLength(4);
     expect(parsed.alternates[0].entryMin).toBe(2701);
+  });
+});
+
+describe("finishBoardPick", () => {
+  const idea = { id: "known", stopLoss: 2640, targets: [2660, 2670] };
+
+  it("keeps a complete pick", () => {
+    const done = finishBoardPick(primary, [idea]);
+    expect(done?.stopLoss).toBe(2644);
+    expect(done?.targets).toEqual([2660, 2670]);
+  });
+
+  it("borrows a stop and targets from the cited idea", () => {
+    const done = finishBoardPick({ ...primary, stopLoss: null, targets: [] }, [idea]);
+    expect(done?.stopLoss).toBe(2640);
+    expect(done?.targets).toEqual([2660, 2670]);
+  });
+
+  it("drops a pick that still cannot finish", () => {
+    expect(finishBoardPick({ ...primary, stopLoss: null, targets: [], ideaIds: [] }, [idea])).toBeNull();
   });
 });

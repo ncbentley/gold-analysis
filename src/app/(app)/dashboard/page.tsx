@@ -95,6 +95,7 @@ export default async function DashboardPage() {
   const historyIdeas = snap?.ideas?.history ?? [];
   const sourceCount = [...liveIdeas, ...historyIdeas].reduce((sum, idea) => sum + idea.sourceCount, 0);
   const boardLive = snap?.board?.live ?? [];
+  const boardPlaying = snap?.board?.playing ?? [];
   const boardHistory = snap?.board?.history ?? [];
   const signals = snap?.signals;
 
@@ -114,10 +115,10 @@ export default async function DashboardPage() {
       <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {platinum ? (
           <>
-            <Stat label="Available" value={boardLive.filter((card) => card.phase === "available").length} hint="can still be filled" icon={Hourglass} />
-            <Stat label="Playing out" value={boardLive.filter((card) => card.phase === "playing-out").length} hint="entered, not closed" icon={Activity} tone="gold" />
+            <Stat label="Available" value={boardLive.length} hint="can still be filled" icon={Hourglass} />
+            <Stat label="Playing out" value={boardPlaying.length} hint="entered after the call" icon={Activity} tone="gold" />
             <Stat label="History" value={boardHistory.length} hint="this board" icon={History} />
-            <Stat label="On the board" value={snap.board?.active ? boardLive.length + boardHistory.length : 0} hint="primary plus alternates" icon={Radar} />
+            <Stat label="On the board" value={snap.board?.active ? boardLive.length + boardPlaying.length + boardHistory.length : 0} hint="primary plus alternates" icon={Radar} />
           </>
         ) : silver ? (
           <>
@@ -150,8 +151,14 @@ export default async function DashboardPage() {
         <>
           <section className="mt-8">
             <SectionTitle icon={Activity} title="Board" />
-            <BoardPicks items={boardLive} empty="No idea is available or playing out right now." />
+            <BoardPicks items={boardLive} empty="No call is waiting. A new one shows up when sources post a zone that has not filled yet." />
           </section>
+          {boardPlaying.length > 0 && (
+            <section className="mt-8">
+              <SectionTitle icon={Activity} title="Playing out" />
+              <BoardPicks items={boardPlaying} />
+            </section>
+          )}
           <section className="mt-8">
             <SectionTitle icon={History} title="History" />
             <BoardPicks items={boardHistory} empty="Nothing from this board has moved to history." />

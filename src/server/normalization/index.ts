@@ -95,6 +95,7 @@ export async function createSignal(
   parserConfidence: number,
   actor: Actor,
   reason?: string,
+  opts: { live?: boolean } = {},
 ) {
   const db = await getDb();
   const signal = await db.transaction(async (tx) => {
@@ -129,7 +130,7 @@ export async function createSignal(
   // The row is listable as soon as this returns. Outcome replay and AI
   // analysis are follow-up jobs; neither has to finish before the signal is shown.
   await enqueueJob("RECALC_OUTCOME", { signalId: signal.id }, { dedupeKey: `recalc:${signal.id}` });
-  await enqueueJob("AI_ANALYZE_SIGNAL", { signalId: signal.id }, { dedupeKey: `ai:${signal.id}` });
+  await enqueueJob("AI_ANALYZE_SIGNAL", { signalId: signal.id, ...(opts.live ? { live: true } : {}) }, { dedupeKey: `ai:${signal.id}` });
   return signal;
 }
 
@@ -459,7 +460,7 @@ async function collateSameSourceFollowUp(event: RawEvent, out: ParseOutput, inpu
 }
 
 /** Parses a stored raw event and applies the result. Safe to call repeatedly. */
-export async function processRawEvent(rawEventId: string, actor: Actor = PIPELINE) {
+export async function processRawEvent(rawEventId: string, actor: Actor = PIPELINE, opts: { live?: boolean } = {}) {
   const db = await getDb();
   const [event] = await db.select().from(rawEvents).where(eq(rawEvents.id, rawEventId));
   if (!event) throw new Error("Raw event not found");
@@ -536,7 +537,7 @@ export async function processRawEvent(rawEventId: string, actor: Actor = PIPELIN
         ], actor, true);
       }
     }
-    const signal = await createSignal(event.sourceId, event.id, input, out.confidence, actor);
+    const signal = await createSignal(event.sourceId, event.id, input, out.confidence, actor, undefined, opts);
     return storeParse(event, out, "applied", signal.id, extra);
   }
 
