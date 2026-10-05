@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { trackEvent } from "@/server/analytics";
+import { identifyAttribution } from "@/server/analytics/persist";
 import {
   consumeToken,
   createSession,
@@ -52,6 +53,7 @@ export async function signupAction(_: FormState, form: FormData): Promise<FormSt
     .returning();
   await sendVerificationEmail(user);
   await createSession(user.id);
+  await identifyAttribution(user.id);
   await trackEvent("account_created", user.id);
   redirect(`/check-email?email=${encodeURIComponent(user.email)}`);
 }
@@ -66,6 +68,7 @@ export async function loginAction(_: FormState, form: FormData): Promise<FormSta
   const [user] = await db.select().from(users).where(eq(users.email, email));
   if (!user || !(await verifyPassword(parsed.data.password, user.passwordHash))) return { error: "Invalid email or password." };
   await createSession(user.id);
+  await identifyAttribution(user.id);
   redirect(safeNext(form.get("next")));
 }
 

@@ -7,6 +7,7 @@ import { PageHeader, SectionTitle } from "@/components/page-header";
 import { SignalList } from "@/components/signal-list";
 import { SourceHistory, SourceSummary } from "@/components/source-performance";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { trackEvent } from "@/server/analytics";
 import { can, lowestTierWith } from "@/server/entitlements/access";
 import { getViewer } from "@/server/entitlements/service";
 import { presentSourceStats, sourceDisplayName } from "@/server/presenters";
@@ -37,6 +38,7 @@ export default async function SourcePage({ params }: PageProps<"/sources/[id]">)
   }
   const source = await getSourceBySlugOrId(id, { includeQa: access.isAdmin, allowSlug: access.isAdmin });
   if (!source || (!source.active && !access.isAdmin)) notFound();
+  void trackEvent("source_viewed", viewer.user?.id ?? null, { sourceId: source.id, slug: source.slug });
 
   const [stats, recent] = await Promise.all([
     getSourceStats(source.id),

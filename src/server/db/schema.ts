@@ -571,16 +571,57 @@ export const affiliateClicks = pgTable(
   (t) => [index("affiliate_clicks_link_idx").on(t.linkId)],
 );
 
+export type StoredTouch = {
+  at: string;
+  landing: string;
+  referrer: string | null;
+  params: Record<string, string>;
+};
+
 export const analyticsEvents = pgTable(
   "analytics_events",
   {
     id: id(),
     name: text("name").notNull(),
     userId: text("user_id"),
+    visitorId: text("visitor_id"),
     propsJson: jsonb("props_json").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
   },
-  (t) => [index("analytics_name_idx").on(t.name)],
+  (t) => [index("analytics_name_idx").on(t.name), index("analytics_visitor_idx").on(t.visitorId)],
+);
+
+/** First and last campaign touch for an account. First touch is never replaced. */
+export const userAttributions = pgTable(
+  "user_attributions",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    visitorId: text("visitor_id").notNull(),
+    firstTouch: jsonb("first_touch").$type<StoredTouch>().notNull(),
+    lastTouch: jsonb("last_touch").$type<StoredTouch>().notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("user_attributions_visitor_idx").on(t.visitorId)],
+);
+
+/** One row per campaign arrival, including the direct visit that created a visitor. */
+export const attributionTouches = pgTable(
+  "attribution_touches",
+  {
+    id: id(),
+    touchKey: text("touch_key").notNull().unique(),
+    visitorId: text("visitor_id").notNull(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    landing: text("landing").notNull(),
+    referrer: text("referrer"),
+    params: jsonb("params").$type<Record<string, string>>().notNull().default({}),
+    touchedAt: ts("touched_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("attribution_touches_visitor_idx").on(t.visitorId), index("attribution_touches_touched_idx").on(t.touchedAt)],
 );
 
 export type User = typeof users.$inferSelect;

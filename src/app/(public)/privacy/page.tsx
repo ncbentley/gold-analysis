@@ -7,7 +7,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy Policy"
-      updated="27 September 2026"
+      updated="4 October 2026"
       sections={[
         {
           heading: "Data we collect",
@@ -15,6 +15,7 @@ export default function PrivacyPage() {
             "Account data: your email address, a salted hash of your password, email verification status and acceptance of the terms.",
             "Billing data: your plan, billing period and subscription status. Card details are handled by our payment processor and never reach our servers.",
             "Usage data: product events such as page views of signals, upgrade clicks and affiliate clicks, used to improve the service.",
+            "Attribution data: the page you landed on, the site that referred you, and campaign parameters on the link you opened (such as utm_source or an ad click id). This is used to see which campaigns lead to signups and subscriptions.",
           ],
         },
         {
@@ -31,7 +32,10 @@ export default function PrivacyPage() {
         },
         {
           heading: "Cookies",
-          body: ["We use a single first-party session cookie to keep you signed in. It is HTTP-only and is not used for advertising."],
+          body: [
+            "We use a first-party session cookie to keep you signed in. It is HTTP-only.",
+            "We also store two first-party cookies that remember an anonymous visitor id and how you arrived (campaign parameters and referrer). They are HTTP-only, are not shared with advertising networks, and are not used to advertise to you on other sites.",
+          ],
         },
         {
           heading: "Retention and your rights",

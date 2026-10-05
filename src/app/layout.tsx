@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Cinzel, Geist, Geist_Mono, Montserrat } from "next/font/google";
+import { Suspense } from "react";
 import { BrandDefs } from "@/components/brand";
+import { persistIncomingTouch } from "@/server/analytics/persist";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -16,11 +18,19 @@ export const metadata: Metadata = {
     "Every third-party gold signal recorded, replayed against minute data, and measured. Source track records, outcomes and analysis for XAU/USD.",
 };
 
+async function CaptureAttribution() {
+  await persistIncomingTouch();
+  return null;
+}
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable} ${montserrat.variable} ${cinzel.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col">
         <BrandDefs />
+        <Suspense fallback={null}>
+          <CaptureAttribution />
+        </Suspense>
         <TooltipProvider>{children}</TooltipProvider>
         <Toaster theme="dark" position="top-right" />
       </body>

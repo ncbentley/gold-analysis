@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Link2,
   ListChecks,
+  Megaphone,
   Menu,
   Send,
   Settings,
@@ -45,6 +46,7 @@ const ADMIN: NavItem[] = [
   { href: "/admin/jobs", label: "Jobs", icon: Workflow },
   { href: "/admin/entitlements", label: "Entitlements", icon: ShieldCheck },
   { href: "/admin/affiliates", label: "Broker links", icon: Link2 },
+  { href: "/admin/attribution", label: "Attribution", icon: Megaphone },
   { href: "/admin/audit", label: "Audit log", icon: FileClock },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];

@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Link2,
   ListChecks,
+  Megaphone,
   Plug,
   RefreshCw,
   Send,
@@ -58,6 +59,7 @@ const MODULES: { href: string; title: string; description: string; cta: string; 
   { href: "/admin/jobs", title: "Jobs", description: "Market data sync, outcome replay, statistics, AI and billing work, with retries.", cta: "Manage jobs", icon: Workflow },
   { href: "/admin/entitlements", title: "Entitlements", description: "Features and history window included in each membership tier.", cta: "Manage entitlements", icon: ShieldCheck },
   { href: "/admin/affiliates", title: "Broker links", description: "Affiliate links, where they are placed and how often they are clicked.", cta: "Manage broker links", icon: Link2 },
+  { href: "/admin/attribution", title: "Attribution", description: "UTM tags, ad click ids and referrers, from the first visit through signup and every later event.", cta: "View attribution", icon: Megaphone },
   { href: "/admin/audit", title: "Audit log", description: "Every manual change and automated transition, with the actor and reason.", cta: "Open audit log", icon: FileClock },
   { href: "/admin/settings", title: "Settings", description: "Market data provider and encrypted credentials.", cta: "Manage settings", icon: Settings },
 ];
@@ -211,7 +213,7 @@ export default async function AdminOverviewPage({ searchParams }: PageProps<"/ad
 
         <Card>
           <CardHeader>
-            <SectionTitle icon={BarChart3} title="Product events · 7 days" className="mb-0" />
+            <SectionTitle icon={BarChart3} title="Product events · 7 days" className="mb-0" action={<PanelLink href="/admin/attribution">Attribution</PanelLink>} />
           </CardHeader>
           <CardContent className="text-sm">
             {o.analytics.length ? o.analytics.slice(0, 9).map((a) => <Row key={a.name} k={a.name} v={a.n} mono />) : <p className="text-muted-foreground">No events recorded yet.</p>}
