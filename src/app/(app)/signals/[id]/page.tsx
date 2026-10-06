@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtAge, fmtDateTime, fmtEntry, fmtMinutes, fmtPct, fmtPrice } from "@/lib/format";
+import { tradeMarkers } from "@/lib/trade-markers";
 import { cn } from "@/lib/utils";
 import { trackEvent } from "@/server/analytics";
 import { sessionFor } from "@/server/statistics/compute";
@@ -121,7 +122,9 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
     ...(d.stopLoss !== null ? [{ price: d.stopLoss, label: "SL", tone: "stop" as const }] : []),
     ...d.targets.flatMap((t) => (t.price === null ? [] : [{ price: t.price, label: `TP${t.index}`, tone: "target" as const }])),
   ];
-  const markers = [{ t: signalMs, label: "Published" }, ...(d.outcome.entryTime ? [{ t: Date.parse(d.outcome.entryTime), label: "Fill" }] : [])];
+  const excursion = d.outcome.excursionDetail;
+  const timeline = (!excursion.locked && excursion.data ? excursion.data.timeline : []) as { t: number; type: string; note?: string }[];
+  const markers = tradeMarkers({ calledAt: signalMs, timeline });
   const uid = viewer.user?.id;
   const session = sessionFor(new Date(d.signalTime));
   const open = d.status === "PENDING" || d.status === "ACTIVE" || d.status === "PARTIAL";

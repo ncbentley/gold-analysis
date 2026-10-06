@@ -9,6 +9,7 @@ import { downsample, PriceChart } from "@/components/price-chart";
 import { DirectionBadge, Stat } from "@/components/signal-bits";
 import { SignalList } from "@/components/signal-list";
 import { fmtDateTime, fmtEntry, fmtPrice } from "@/lib/format";
+import { tradeMarkers } from "@/lib/trade-markers";
 import { nowMs } from "@/lib/clock";
 import { cn } from "@/lib/utils";
 import { can, lowestTierWith } from "@/server/entitlements/access";
@@ -17,6 +18,9 @@ import { getIdeaForViewer } from "@/server/ideas/service";
 import type { IdeaPhase } from "@/server/ideas/phase";
 import { getEngineBars, getRecentBars } from "@/server/market-data";
 import type { EngineOutcome } from "@/server/outcomes/engine";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/server/db";
+import { goldBookEntries } from "@/server/db/schema";
 
 export const metadata: Metadata = { title: "Idea" };
 
@@ -86,12 +90,8 @@ export default async function IdeaPage({ params }: PageProps<"/ideas/[id]">) {
     ...(idea.stopLoss !== null ? [{ price: idea.stopLoss, label: "SL", tone: "stop" as const }] : []),
     ...idea.targets.map((price, index) => ({ price, label: `TP${index + 1}`, tone: "target" as const })),
   ];
-  const markers = [
-    { t: startedMs, label: "Call" },
-    ...(outcome.entryTime ? [{ t: outcome.entryTime, label: "Fill" }] : []),
-    ...outcome.targets.flatMap((target) => (target.hitAt ? [{ t: target.hitAt, label: `TP${target.index}` }] : [])),
-    ...(outcome.stopHitAt ? [{ t: outcome.stopHitAt, label: "Stop" }] : []),
-  ];
+  const goldClose = await goldCloseFor(idea.id, viewer.access.tier === "gold" && !viewer.access.isAdmin);
+  const markers = tradeMarkers({ calledAt: startedMs, timeline: outcome.timeline, goldClose });
 
   return (
     <>
@@ -137,4 +137,12 @@ export default async function IdeaPage({ params }: PageProps<"/ideas/[id]">) {
       <SignalList items={items} empty="None of the counting signals for this idea are still in the database." />
     </>
   );
+}
+
+async function goldCloseFor(ideaId: string, enabled: boolean) {
+  if (!enabled) return null;
+  const db = await getDb();
+  const [row] = await db.select().from(goldBookEntries).where(eq(goldBookEntries.ideaId, ideaId));
+  if (!row?.closeCalledAt) return null;
+  return { calledAt: row.closeCalledAt.getTime(), exitTime: row.exitTime ? row.exitTime.getTime() : null };
 }

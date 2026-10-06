@@ -54,14 +54,17 @@ export function PriceChart({ points, levels, markers = [] }: { points: Point[]; 
           </text>
         </g>
       ))}
-      {markers.map((m, i) => (
-        <g key={i}>
-          <line x1={x(m.t)} x2={x(m.t)} y1={PAD.t} y2={floor} stroke="#8db6ff" strokeDasharray="2 3" opacity="0.55" />
-          <text x={x(m.t) + 4} y={PAD.t + 10} fontSize="10" fontWeight="600" fill="#8db6ff">
-            {m.label}
-          </text>
-        </g>
-      ))}
+      {markers.map((m, i) => {
+        const lift = markers.slice(0, i).filter((earlier) => Math.abs(x(earlier.t) - x(m.t)) <= 8).length * 12;
+        return (
+          <g key={i}>
+            <line x1={x(m.t)} x2={x(m.t)} y1={PAD.t} y2={floor} stroke="#8db6ff" strokeDasharray="2 3" opacity="0.55" />
+            <text x={x(m.t) + 4} y={PAD.t + 10 + lift} fontSize="10" fontWeight="600" fill="#8db6ff">
+              {m.label}
+            </text>
+          </g>
+        );
+      })}
       <path d={line} fill="none" stroke="var(--primary)" strokeWidth="1.6" strokeLinejoin="round" style={{ filter: "drop-shadow(0 0 4px rgb(245 197 66 / 0.55))" }} />
       <circle cx={x(last.t)} cy={y(last.c)} r="3" fill="var(--primary)" stroke="#040914" strokeWidth="1.5" />
       <text x={PAD.l} y={H - 6} fontSize="10" fill="var(--muted-foreground)">
