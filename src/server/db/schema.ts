@@ -318,6 +318,24 @@ export const consolidatedIdeas = pgTable("consolidated_ideas", {
   updatedAt: updatedAt(),
 });
 
+export const goldBookEntries = pgTable("gold_book_entries", {
+  id: id(),
+  ideaId: text("idea_id")
+    .notNull()
+    .references(() => consolidatedIdeas.id, { onDelete: "cascade" }),
+  direction: text("direction", { enum: ["LONG", "SHORT"] }).notNull(),
+  entryMin: doublePrecision("entry_min").notNull(),
+  entryMax: doublePrecision("entry_max").notNull(),
+  stopLoss: doublePrecision("stop_loss"),
+  targets: jsonb("targets").$type<number[]>().notNull(),
+  sectionAtCall: text("section_at_call", { enum: ["available", "active"] }),
+  closeCalledAt: ts("close_called_at"),
+  exitTime: ts("exit_time"),
+  exitPrice: doublePrecision("exit_price"),
+  retired: boolean("retired").notNull().default(false),
+  createdAt: createdAt(),
+});
+
 export interface BoardPick {
   direction: "LONG" | "SHORT";
   entryMin: number;

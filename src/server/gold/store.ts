@@ -1,0 +1,50 @@
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb } from "@/server/db";
+import { goldBookEntries } from "@/server/db/schema";
+import type { GoldLevel } from "./geometry";
+
+export async function listGoldEntries() {
+  const db = await getDb();
+  return db.select().from(goldBookEntries);
+}
+
+export function liveGoldLevels(rows: Awaited<ReturnType<typeof listGoldEntries>>): GoldLevel[] {
+  return rows
+    .filter((row) => row.exitTime === null && !row.retired)
+    .map((row) => ({
+      id: row.ideaId,
+      direction: row.direction,
+      entryMin: row.entryMin,
+      entryMax: row.entryMax,
+      stopLoss: row.stopLoss,
+    }));
+}
+
+export async function insertGoldEntry(level: GoldLevel & { targets: number[] }) {
+  const db = await getDb();
+  const [row] = await db
+    .insert(goldBookEntries)
+    .values({
+      ideaId: level.id,
+      direction: level.direction,
+      entryMin: level.entryMin,
+      entryMax: level.entryMax,
+      stopLoss: level.stopLoss,
+      targets: level.targets,
+    })
+    .returning();
+  return row;
+}
+
+export async function markGoldClose(ideaId: string, calledAt: Date, sectionAtCall: "available" | "active") {
+  const db = await getDb();
+  await db
+    .update(goldBookEntries)
+    .set({ closeCalledAt: calledAt, sectionAtCall })
+    .where(and(eq(goldBookEntries.ideaId, ideaId), isNull(goldBookEntries.closeCalledAt)));
+}
+
+export async function markGoldExit(ideaId: string, exit: { exitTime: Date; exitPrice: number | null; retired: boolean }) {
+  const db = await getDb();
+  await db.update(goldBookEntries).set(exit).where(eq(goldBookEntries.ideaId, ideaId));
+}
