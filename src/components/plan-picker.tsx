@@ -14,14 +14,14 @@ import { getViewer } from "@/server/entitlements/service";
 
 const TAGLINE: Record<Tier, string> = {
   silver: "Nearby calls averaged into one idea",
-  platinum: "One primary idea, plus a few alternates",
+  gold: "Curated ideas from the Silver set",
 };
 
 const PERIOD_TITLE: Record<BillingPeriod, string> = { weekly: "Weekly", monthly: "Monthly", annual: "Annual" };
 
 export function parsePlanParams(sp: Record<string, string | string[] | undefined>, fallback?: { tier?: string; period?: BillingPeriod }) {
   const period = (PERIODS as readonly string[]).includes(String(sp.period)) ? (sp.period as BillingPeriod) : (fallback?.period ?? "monthly");
-  const highlight = typeof sp.tier === "string" ? sp.tier : (fallback?.tier ?? "platinum");
+  const highlight = typeof sp.tier === "string" ? sp.tier : (fallback?.tier ?? "gold");
   return { period, highlight };
 }
 
@@ -29,7 +29,7 @@ export function parsePlanParams(sp: Record<string, string | string[] | undefined
 export async function PlanPicker({ period, highlight, basePath, anchor }: { period: BillingPeriod; highlight: string; basePath: string; anchor?: string }) {
   const { user, config, subscription } = await getViewer();
   const offeredTiers = TIER_ORDER;
-  const plans = (await listPlans()).filter((plan) => !(plan.tier === "platinum" && plan.period === "weekly"));
+  const plans = (await listPlans()).filter((plan) => !(plan.tier === "gold" && plan.period === "weekly"));
   const byKey = new Map(plans.map((p) => [`${p.tier}:${p.period}`, p]));
   const monthlyCents = (tier: Tier) => byKey.get(`${tier}:monthly`)?.amountCents ?? 0;
 
@@ -72,14 +72,14 @@ export async function PlanPicker({ period, highlight, basePath, anchor }: { peri
                 lit && "panel-gold shadow-[0_0_36px_-8px_rgb(245_197_66/0.6)] ring-2 ring-primary/65",
               )}
             >
-              {tier === "platinum" && (
+              {tier === "gold" && (
                 <span className="gold-fill absolute right-4 top-4 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold shadow-[0_0_14px_-3px_rgb(245_197_66/0.7)]">
                   <Flame className="size-3.5" />
                   Most popular
                 </span>
               )}
               <CardHeader>
-                <div className={cn("flex items-center gap-3.5", tier === "platinum" && "pr-28")}>
+                <div className={cn("flex items-center gap-3.5", tier === "gold" && "pr-28")}>
                   <span
                     className={cn(
                       "flex size-12 shrink-0 items-center justify-center rounded-full ring-2",

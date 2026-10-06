@@ -40,13 +40,13 @@ export default async function DashboardPage() {
   const now = nowMs();
   const lastBar = snap?.spot;
 
-  const platinum = access.tier === "platinum" && !access.isAdmin;
+  const gold = access.tier === "gold" && !access.isAdmin;
   const header = (
     <PageHeader
       title="Dashboard"
       icon={LayoutDashboard}
       description={
-        platinum
+        gold
           ? "One primary idea from the model, with a few alternates."
           : access.tier === "silver"
             ? "Nearby calls averaged into one idea."
@@ -113,7 +113,7 @@ export default async function DashboardPage() {
         empty={access.isAdmin ? "Star a channel on the Telegram page. Its posts feed this read." : "No direction read yet."}
       />
       <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {platinum ? (
+        {gold ? (
           <>
             <Stat label="Available" value={boardLive.length} hint="can still be filled" icon={Hourglass} />
             <Stat label="Playing out" value={boardPlaying.length} hint="entered after the call" icon={Activity} tone="gold" />
@@ -147,7 +147,7 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      {platinum ? (
+      {gold ? (
         <>
           <section className="mt-8">
             <SectionTitle icon={Activity} title="Board" />

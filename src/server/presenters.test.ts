@@ -4,14 +4,14 @@ import { DEFAULT_TIER_CONFIG } from "@/server/entitlements/config";
 import { presentSignalListItem, presentSourceSummary, redactIdentities, sourceDisplayName } from "./presenters";
 import type { Source } from "@/server/db/schema";
 
-const access = buildAccess("platinum", DEFAULT_TIER_CONFIG);
+const access = buildAccess("gold", DEFAULT_TIER_CONFIG);
 
 describe("source identity", () => {
   const source = { id: "src-1", name: "Chartsyco Trades", nickname: "Amber Fox", slug: "chartsycotrades", isQa: false };
 
   it("gives members the nickname and admins the channel name", () => {
     expect(sourceDisplayName(source, access)).toBe("Amber Fox");
-    expect(sourceDisplayName(source, buildAccess("platinum", DEFAULT_TIER_CONFIG, true))).toBe("Chartsyco Trades");
+    expect(sourceDisplayName(source, buildAccess("gold", DEFAULT_TIER_CONFIG, true))).toBe("Chartsyco Trades");
   });
 
   it("strips channel names from member signal rows", () => {
@@ -60,7 +60,7 @@ describe("source identity", () => {
         targets: [],
         outcome: null,
       },
-      buildAccess("platinum", DEFAULT_TIER_CONFIG, true),
+      buildAccess("gold", DEFAULT_TIER_CONFIG, true),
       DEFAULT_TIER_CONFIG,
     );
     expect(item.source.name).toBe("Chartsyco Trades");

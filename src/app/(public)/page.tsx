@@ -27,7 +27,7 @@ const STEPS = [
   { icon: ShieldCheck, title: "Audit", body: "Every manual correction or override keeps the original, the new value, who changed it and why." },
 ];
 
-const PLAN_CARDS = ["free", "silver", "platinum"] as const;
+const PLAN_CARDS = ["free", "silver", "gold"] as const;
 
 const TIER_PITCH: Record<(typeof PLAN_CARDS)[number], { tagline: string; bullets: string[] }> = {
   free: {
@@ -38,7 +38,7 @@ const TIER_PITCH: Record<(typeof PLAN_CARDS)[number], { tagline: string; bullets
     tagline: "The consolidated feed",
     bullets: ["Everything in Free", "Nearby calls averaged into one idea", "180 days of history"],
   },
-  platinum: {
+  gold: {
     tagline: "One board",
     bullets: ["Everything in Silver", "One primary idea from the model, plus alternates", "Full history, advanced filters, and the detailed stats"],
   },
@@ -156,7 +156,7 @@ export default async function LandingPage() {
         <p className="text-muted-foreground">Weekly, monthly or annual billing. Cancel any time; access continues until the end of the paid period.</p>
         <div className="mt-8 grid gap-4 md:grid-cols-3">
           {PLAN_CARDS.map((tier) => {
-            const featured = tier === "platinum";
+            const featured = tier === "gold";
             const plan = tier === "free" ? null : monthly.get(tier);
             const TierIcon = tier === "free" ? Radio : TIER_ICON[tier];
             const history = tier === "free" ? `${FREE_HISTORY_DAYS} days` : config[tier].historyDays ? `${config[tier].historyDays} days` : "full";
