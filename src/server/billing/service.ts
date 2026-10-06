@@ -4,7 +4,7 @@ import { recordAudit, SYSTEM, type Actor } from "@/server/audit";
 import { appUrl } from "@/server/auth";
 import { getDb } from "@/server/db";
 import { plans, subscriptions, users, type BillingPeriod, type Subscription, type Tier } from "@/server/db/schema";
-import { trackEvent } from "@/server/analytics";
+import { trackEvent, trackRevenue } from "@/server/analytics";
 import { billingMode, PERIOD_DAYS, stripePriceEnv } from "./config";
 
 const ENTITLED_STATUSES = ["active", "trialing", "past_due"] as const;
@@ -97,6 +97,8 @@ export async function startCheckout(user: { id: string; email: string }, tier: T
 export async function completeMockCheckout(userId: string, tier: Tier, period: BillingPeriod) {
   rejectRetiredCheckout(tier, period);
   if (billingMode() !== "mock") throw new Error("Mock checkout is disabled when Stripe is configured");
+  const plan = await getPlan(tier, period);
+  if (!plan || !plan.active) throw new Error("Plan not available");
   const db = await getDb();
   const now = new Date();
   const current = await getEntitledSubscription(userId);
@@ -118,6 +120,7 @@ export async function completeMockCheckout(userId: string, tier: Tier, period: B
     .returning();
   await recordAudit({ actor: { userId, label: "member" }, entityType: "subscription", entityId: sub.id, action: "subscription.started", after: { tier, period, provider: "mock" } });
   await trackEvent("subscription_started", userId, { tier, period, provider: "mock" });
+  await trackRevenue(userId, { amountCents: plan.amountCents, currency: plan.currency, tier, period, provider: "mock" });
   return sub;
 }
 
