@@ -1,6 +1,7 @@
 import { getDb } from "@/server/db";
 import { analyticsEvents } from "@/server/db/schema";
 import { attributionSnapshot } from "./persist";
+import { capturePostHog, touchProperties } from "./posthog";
 
 export const ANALYTICS_EVENTS = [
   "account_created",
@@ -30,5 +31,31 @@ export async function trackEvent(name: AnalyticsEvent, userId: string | null, pr
     });
   } catch (err) {
     console.warn("[analytics] dropped event", name, (err as Error).message);
+  }
+}
+
+export type RevenueInput = {
+  amountCents: number;
+  currency: string;
+  tier: string;
+  period: string;
+  provider: string;
+};
+
+/** Revenue event for a charge that billing has already accepted. Mock checkout calls this today. */
+export async function trackRevenue(userId: string, input: RevenueInput) {
+  if (!Number.isFinite(input.amountCents) || input.amountCents < 0) return;
+  try {
+    const attribution = await attributionSnapshot(userId);
+    capturePostHog(userId, "invoice_paid", {
+      ...touchProperties(attribution?.last ?? null, attribution?.visitorId ?? null),
+      revenue: input.amountCents / 100,
+      currency: input.currency.toUpperCase(),
+      tier: input.tier,
+      period: input.period,
+      provider: input.provider,
+    });
+  } catch (err) {
+    console.warn("[analytics] dropped event", "invoice_paid", (err as Error).message);
   }
 }

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { AttributionState } from "./attribution";
+import { trackRevenue } from "./index";
 import {
   capturePostHog,
   installAnalyticsSender,
@@ -116,5 +117,24 @@ describe("posthog client", () => {
         email: "ada@example.com",
       },
     });
+  });
+
+  it("turns cents into a dollar revenue event", async () => {
+    const { events } = recordSender();
+    await trackRevenue("user-1", { amountCents: 2900, currency: "usd", tier: "silver", period: "monthly", provider: "mock" });
+    expect(events).toEqual([
+      expect.objectContaining({
+        distinctId: "user-1",
+        event: "invoice_paid",
+        properties: expect.objectContaining({ revenue: 29, currency: "USD", tier: "silver", period: "monthly", provider: "mock" }),
+      }),
+    ]);
+  });
+
+  it("drops a revenue event when the amount is not a finite zero-or-greater number", async () => {
+    const { events } = recordSender();
+    await trackRevenue("user-1", { amountCents: Number.NaN, currency: "usd", tier: "silver", period: "monthly", provider: "mock" });
+    await trackRevenue("user-1", { amountCents: -1, currency: "usd", tier: "silver", period: "monthly", provider: "mock" });
+    expect(events).toEqual([]);
   });
 });
