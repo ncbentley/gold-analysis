@@ -7,7 +7,7 @@ export default function PrivacyPage() {
   return (
     <LegalPage
       title="Privacy Policy"
-      updated="4 October 2026"
+      updated="6 October 2026"
       sections={[
         {
           heading: "Data we collect",
