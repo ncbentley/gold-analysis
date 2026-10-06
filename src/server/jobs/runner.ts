@@ -118,7 +118,7 @@ const handlers: Record<JobType, Handler> = {
   REFRESH_BOARD: async (payload) => {
     const result = await refreshBoard({ fullHistory: payload.fullHistory === true });
     if (result.action === "failed") console.error("[board]", result.error);
-    if (result.action === "call") await publishBoardIdeasToGold();
+    if (result.action === "call" || result.action === "keep") await publishBoardIdeasToGold();
     await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     return result;
   },
