@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STALE_UNFILLED_MS, entryLeftBehind, filledTradeStillOpen, goldBookAction } from "./qualify";
+import { STALE_UNFILLED_MS, entryLeftBehind, filledTradeStillOpen, goldBookAction, goldCallOutsideSilver, goldIdsOverSilverCount } from "./qualify";
 
 const tp1 = { hitAt: 1 };
 const tp2 = { hitAt: null as number | null };
@@ -57,6 +57,7 @@ describe("goldBookAction", () => {
         stopHitAt: null,
         targets: [tp1, tp2],
         leftBehind: false,
+        outsideSilver: false,
       }),
     ).toBe("reopen");
   });
@@ -69,6 +70,7 @@ describe("goldBookAction", () => {
         stopHitAt: null,
         targets: [tp2],
         leftBehind: true,
+        outsideSilver: true,
       }),
     ).toBe("keep");
   });
@@ -81,6 +83,20 @@ describe("goldBookAction", () => {
         stopHitAt: null,
         targets: [tp2],
         leftBehind: true,
+        outsideSilver: false,
+      }),
+    ).toBe("close");
+  });
+
+  it("closes an unfilled call silver is not showing", () => {
+    expect(
+      goldBookAction({
+        closeCalledAt: null,
+        entered: false,
+        stopHitAt: null,
+        targets: [tp2],
+        leftBehind: false,
+        outsideSilver: true,
       }),
     ).toBe("close");
   });
@@ -93,6 +109,7 @@ describe("goldBookAction", () => {
         stopHitAt: null,
         targets: [tp2],
         leftBehind: false,
+        outsideSilver: false,
       }),
     ).toBe("keep");
   });
@@ -105,7 +122,39 @@ describe("goldBookAction", () => {
         stopHitAt: null,
         targets: [tp1, tp2],
         leftBehind: true,
+        outsideSilver: true,
       }),
     ).toBe("keep");
+  });
+});
+
+describe("gold available stays inside silver", () => {
+  const silver = new Set(["silver"]);
+
+  it("treats a one-source idea as outside the silver book", () => {
+    expect(goldCallOutsideSilver({ ideaId: "one-source", silverAvailable: silver })).toBe(true);
+    expect(goldCallOutsideSilver({ ideaId: "silver", silverAvailable: silver })).toBe(false);
+  });
+
+  it("keeps a composed zone only while silver has an idea to curate", () => {
+    expect(goldCallOutsideSilver({ ideaId: null, silverAvailable: silver })).toBe(false);
+    expect(goldCallOutsideSilver({ ideaId: null, silverAvailable: new Set() })).toBe(true);
+  });
+
+  it("drops extra composed zones so gold is not larger than silver", () => {
+    expect(
+      goldIdsOverSilverCount({
+        silverCount: 1,
+        rows: [
+          { id: "silver-row", ideaId: "silver", createdAt: 1 },
+          { id: "composed-old", ideaId: null, createdAt: 2 },
+          { id: "composed-new", ideaId: null, createdAt: 3 },
+        ],
+      }).sort(),
+    ).toEqual(["composed-new", "composed-old"]);
+  });
+
+  it("keeps one composed zone when it is the only gold call", () => {
+    expect(goldIdsOverSilverCount({ silverCount: 1, rows: [{ id: "composed", ideaId: null, createdAt: 1 }] })).toEqual([]);
   });
 });

@@ -168,7 +168,15 @@ describe("syncGoldBook", () => {
     });
 
     await syncGoldBook();
-    const composed = (await listGoldEntries()).filter((row) => row.ideaId === null && row.entryMin === 4300);
+    expect((await listGoldEntries()).filter((row) => row.ideaId === null && row.entryMin === 4300 && row.closeCalledAt === null)).toHaveLength(0);
+
+    await db
+      .update(goldBookEntries)
+      .set({ closeCalledAt: new Date(now - 3 * 60 * 60_000), sectionAtCall: "available" })
+      .where(eq(goldBookEntries.ideaId, liveIdea.id));
+
+    await syncGoldBook();
+    const composed = (await listGoldEntries()).filter((row) => row.ideaId === null && row.entryMin === 4300 && row.closeCalledAt === null);
     expect(composed).toHaveLength(1);
     expect(composed[0].direction).toBe("SHORT");
     expect(composed[0].stopLoss).toBe(4312);
@@ -281,7 +289,7 @@ describe("syncGoldBook", () => {
         targets: [4302.26],
         exitSpreadStops: null,
         exitSpreadTargets: [0],
-        sourceCount: 1,
+        sourceCount: 3,
         signalIds: [],
         replacedSignalIds: [],
         newestSignalAt: new Date(now - 14 * 24 * 60 * 60_000),
@@ -298,7 +306,7 @@ describe("syncGoldBook", () => {
         targets: [4160],
         exitSpreadStops: null,
         exitSpreadTargets: [0],
-        sourceCount: 1,
+        sourceCount: 3,
         signalIds: [],
         replacedSignalIds: [],
         newestSignalAt: new Date(now - 14 * 24 * 60 * 60_000),
@@ -324,14 +332,6 @@ describe("syncGoldBook", () => {
         targets: [4160],
         createdAt: new Date(now - 14 * 24 * 60 * 60_000),
       },
-      {
-        direction: "SHORT",
-        entryMin: 4500,
-        entryMax: 4500,
-        stopLoss: 4510,
-        targets: [4480],
-        createdAt: new Date(now - 60 * 60_000),
-      },
     ]);
     const result = await reconcileGoldBook(new Date(now));
     expect(result.closed).toContain(far.id);
@@ -339,6 +339,77 @@ describe("syncGoldBook", () => {
     const rows = await listGoldEntries();
     expect(rows.find((row) => row.ideaId === far.id)?.closeCalledAt).not.toBeNull();
     expect(rows.find((row) => row.ideaId === near.id)?.closeCalledAt).toBeNull();
-    expect(rows.find((row) => row.entryMin === 4500)?.closeCalledAt).toBeNull();
+  });
+
+  it("drops available one-source longs so gold stays inside the one silver idea", async () => {
+    const db = await getDb();
+    const now = Date.now();
+    const [silverIdea] = await db
+      .insert(consolidatedIdeas)
+      .values({
+        direction: "LONG",
+        entryMin: 4105.33,
+        entryMax: 4108,
+        stopLoss: 4095.83,
+        targets: [4113.67, 4122],
+        exitSpreadStops: null,
+        exitSpreadTargets: [0, 0],
+        sourceCount: 6,
+        signalIds: [],
+        replacedSignalIds: [],
+        newestSignalAt: new Date(now - 20 * 60 * 60_000),
+        phase: "available",
+      })
+      .returning();
+    await db.insert(goldBookEntries).values({
+      ideaId: silverIdea.id,
+      direction: "LONG",
+      entryMin: 4105.33,
+      entryMax: 4108,
+      stopLoss: 4095.83,
+      targets: [4113.67, 4122],
+      createdAt: new Date(now - 20 * 60 * 60_000),
+    });
+    const oneSource: string[] = [];
+    for (const [entryMin, entryMax, stopLoss, age] of [
+      [4144, 4152, 4132, 4 * 60 * 60_000],
+      [4123, 4130, 4110, 2 * 60 * 60_000],
+      [4114, 4118, 4105, 3 * 60 * 60_000],
+    ] as const) {
+      const [idea] = await db
+        .insert(consolidatedIdeas)
+        .values({
+          direction: "LONG",
+          entryMin,
+          entryMax,
+          stopLoss,
+          targets: [entryMax + 20],
+          exitSpreadStops: null,
+          exitSpreadTargets: [0],
+          sourceCount: 1,
+          signalIds: [],
+          replacedSignalIds: [],
+          newestSignalAt: new Date(now - age),
+          phase: "available",
+        })
+        .returning();
+      oneSource.push(idea.id);
+      await db.insert(goldBookEntries).values({
+        ideaId: idea.id,
+        direction: "LONG",
+        entryMin,
+        entryMax,
+        stopLoss,
+        targets: [entryMax + 20],
+        createdAt: new Date(now - age),
+      });
+    }
+
+    const result = await reconcileGoldBook(new Date(now));
+    for (const id of oneSource) expect(result.closed).toContain(id);
+    expect(result.closed).not.toContain(silverIdea.id);
+    const rows = await listGoldEntries();
+    expect(rows.find((row) => row.ideaId === silverIdea.id)?.closeCalledAt).toBeNull();
+    for (const id of oneSource) expect(rows.find((row) => row.ideaId === id)?.closeCalledAt).not.toBeNull();
   });
 });

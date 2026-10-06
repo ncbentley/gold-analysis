@@ -32,6 +32,15 @@ export function entryLeftBehind(input: {
   return away > risk * LEFT_BEHIND_R;
 }
 
+/**
+ * An unfilled call Silver is not showing.
+ * A sourced call has to be one of the available silver ideas. A composed zone needs silver to have something to curate.
+ */
+export function goldCallOutsideSilver(input: { ideaId: string | null; silverAvailable: ReadonlySet<string> }) {
+  if (input.ideaId) return !input.silverAvailable.has(input.ideaId);
+  return input.silverAvailable.size === 0;
+}
+
 export type GoldBookAction = "keep" | "reopen" | "close";
 
 /** Whether a stored Gold row should stay, come back from a bad close, or leave the live book. */
@@ -41,10 +50,31 @@ export function goldBookAction(input: {
   stopHitAt: number | null;
   targets: { hitAt: number | null }[];
   leftBehind: boolean;
+  outsideSilver: boolean;
 }): GoldBookAction {
   const working = filledTradeStillOpen(input);
   if (input.closeCalledAt !== null) return working ? "reopen" : "keep";
   if (working) return "keep";
-  if (!input.entered && input.leftBehind) return "close";
+  if (!input.entered && (input.leftBehind || input.outsideSilver)) return "close";
   return "keep";
+}
+
+/**
+ * Unfilled Gold calls beyond the number of available silver ideas.
+ * Composed zones leave first, then the newest call. A filled trade is not in this list.
+ */
+export function goldIdsOverSilverCount(input: {
+  rows: { id: string; ideaId: string | null; createdAt: number }[];
+  silverCount: number;
+}) {
+  const extra = input.rows.length - input.silverCount;
+  if (extra <= 0) return [];
+  return [...input.rows]
+    .sort((a, b) => {
+      const rank = (row: { ideaId: string | null }) => (row.ideaId === null ? 0 : 1);
+      if (rank(a) !== rank(b)) return rank(a) - rank(b);
+      return b.createdAt - a.createdAt;
+    })
+    .slice(0, extra)
+    .map((row) => row.id);
 }
