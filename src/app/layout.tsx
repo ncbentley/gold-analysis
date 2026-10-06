@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cinzel, Geist, Geist_Mono, Montserrat } from "next/font/google";
 import { Suspense } from "react";
 import { BrandDefs } from "@/components/brand";
+import { PageView } from "@/components/page-view";
 import { persistIncomingTouch } from "@/server/analytics/persist";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Suspense fallback={null}>
           <CaptureAttribution />
         </Suspense>
+        <PageView />
         <TooltipProvider>{children}</TooltipProvider>
         <Toaster theme="dark" position="top-right" />
       </body>
