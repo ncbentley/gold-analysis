@@ -204,4 +204,24 @@ describe("posthog client", () => {
     const rows = await db.select().from(analyticsEvents).where(eq(analyticsEvents.name, "upgrade_clicked"));
     expect(rows.some((row) => row.userId === null && (row.propsJson as { tier?: string }).tier === "platinum")).toBe(true);
   });
+
+  it("aliases the visitor onto the user and sets the stored first touch once", async () => {
+    const db = await getDb();
+    const email = `alias-${crypto.randomUUID()}@example.com`;
+    const [user] = await db.insert(users).values({ email, passwordHash: "x" }).returning();
+    const { aliases, people } = recordSender();
+    await identifyAttribution(user.id, state);
+    await identifyAttribution(user.id, {
+      ...state,
+      first: { ...state.first, landing: "/nope", params: { utm_source: "should-not-replace" } },
+    });
+    expect(aliases).toEqual([
+      { userId: user.id, visitorId: state.visitorId },
+      { userId: user.id, visitorId: state.visitorId },
+    ]);
+    expect(people).toHaveLength(2);
+    expect(people[0].setOnce).toMatchObject({ initial_source: "google", initial_campaign: "brand", initial_landing: "/" });
+    expect(people[1].setOnce).toMatchObject({ initial_source: "google", initial_landing: "/" });
+    expect(people[0].set).toMatchObject({ latest_campaign: "launch", email });
+  });
 });

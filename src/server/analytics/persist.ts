@@ -2,9 +2,10 @@ import { and, eq, isNull } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 import { getCurrentUser } from "@/server/auth";
 import { getDb } from "@/server/db";
-import { attributionTouches, userAttributions, type StoredTouch } from "@/server/db/schema";
+import { attributionTouches, userAttributions, users, type StoredTouch } from "@/server/db/schema";
 import { sha256 } from "@/server/lib/hash";
 import { ATTR_COOKIE, TOUCH_HEADER, decodeAttribution, paramsKey, sessionBucket, type AttributionState, type Touch } from "./attribution";
+import { aliasVisitor, personProperties, setPerson } from "./posthog";
 
 /** Writes the touch the proxy just captured. Failures never block the page. */
 export async function persistIncomingTouch() {
@@ -47,6 +48,22 @@ export async function identifyAttribution(userId: string, known?: AttributionSta
       .update(attributionTouches)
       .set({ userId })
       .where(and(eq(attributionTouches.visitorId, state.visitorId), isNull(attributionTouches.userId)));
+    await forwardIdentity(userId);
+  } catch (err) {
+    console.warn("[analytics] identify dropped", (err as Error).message);
+  }
+}
+
+async function forwardIdentity(userId: string) {
+  try {
+    const db = await getDb();
+    const [row] = await db.select().from(userAttributions).where(eq(userAttributions.userId, userId));
+    const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId));
+    if (!row || !user) return;
+    const stored: AttributionState = { visitorId: row.visitorId, first: row.firstTouch, last: row.lastTouch };
+    aliasVisitor(userId, stored.visitorId);
+    const person = personProperties(stored, user.email);
+    setPerson(userId, person.setOnce, person.set);
   } catch (err) {
     console.warn("[analytics] identify dropped", (err as Error).message);
   }
