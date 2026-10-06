@@ -1,5 +1,29 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { capturePostHog, installAnalyticsSender, posthogHost, type AnalyticsSender } from "./posthog";
+import type { AttributionState } from "./attribution";
+import {
+  capturePostHog,
+  installAnalyticsSender,
+  personProperties,
+  posthogHost,
+  touchProperties,
+  type AnalyticsSender,
+} from "./posthog";
+
+const state: AttributionState = {
+  visitorId: "33333333-3333-4333-8333-333333333333",
+  first: {
+    at: "2026-10-01T00:00:00.000Z",
+    landing: "/",
+    referrer: "https://google.com",
+    params: { utm_source: "google", utm_medium: "cpc", utm_campaign: "brand", gclid: "click-1" },
+  },
+  last: {
+    at: "2026-10-04T00:00:00.000Z",
+    landing: "/pricing",
+    referrer: null,
+    params: { utm_source: "newsletter", utm_medium: "email", utm_campaign: "launch", fbclid: "meta-1" },
+  },
+};
 
 afterEach(() => {
   installAnalyticsSender(null);
@@ -53,5 +77,44 @@ describe("posthog client", () => {
     expect(posthogHost()).toBe("https://us.i.posthog.com");
     process.env.POSTHOG_HOST = "https://eu.i.posthog.com";
     expect(posthogHost()).toBe("https://eu.i.posthog.com");
+  });
+
+  it("maps the last touch onto attr fields and allowlisted params", () => {
+    expect(touchProperties(state.last, state.visitorId)).toMatchObject({
+      attr_source: "newsletter",
+      attr_medium: "email",
+      attr_campaign: "launch",
+      attr_landing: "/pricing",
+      attr_referrer: null,
+      visitor_id: state.visitorId,
+      utm_source: "newsletter",
+      utm_medium: "email",
+      utm_campaign: "launch",
+      fbclid: "meta-1",
+    });
+  });
+
+  it("keeps an empty touch limited to the visitor id", () => {
+    expect(touchProperties(null, null)).toEqual({ visitor_id: null });
+  });
+
+  it("splits first touch and latest touch for the person", () => {
+    expect(personProperties(state, "ada@example.com")).toEqual({
+      setOnce: {
+        initial_source: "google",
+        initial_medium: "cpc",
+        initial_campaign: "brand",
+        initial_landing: "/",
+        initial_referrer: "https://google.com",
+      },
+      set: {
+        latest_source: "newsletter",
+        latest_medium: "email",
+        latest_campaign: "launch",
+        latest_landing: "/pricing",
+        latest_referrer: null,
+        email: "ada@example.com",
+      },
+    });
   });
 });

@@ -1,4 +1,41 @@
 import { PostHog } from "posthog-node";
+import { channelOf, type AttributionState, type Touch } from "./attribution";
+
+export function touchProperties(touch: Pick<Touch, "params" | "referrer" | "landing"> | null, visitorId: string | null) {
+  if (!touch) return { visitor_id: visitorId };
+  const channel = channelOf(touch);
+  return {
+    attr_source: channel.source,
+    attr_medium: channel.medium,
+    attr_campaign: channel.campaign,
+    attr_landing: touch.landing,
+    attr_referrer: touch.referrer,
+    ...touch.params,
+    visitor_id: visitorId,
+  };
+}
+
+export function personProperties(state: AttributionState, email: string) {
+  const first = channelOf(state.first);
+  const last = channelOf(state.last);
+  return {
+    setOnce: {
+      initial_source: first.source,
+      initial_medium: first.medium,
+      initial_campaign: first.campaign,
+      initial_landing: state.first.landing,
+      initial_referrer: state.first.referrer,
+    },
+    set: {
+      latest_source: last.source,
+      latest_medium: last.medium,
+      latest_campaign: last.campaign,
+      latest_landing: state.last.landing,
+      latest_referrer: state.last.referrer,
+      email,
+    },
+  };
+}
 
 export type AnalyticsCapture = {
   distinctId: string;
