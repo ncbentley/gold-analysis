@@ -13,12 +13,12 @@ import type { SignalListItem } from "@/server/presenters";
 
 const CACHE_VERSION = "v1";
 
-export const DASHBOARD_VIEWS = ["admin", "platinum", "silver", "free"] as const;
+export const DASHBOARD_VIEWS = ["admin", "gold", "silver", "free"] as const;
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
 
 export function dashboardViewFor(access: { isAdmin: boolean; tier: string | null }): DashboardView {
   if (access.isAdmin) return "admin";
-  if (access.tier === "platinum") return "platinum";
+  if (access.tier === "gold") return "gold";
   if (access.tier === "silver") return "silver";
   return "free";
 }
@@ -138,7 +138,7 @@ async function buildSnapshot(view: DashboardView, config: Awaited<ReturnType<typ
       live: ideas.filter((idea) => idea.phase !== "history"),
       history: ideas.filter((idea) => idea.phase === "history"),
     };
-  } else if (view === "platinum") {
+  } else if (view === "gold") {
     const board = await currentBoard(lastBar?.close ?? null);
     const cards = board.post?.active ? board.cards : [];
     const retired = board.post?.active ? [] : board.cards;

@@ -22,11 +22,11 @@ describe("admin view-as", () => {
     expect(can(silver, "consensus.mapping")).toBe(false);
     expect(silver.historyDays).toBe(180);
 
-    const platinum = accessForPreview(DEFAULT_TIER_CONFIG, "platinum");
-    expect(can(platinum, "filters.advanced")).toBe(true);
-    expect(can(platinum, "ai.patterns")).toBe(false);
-    expect(can(platinum, "consensus.mapping")).toBe(false);
-    expect(platinum.historyDays).toBeNull();
+    const gold = accessForPreview(DEFAULT_TIER_CONFIG, "gold");
+    expect(can(gold, "filters.advanced")).toBe(true);
+    expect(can(gold, "ai.patterns")).toBe(false);
+    expect(can(gold, "consensus.mapping")).toBe(false);
+    expect(gold.historyDays).toBeNull();
   });
 
   it("can preview a signed-in visitor with no plan", () => {
@@ -41,7 +41,11 @@ describe("admin view-as", () => {
   it("ignores unknown preview values", () => {
     expect(parseViewAs("admin")).toBeNull();
     expect(parseViewAs("diamond")).toBeNull();
-    expect(parseViewAs("gold")).toBeNull();
     expect(parseViewAs("none")).toBe("none");
+  });
+
+  it("reads a stored platinum preview as gold", () => {
+    expect(parseViewAs("platinum")).toBe("gold");
+    expect(parseViewAs("gold")).toBe("gold");
   });
 });

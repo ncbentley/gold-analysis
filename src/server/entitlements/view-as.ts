@@ -10,6 +10,7 @@ export type ViewAs = Tier | "none";
 export function parseViewAs(value: string | undefined | null): ViewAs | null {
   if (!value || value === "admin") return null;
   if (value === "none") return "none";
+  if (value === "platinum") return "gold";
   return (TIERS as readonly string[]).includes(value) ? (value as Tier) : null;
 }
 
