@@ -1,6 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { closeDb, getDb } from "@/server/db";
+import { runMigrations } from "@/server/db/migrate";
+import { analyticsEvents, users } from "@/server/db/schema";
 import type { AttributionState } from "./attribution";
-import { trackRevenue } from "./index";
+import { trackEvent, trackRevenue } from "./index";
+import { identifyAttribution } from "./persist";
 import {
   capturePostHog,
   installAnalyticsSender,
@@ -25,6 +30,14 @@ const state: AttributionState = {
     params: { utm_source: "newsletter", utm_medium: "email", utm_campaign: "launch", fbclid: "meta-1" },
   },
 };
+
+beforeAll(async () => {
+  await runMigrations();
+});
+
+afterAll(async () => {
+  await closeDb();
+});
 
 afterEach(() => {
   installAnalyticsSender(null);
@@ -136,5 +149,59 @@ describe("posthog client", () => {
     await trackRevenue("user-1", { amountCents: Number.NaN, currency: "usd", tier: "silver", period: "monthly", provider: "mock" });
     await trackRevenue("user-1", { amountCents: -1, currency: "usd", tier: "silver", period: "monthly", provider: "mock" });
     expect(events).toEqual([]);
+  });
+
+  it("forwards a product event with the last touch and keeps the caller source", async () => {
+    const db = await getDb();
+    const email = `forward-${crypto.randomUUID()}@example.com`;
+    const [user] = await db.insert(users).values({ email, passwordHash: "x" }).returning();
+    await identifyAttribution(user.id, state);
+    const { events } = recordSender();
+    await trackEvent("signal_viewed", user.id, { source: "amber-falcon", signalId: "sig-1" });
+    expect(events).toEqual([
+      expect.objectContaining({
+        distinctId: user.id,
+        event: "signal_viewed",
+        properties: expect.objectContaining({
+          source: "amber-falcon",
+          signalId: "sig-1",
+          attr_source: "newsletter",
+          attr_medium: "email",
+          attr_campaign: "launch",
+          attr_landing: "/pricing",
+          fbclid: "meta-1",
+          visitor_id: state.visitorId,
+        }),
+      }),
+    ]);
+    const [row] = await db.select().from(analyticsEvents).where(eq(analyticsEvents.userId, user.id));
+    expect(row.propsJson).toMatchObject({ source: "amber-falcon", attribution: { visitorId: state.visitorId } });
+    expect(row.propsJson).not.toHaveProperty("attr_source");
+  });
+
+  it("keeps the Postgres row when the sender throws", async () => {
+    const db = await getDb();
+    const email = `throw-${crypto.randomUUID()}@example.com`;
+    const [user] = await db.insert(users).values({ email, passwordHash: "x" }).returning();
+    installAnalyticsSender({
+      capture() {
+        throw new Error("posthog down");
+      },
+      alias() {},
+      setPerson() {},
+    });
+    process.env.POSTHOG_API_KEY = "phc_test";
+    await expect(trackEvent("account_created", user.id)).resolves.toBeUndefined();
+    const [row] = await db.select().from(analyticsEvents).where(eq(analyticsEvents.userId, user.id));
+    expect(row.name).toBe("account_created");
+  });
+
+  it("stores an anonymous event with no distinct id and does not send it", async () => {
+    const { events } = recordSender();
+    await trackEvent("upgrade_clicked", null, { tier: "platinum" });
+    expect(events).toEqual([]);
+    const db = await getDb();
+    const rows = await db.select().from(analyticsEvents).where(eq(analyticsEvents.name, "upgrade_clicked"));
+    expect(rows.some((row) => row.userId === null && (row.propsJson as { tier?: string }).tier === "platinum")).toBe(true);
   });
 });

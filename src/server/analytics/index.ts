@@ -29,6 +29,16 @@ export async function trackEvent(name: AnalyticsEvent, userId: string | null, pr
         ? { ...props, attribution: { visitorId: attribution.visitorId, first: attribution.first, last: attribution.last } }
         : props,
     });
+    const distinctId = userId ?? attribution?.visitorId ?? null;
+    if (!distinctId) return;
+    try {
+      capturePostHog(distinctId, name, {
+        ...props,
+        ...touchProperties(attribution?.last ?? null, attribution?.visitorId ?? null),
+      });
+    } catch (err) {
+      console.warn("[analytics] dropped event", name, (err as Error).message);
+    }
   } catch (err) {
     console.warn("[analytics] dropped event", name, (err as Error).message);
   }
