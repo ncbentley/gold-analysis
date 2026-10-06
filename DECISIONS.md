@@ -90,6 +90,10 @@ Computed when a signal is read. It is not stored, and it does not use a hand-pic
 
 - **Affiliate links never touch entitlements.** They are shown in configured placements with a disclosure, counted through a `/go/:slug` redirect, and are never a condition of access.
 
+## Analytics
+
+- **PostHog Cloud is the place to explore product and campaign questions.** Capture stays on the server. The browser posts the pathname to `/api/analytics/page` and does not load a PostHog script. With `POSTHOG_API_KEY` unset, forwarding is skipped and Postgres still stores product events. First-touch person properties are set once from the stored account touch. Latest touch and email update on later sign-ins. Revenue is only `invoice_paid`, sent by `trackRevenue`. Mock checkout sends the plan price. Authorize.net will call `trackRevenue` when that payment project records a charge. Advertising networks do not receive visitor or purchase data. Rows already in `analytics_events` are not imported. Events are sent as they are captured, and the client flushes again on process shutdown.
+
 ## Security
 
 - **Sessions** are random 32-byte tokens in an HTTP-only, SameSite=Lax cookie. Only their SHA-256 is stored.

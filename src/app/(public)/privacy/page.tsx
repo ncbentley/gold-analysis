@@ -28,6 +28,7 @@ export default function PrivacyPage() {
           heading: "Processors",
           body: [
             "We use a payment processor for subscriptions, an email provider for account messages, a market data provider, and an AI provider for signal analysis. AI requests contain market facts and signal data, not your personal data.",
+            "We use PostHog to understand how the product is used and which campaigns lead to subscriptions. Those events can include an account email, pages opened, product actions, and how you arrived. They are not shared with advertising networks.",
           ],
         },
         {
