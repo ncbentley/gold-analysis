@@ -1,6 +1,6 @@
 # Production stack for the VPS. No service publishes a host port: the only
 # way in is the Cloudflare tunnel, which forwards to Caddy, which proxies the app.
-# Secrets and settings live in deploy/.env next to this file (see env.example).
+# Secrets are rendered from Infisical into deploy/.env (see env.example).
 name: gold
 
 x-app: &app

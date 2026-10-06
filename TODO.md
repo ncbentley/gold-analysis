@@ -10,7 +10,7 @@ Known gaps and next steps after the MVP, roughly in priority order.
 - [ ] **Production database.** Point `DATABASE_URL` at managed Postgres and apply the migrations in `drizzle/`. Add backups.
 - [ ] **Market data licence** check for the chosen provider, or add another adapter in `src/server/market-data/`.
 - [ ] **Source permissions.** Confirm that each tracked channel allows redistribution of its text; otherwise set `showRawText=false` on that source.
-- [ ] **Set `APP_SECRET`** in production before signing in to Telegram, and keep it stable; rotating it requires signing in again.
+- [x] **Set `APP_SECRET`** in the Infisical `prod` environment before signing in to Telegram, and keep it stable; rotating it requires signing in again.
 - [ ] **Connect real market data** in `/admin/settings` before members see results. Synthetic prices are for development only.
 - [ ] **Telegram account hygiene.** Use a dedicated account, enable two-step verification on it, and keep it in only the channels you track.
 - [ ] **Shared rate limiting.** Move to Redis or a platform limiter before running more than one instance.

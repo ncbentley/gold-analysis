@@ -135,7 +135,13 @@ Sending the same `message_id` again returns `duplicate`. The `json-webhook` pars
 
 ## Configuration
 
-Every integration has a local fallback, so nothing is required to run locally. Telegram and market data credentials are entered in the admin and stored encrypted. See [`.env.example`](.env.example) for the full list. The main switches are:
+Every integration has a local fallback, so nothing is required to run locally. Telegram and market data credentials are entered in the admin and stored encrypted. See [`.env.example`](.env.example) for the full list.
+
+Production secrets live in Infisical at `https://vault.mountainwest.digital`, in the Gold Intelligence Gateway project, environment `prod`. The inbound host holds a machine identity in `~/.infisical/auth.env`. Every deploy runs `deploy/render-env.sh`, which writes `deploy/.env` from that environment and then starts Compose. The rendered file is not committed. Changing `APP_SECRET` there makes stored Telegram credentials unreadable.
+
+This repository's `.infisical.json` points the CLI at that project and defaults to the `dev` environment, so commands run from this directory do not select it globally. After `infisical login --domain=https://vault.mountainwest.digital`, local runs that need those secrets use `infisical run --env=dev -- pnpm dev`. `pnpm dev` by itself still uses the local fallbacks.
+
+The main switches are:
 
 - `APP_SECRET`: the key that encrypts credentials stored from the admin. It is required in production. In development one is generated in `.data/app-secret`.
 - `DATABASE_URL`: use Postgres instead of embedded PGlite.
@@ -153,9 +159,11 @@ The Telegram client holds a long-lived connection, so deploy it as a **persisten
 
 ### Production VPS
 
-`deploy/` holds the production stack: Postgres, the app, the queue service, Caddy, and a Cloudflare tunnel. No host port is published. Traffic arrives through the tunnel, goes to Caddy, then to the app. Run `deploy/deploy.sh` from your machine. It rsyncs the working tree to `/srv/gold` on the `inbound-prod` SSH host, rebuilds the image there, and restarts the stack. The settings live in `/srv/gold/deploy/.env` on the server; `deploy/env.example` lists them.
+`deploy/` holds the production stack: Postgres, the app, the queue service, Caddy, and a Cloudflare tunnel. No host port is published. Traffic arrives through the tunnel, goes to Caddy, then to the app. Run `deploy/deploy.sh` from your machine. It rsyncs the working tree to `/srv/gold` on the `inbound-prod` SSH host, renders `deploy/.env` from Infisical, rebuilds the image there, and restarts the stack. `deploy/env.example` lists the keys.
 
-Until a domain is connected, the tunnel is a quick tunnel on a random `trycloudflare.com` address. A new address is assigned whenever the tunnel container restarts, including after a reboot. `deploy.sh` prints the address and updates `APP_URL` to match. To switch to a domain, create a named tunnel in Cloudflare and point its public hostname at `http://caddy:80`. Then set `TUNNEL_COMMAND`, `TUNNEL_TOKEN` and `SITE_ADDRESS` in the server's `.env` and run `deploy.sh` again.
+The public site is `https://goldintelligencegateway.com`. Tunnel `gold-intelligence-gateway` dials out from the VPS to Cloudflare and forwards the apex and `www` to `http://caddy:80`. Caddy redirects `www` to the apex. `APP_URL`, `TUNNEL_COMMAND`, `TUNNEL_TOKEN`, and `SITE_ADDRESS` are Infisical values. The host does not listen on ports 80 or 443.
+
+If `TUNNEL_TOKEN` is empty, Compose starts a quick tunnel on a random `trycloudflare.com` address. `deploy.sh` prints that address and writes it back to `APP_URL` in Infisical.
 
 Only one machine may run the queue service against a Telegram session. Running it on two machines at once can get the session revoked.
 
