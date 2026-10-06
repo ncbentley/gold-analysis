@@ -13,7 +13,7 @@ export async function SiteHeader() {
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4">
         <Brand className="shrink-0 max-sm:[&>span]:hidden" />
         <nav aria-label="Main" className="flex items-center gap-1 text-sm">
-          <Link href="/#how-it-works" className={cn(NAV_LINK, "hidden md:block")}>How it works</Link>
+          <Link href="/#ladder" className={cn(NAV_LINK, "hidden md:block")}>How it works</Link>
           <Link href="/pricing" className={NAV_LINK}>Pricing</Link>
           {user ? (
             <Link href="/dashboard" className={cn(buttonVariants({ size: "sm" }), "ml-2")}>Dashboard</Link>

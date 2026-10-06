@@ -8,8 +8,8 @@ import { billingMode } from "@/server/billing/config";
 export const metadata: Metadata = { title: "Pricing" };
 
 const FEATURES = [
-  { icon: Radio, label: "Live XAU/USD signals on every plan" },
-  { icon: Timer, label: "Replayed on minute data" },
+  { icon: Radio, label: "7-day trial, no card" },
+  { icon: Timer, label: "Available, Active, and History" },
   { icon: BarChart3, label: "Source track records" },
   { icon: CalendarClock, label: "Cancel any time" },
 ];
@@ -22,11 +22,15 @@ export default async function PricingPage({ searchParams }: PageProps<"/pricing"
       <PageHeader
         icon={Package}
         title="Choose your package"
-        description="Choose how deep you want to go. Every plan includes the same live signals; higher tiers add the analysis around them."
+        description="A 7-day trial of every signal. Silver is every consolidated idea. Gold is a shorter list of those ideas, with the news read above the book."
         features={FEATURES}
       />
 
-      <div className="mt-7">
+      <p className="mt-7 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+        Add a card for Silver or Gold during the trial and the rest of that week is Gold access. When the week ends, billing starts on the plan you picked.
+      </p>
+
+      <div className="mt-6">
         <PlanPicker period={period} highlight={highlight} basePath="/pricing" />
       </div>
 

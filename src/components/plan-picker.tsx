@@ -14,7 +14,7 @@ import { getViewer } from "@/server/entitlements/service";
 
 const TAGLINE: Record<Tier, string> = {
   silver: "Nearby calls averaged into one idea",
-  gold: "Curated ideas from the Silver set",
+  gold: "The news read, above a shorter list of ideas",
 };
 
 const PERIOD_TITLE: Record<BillingPeriod, string> = { weekly: "Weekly", monthly: "Monthly", annual: "Annual" };
