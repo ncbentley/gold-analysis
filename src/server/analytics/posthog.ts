@@ -34,16 +34,16 @@ function liveSender(): AnalyticsSender {
   if (realSender) return realSender;
   const client = new PostHog(process.env.POSTHOG_API_KEY!, {
     host: posthogHost(),
-    flushAt: 20,
+    flushAt: 1,
     flushInterval: 10_000,
   });
   if (!shutdownHooked) {
     shutdownHooked = true;
-    const flush = () => {
-      void client.shutdown();
+    const onSignal = (signal: NodeJS.Signals) => {
+      void client.shutdown(2_000).finally(() => process.kill(process.pid, signal));
     };
-    process.once("SIGTERM", flush);
-    process.once("SIGINT", flush);
+    process.once("SIGTERM", onSignal);
+    process.once("SIGINT", onSignal);
   }
   realSender = {
     capture(event) {

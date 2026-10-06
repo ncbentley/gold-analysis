@@ -35,7 +35,7 @@ It exposes:
 - `aliasVisitor(userId, visitorId)` so events already sent with the visitor id become part of the user, and the user id is the distinct id from then on
 - `setPerson(userId, setOnce, set)` for first-touch and latest-touch person properties
 
-The client flushes about every 10 seconds and on process shutdown. Failures are caught by the callers described below.
+The client sends each event immediately and flushes again on process shutdown. Failures are caught by the callers described below.
 
 ### Product events
 
