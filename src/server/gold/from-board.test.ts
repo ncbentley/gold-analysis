@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { boardPosts, consolidatedIdeas, goldBookEntries, rawEvents, signals, sources } from "@/server/db/schema";
-import { closeRetiredGold, collapseDuplicateGold, syncGoldBook } from "./from-board";
+import { closeRetiredGold, collapseDuplicateGold, reconcileGoldBook, syncGoldBook } from "./from-board";
 import { listGoldEntries } from "./store";
 
 describe("syncGoldBook", () => {
@@ -92,7 +92,7 @@ describe("syncGoldBook", () => {
         targets: [4210],
         exitSpreadStops: null,
         exitSpreadTargets: [0],
-        sourceCount: 1,
+        sourceCount: 3,
         signalIds: [liveSignal.id],
         replacedSignalIds: [],
         newestSignalAt: new Date(now - 60_000),
@@ -191,7 +191,7 @@ describe("syncGoldBook", () => {
         targets: [4165.22, 4144.4],
         exitSpreadStops: null,
         exitSpreadTargets: [0, 0],
-        sourceCount: 1,
+        sourceCount: 3,
         signalIds: [],
         replacedSignalIds: [],
         newestSignalAt: new Date(now - 18 * 60_000),
@@ -256,5 +256,41 @@ describe("syncGoldBook", () => {
     });
     await syncGoldBook();
     expect((await listGoldEntries()).filter((row) => row.entryMin === 4168.89 && row.exitTime === null && !row.retired)).toHaveLength(1);
+  });
+
+  it("takes an old one-source gold call off the live book", async () => {
+    const db = await getDb();
+    const now = Date.now();
+    const [idea] = await db
+      .insert(consolidatedIdeas)
+      .values({
+        direction: "SHORT",
+        entryMin: 4334.88,
+        entryMax: 4334.88,
+        stopLoss: 4343.53,
+        targets: [4302.26],
+        exitSpreadStops: null,
+        exitSpreadTargets: [0],
+        sourceCount: 1,
+        signalIds: [],
+        replacedSignalIds: [],
+        newestSignalAt: new Date(now - 13 * 24 * 60 * 60_000),
+        phase: "available",
+      })
+      .returning();
+    await db.insert(goldBookEntries).values({
+      ideaId: idea.id,
+      direction: "SHORT",
+      entryMin: 4334.88,
+      entryMax: 4334.88,
+      stopLoss: 4343.53,
+      targets: [4302.26],
+      createdAt: new Date(now - 13 * 24 * 60 * 60_000),
+    });
+    const result = await reconcileGoldBook(new Date(now));
+    expect(result.closed).toContain(idea.id);
+    const [row] = await db.select().from(goldBookEntries).where(eq(goldBookEntries.ideaId, idea.id));
+    expect(row.closeCalledAt).not.toBeNull();
+    expect(row.sectionAtCall).toBe("available");
   });
 });

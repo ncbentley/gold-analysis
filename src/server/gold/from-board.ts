@@ -1,14 +1,17 @@
-import { inArray } from "drizzle-orm";
+import { gte, inArray } from "drizzle-orm";
 import { currentBoard } from "@/server/board/service";
 import { getDb } from "@/server/db";
 import { consolidatedIdeas, signals, type BoardPick } from "@/server/db/schema";
 import { replayIdea } from "@/server/ideas/replay";
+import { MIN_CONSOLIDATED_SOURCES, replayConsolidatedIdeas } from "@/server/ideas/service";
 import { getEngineBars, getRecentBars } from "@/server/market-data";
+import { CLOSE_HOLD_MS } from "./close";
 import type { GoldLevel } from "./geometry";
 import { applyProposal } from "./publish";
+import { filledTradeStillOpen, goldBookAction } from "./qualify";
 import { sourcesRetired } from "./retire";
 import { settleStoredGoldCloses } from "./settle-stored";
-import { deleteGoldEntry, insertGoldEntry, linkGoldEntry, listGoldEntries, liveGoldLevels, markGoldClose } from "./store";
+import { clearGoldClose, deleteGoldEntry, insertGoldEntry, linkGoldEntry, listGoldEntries, liveGoldLevels, markGoldClose } from "./store";
 
 function cents(price: number) {
   return Math.round(price * 100);
@@ -64,6 +67,76 @@ async function retiredSourceIdeas(ideaIds: string[]) {
   return retired;
 }
 
+/** Silver's available book: three or more sources, price still able to fill, sources not all expired. */
+export async function silverAvailableIds(spot: number | null) {
+  const db = await getDb();
+  const rows = await db.select().from(consolidatedIdeas).where(gte(consolidatedIdeas.sourceCount, MIN_CONSOLIDATED_SOURCES));
+  const ids = new Set<string>();
+  if (!rows.length) return ids;
+  const played = await replayConsolidatedIdeas(rows, spot);
+  const signalIds = [...new Set(rows.flatMap((idea) => idea.signalIds))];
+  const members = signalIds.length
+    ? await db.select({ id: signals.id, status: signals.status }).from(signals).where(inArray(signals.id, signalIds))
+    : [];
+  const byId = new Map(members.map((member) => [member.id, member]));
+  for (const row of rows) {
+    if (played.get(row.id)?.phase !== "available") continue;
+    const roster = row.signalIds.map((id) => byId.get(id)).filter((member) => member != null);
+    if (roster.length && sourcesRetired(roster.map((member) => ({ status: member.status, outcome: null })))) continue;
+    ids.add(row.id);
+  }
+  return ids;
+}
+
+/** Puts a bad close back, and takes unfilled Gold calls off when silver is not showing that idea. */
+export async function reconcileGoldBook(now = new Date()) {
+  const [bar] = (await getRecentBars(1)).slice(-1);
+  const spot = bar?.close ?? null;
+  const silver = await silverAvailableIds(spot);
+  const rows = await listGoldEntries();
+  const open = rows.filter((row) => row.exitTime === null || row.closeCalledAt !== null);
+  if (!open.length) return { closed: [] as string[], reopened: [] as string[], silver };
+  const from = Math.min(...open.map((row) => row.createdAt.getTime()));
+  const bars = await getEngineBars(new Date(from), new Date(now.getTime() + 60_000));
+  const closed: string[] = [];
+  const reopened: string[] = [];
+  for (const row of rows) {
+    if (row.exitTime !== null && row.closeCalledAt === null) continue;
+    const played = replayIdea(
+      {
+        direction: row.direction,
+        entryMin: row.entryMin,
+        entryMax: row.entryMax,
+        stopLoss: row.stopLoss,
+        targets: row.targets,
+        startedAt: row.createdAt.getTime(),
+      },
+      bars,
+      spot,
+      true,
+    );
+    const action = goldBookAction({
+      closeCalledAt: row.closeCalledAt ? row.closeCalledAt.getTime() : null,
+      entered: played.outcome.entered,
+      stopHitAt: played.outcome.stopHitAt,
+      targets: played.outcome.targets,
+      ideaId: row.ideaId,
+      silverAvailable: silver,
+    });
+    if (action === "reopen") {
+      await clearGoldClose(row.id);
+      reopened.push(row.id);
+      continue;
+    }
+    if (action !== "close" || row.closeCalledAt || row.exitTime) continue;
+    const calledAt = new Date(Math.min(row.createdAt.getTime(), now.getTime() - CLOSE_HOLD_MS - 1));
+    await markGoldClose(row.ideaId ?? row.id, calledAt, "available");
+    closed.push(row.ideaId ?? row.id);
+  }
+  if (closed.length) await settleStoredGoldCloses();
+  return { closed, reopened, silver };
+}
+
 /** Takes Gold calls off the book once every source they used has expired or been cancelled without a fill. */
 export async function closeRetiredGold(now = new Date()) {
   const db = await getDb();
@@ -95,10 +168,11 @@ export async function closeRetiredGold(now = new Date()) {
 
 async function closeSections(ids: string[], stored: Awaited<ReturnType<typeof listGoldEntries>>) {
   const sections = new Map<string, "available" | "active">();
+  const working = new Set<string>();
   const rows = ids
     .map((id) => stored.find((row) => (row.ideaId ?? row.id) === id && row.exitTime === null && !row.retired))
     .filter((row) => row != null);
-  if (!rows.length) return sections;
+  if (!rows.length) return { sections, working };
   const from = Math.min(...rows.map((row) => row.createdAt.getTime()));
   const bars = await getEngineBars(new Date(from), new Date(Date.now() + 60_000));
   const [bar] = (await getRecentBars(1)).slice(-1);
@@ -116,15 +190,23 @@ async function closeSections(ids: string[], stored: Awaited<ReturnType<typeof li
       bar?.close ?? null,
       true,
     );
-    sections.set(row.ideaId ?? row.id, played.outcome.entered ? "active" : "available");
+    const id = row.ideaId ?? row.id;
+    if (filledTradeStillOpen(played.outcome)) {
+      working.add(id);
+      continue;
+    }
+    sections.set(id, played.outcome.entered ? "active" : "available");
   }
-  return sections;
+  return { sections, working };
 }
 
 /** Puts the model's own prices on the Gold book. A pick with no silver idea is a new idea. */
 export async function syncGoldBook(closeIds: string[] = []) {
   const justClosed = new Set(await closeRetiredGold());
   await collapseDuplicateGold();
+  const reconciled = await reconcileGoldBook();
+  for (const id of reconciled.closed) justClosed.add(id);
+  const silver = reconciled.silver;
   const db = await getDb();
   const stored = await listGoldEntries();
   const ideaRows = await db.select({ id: consolidatedIdeas.id }).from(consolidatedIdeas);
@@ -149,6 +231,8 @@ export async function syncGoldBook(closeIds: string[] = []) {
   for (const pick of picks) {
     const cited = pick.ideaIds.filter((id) => known.has(id));
     const ideaId = cited.length === 1 ? cited[0] : null;
+    if (cited.length && cited.every((id) => !silver.has(id))) continue;
+    if (!cited.length && silver.size === 0) continue;
     if (blocked(pick, ideaId)) continue;
     const existing = liveRows.find((row) => zoneSignature(row) === zoneSignature(pick) || (ideaId !== null && row.ideaId === ideaId));
     if (existing) {
@@ -172,11 +256,12 @@ export async function syncGoldBook(closeIds: string[] = []) {
   }
 
   const live = liveGoldLevels(stored).filter((level) => !justClosed.has(level.id) && !sourceRetired.has(level.id));
-  const sections = await closeSections(closeIds, stored);
+  const judged = await closeSections(closeIds, stored);
+  const closable = closeIds.filter((id) => !judged.working.has(id) && judged.sections.has(id));
   return applyProposal({
     ideas: candidates,
     live,
-    propose: async () => ({ addIdeaIds: candidates.map((idea) => idea.id), closeIdeaIds: closeIds }),
+    propose: async () => ({ addIdeaIds: candidates.map((idea) => idea.id), closeIdeaIds: closable }),
     write: async (plan) => {
       const byId = new Map(candidates.map((idea) => [idea.id, idea]));
       for (const idea of plan.add) {
@@ -184,7 +269,7 @@ export async function syncGoldBook(closeIds: string[] = []) {
         if (full) await insertGoldEntry(full);
       }
       for (const id of plan.closeIds) {
-        await markGoldClose(id, new Date(), sections.get(id) ?? "available");
+        await markGoldClose(id, new Date(), judged.sections.get(id) ?? "available");
       }
     },
   });

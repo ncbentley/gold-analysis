@@ -49,6 +49,14 @@ export async function markGoldExit(id: string, exit: { exitTime: Date; exitPrice
   await db.update(goldBookEntries).set(exit).where(eq(goldBookEntries.id, id));
 }
 
+export async function clearGoldClose(id: string) {
+  const db = await getDb();
+  await db
+    .update(goldBookEntries)
+    .set({ closeCalledAt: null, sectionAtCall: null, exitTime: null, exitPrice: null, retired: false })
+    .where(eq(goldBookEntries.id, id));
+}
+
 export async function deleteGoldEntry(id: string) {
   const db = await getDb();
   await db.delete(goldBookEntries).where(eq(goldBookEntries.id, id));

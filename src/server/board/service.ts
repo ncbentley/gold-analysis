@@ -2,7 +2,7 @@ import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { createOpenAiProvider } from "@/server/ai/providers/openai";
 import { getDb } from "@/server/db";
 import { boardPosts, consolidatedIdeas, feedRevisions, marketDirectionSnapshots, signalTargets, signals, sourceStats, sources, type BoardCardState, type BoardPick } from "@/server/db/schema";
-import { replayConsolidatedIdeas } from "@/server/ideas/service";
+import { MIN_CONSOLIDATED_SOURCES, replayConsolidatedIdeas } from "@/server/ideas/service";
 import { replayIdea } from "@/server/ideas/replay";
 import type { IdeaPhase } from "@/server/ideas/phase";
 import { getEngineBars, getRecentBars } from "@/server/market-data";
@@ -42,6 +42,7 @@ async function loadMarket(now: number, since: Date | null) {
   const memberById = new Map(members.map((member) => [member.id, member]));
   const retiredIdeaIds: string[] = [];
   const ideas = ideaRows.filter((row) => {
+    if (row.sourceCount < MIN_CONSOLIDATED_SOURCES) return false;
     if (ideaReplay.get(row.id)?.phase !== "available") return false;
     const roster = row.signalIds.map((id) => memberById.get(id)).filter((member) => member != null);
     if (roster.length && sourcesRetired(roster.map((member) => ({ status: member.status, outcome: null })))) {
