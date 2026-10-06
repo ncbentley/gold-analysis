@@ -18,6 +18,7 @@ export interface IdeaListItem {
   sourceCount: number;
   newestSignalAt: string;
   phase: IdeaPhase;
+  close?: boolean;
 }
 
 const PHASE_LABEL: Record<IdeaPhase, string> = {
@@ -37,6 +38,22 @@ function PhaseBadge({ phase }: { phase: IdeaPhase }) {
     <Badge variant="outline" className={cn("rounded-md font-semibold", PHASE_STYLE[phase])}>
       {PHASE_LABEL[phase]}
     </Badge>
+  );
+}
+
+function CloseBadge() {
+  return (
+    <Badge variant="outline" className="rounded-md border-loss/60 bg-loss/10 font-semibold text-loss">
+      CLOSE
+    </Badge>
+  );
+}
+
+function StatusBadges({ idea }: { idea: IdeaListItem }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {idea.close ? <CloseBadge /> : <PhaseBadge phase={idea.phase} />}
+    </span>
   );
 }
 
@@ -118,7 +135,7 @@ export function IdeaList({ items, empty, now = nowMs() }: { items: IdeaListItem[
                   </TableCell>
                   <TableCell className={cn(cell, "tabular-nums")}>{sourceLabel(idea.sourceCount)}</TableCell>
                   <TableCell className={cell}>
-                    <PhaseBadge phase={idea.phase} />
+                    <StatusBadges idea={idea} />
                   </TableCell>
                   <TableCell className={cn(cell, "w-8 px-0 pr-2 text-primary/70 group-hover:text-primary")}>
                     <ChevronRight className="size-4" aria-hidden />
@@ -144,7 +161,7 @@ export function IdeaList({ items, empty, now = nowMs() }: { items: IdeaListItem[
               <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", long ? "bg-glow shadow-[0_0_10px_var(--glow)]" : "bg-loss shadow-[0_0_10px_var(--loss)]")} />
               <div className="flex items-center justify-between gap-2">
                 <DirectionBadge direction={idea.direction} />
-                <PhaseBadge phase={idea.phase} />
+                <StatusBadges idea={idea} />
               </div>
               <div className="mt-2.5 grid grid-cols-3 gap-2 text-xs">
                 <div>

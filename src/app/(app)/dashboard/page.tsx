@@ -2,7 +2,7 @@ import { Activity, ChartCandlestick, Coins, History, Hourglass, LayoutDashboard,
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AffiliateStrip } from "@/components/affiliate-strip";
-import { BoardPicks } from "@/components/board-picks";
+import { BookSections } from "@/components/book-sections";
 import { DirectionPanel } from "@/components/direction-panel";
 import { IdeaList } from "@/components/idea-list";
 import { FeedRefresh } from "@/components/feed-refresh";
@@ -40,18 +40,11 @@ export default async function DashboardPage() {
   const now = nowMs();
   const lastBar = snap?.spot;
 
-  const gold = access.tier === "gold" && !access.isAdmin;
   const header = (
     <PageHeader
       title="Dashboard"
       icon={LayoutDashboard}
-      description={
-        gold
-          ? "One primary idea from the model, with a few alternates."
-          : access.tier === "silver"
-            ? "Nearby calls averaged into one idea."
-            : "Live gold signals from tracked sources, replayed against XAU/USD minute data."
-      }
+      description="Available trades, trades that are working, and a short history. Each membership is a smaller, more curated set."
       features={FEATURES}
       actions={
         lastBar && (
@@ -89,15 +82,16 @@ export default async function DashboardPage() {
   }
 
   const silver = access.tier === "silver";
+  const goldBook = access.tier === "gold" && !access.isAdmin;
   const direction = snap?.direction ?? null;
   const ranking = snap?.ranking ?? { rows: [], eligibleCount: 0, sourceCount: 0 };
-  const liveIdeas = snap?.ideas?.live ?? [];
-  const historyIdeas = snap?.ideas?.history ?? [];
-  const sourceCount = [...liveIdeas, ...historyIdeas].reduce((sum, idea) => sum + idea.sourceCount, 0);
-  const boardLive = snap?.board?.live ?? [];
-  const boardPlaying = snap?.board?.playing ?? [];
-  const boardHistory = snap?.board?.history ?? [];
+  const ideas = goldBook ? snap?.gold : silver ? snap?.ideas : null;
   const signals = snap?.signals;
+  const pending = (signals?.open ?? []).filter((item) => item.status === "PENDING");
+  const activeSignals = (signals?.open ?? []).filter((item) => item.status !== "PENDING");
+  const availableCount = ideas ? ideas.available.length : pending.length;
+  const activeCount = ideas ? ideas.active.length : (signals?.active ?? activeSignals.length);
+  const historyCount = ideas ? ideas.historyCount : (signals?.historyCount ?? 0);
 
   return (
     <>
@@ -113,79 +107,31 @@ export default async function DashboardPage() {
         empty={access.isAdmin ? "Star a channel on the Telegram page. Its posts feed this read." : "No direction read yet."}
       />
       <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {gold ? (
-          <>
-            <Stat label="Available" value={boardLive.length} hint="can still be filled" icon={Hourglass} />
-            <Stat label="Playing out" value={boardPlaying.length} hint="entered after the call" icon={Activity} tone="gold" />
-            <Stat label="History" value={boardHistory.length} hint="this board" icon={History} />
-            <Stat label="On the board" value={snap.board?.active ? boardLive.length + boardPlaying.length + boardHistory.length : 0} hint="primary plus alternates" icon={Radar} />
-          </>
-        ) : silver ? (
-          <>
-            <Stat label="Available" value={liveIdeas.filter((idea) => idea.phase === "available").length} hint="can still be filled" icon={Hourglass} />
-            <Stat label="Playing out" value={liveIdeas.filter((idea) => idea.phase === "playing-out").length} hint="entered, not closed" icon={Activity} tone="gold" />
-            <Stat
-              label="History"
-              value={historyIdeas.length}
-              hint={access.historyDays ? `last ${access.historyDays} days` : "full history"}
-              icon={History}
-            />
-            <Stat label="Source count" value={sourceCount} hint="across these ideas" icon={Radar} />
-          </>
-        ) : (
-          <>
-            <Stat label="Active trades" value={signals?.active ?? 0} hint="entered, not closed" icon={Activity} tone="gold" />
-            <Stat label="Pending entries" value={signals?.pending ?? 0} hint="waiting for fill" icon={Hourglass} />
-            <Stat label="Tracked sources" value={ranking.sourceCount} icon={Radar} />
-            <Stat
-              label="Signals in your window"
-              value={signals?.total ?? 0}
-              hint={access.historyDays ? `last ${access.historyDays} days` : "full history"}
-              icon={History}
-            />
-          </>
-        )}
+        <Stat label="Available" value={availableCount} hint="can still be filled" icon={Hourglass} />
+        <Stat label="Active" value={activeCount} hint="entered, not closed" icon={Activity} tone="gold" />
+        <Stat
+          label="History"
+          value={historyCount}
+          hint={access.historyDays ? `last ${access.historyDays} days` : "full history"}
+          icon={History}
+        />
+        <Stat label="Tracked sources" value={ranking.sourceCount} icon={Radar} />
       </div>
 
-      {gold ? (
-        <>
-          <section className="mt-8">
-            <SectionTitle icon={Activity} title="Board" />
-            <BoardPicks items={boardLive} empty="No call is waiting. A new one shows up when sources post a zone that has not filled yet." />
-          </section>
-          {boardPlaying.length > 0 && (
-            <section className="mt-8">
-              <SectionTitle icon={Activity} title="Playing out" />
-              <BoardPicks items={boardPlaying} />
-            </section>
-          )}
-          <section className="mt-8">
-            <SectionTitle icon={History} title="History" />
-            <BoardPicks items={boardHistory} empty="Nothing from this board has moved to history." />
-          </section>
-        </>
-      ) : silver ? (
-        <>
-          <section className="mt-8">
-            <SectionTitle icon={Activity} title="Available & playing out" />
-            <IdeaList items={liveIdeas} now={now} empty="No ideas are available or playing out right now." />
-          </section>
-          <section className="mt-8">
-            <SectionTitle icon={History} title="History" />
-            <IdeaList items={historyIdeas} now={now} empty="No ideas in your history window yet." />
-          </section>
-        </>
+      {ideas ? (
+        <BookSections
+          historyCount={ideas.historyCount}
+          available={<IdeaList items={ideas.available} now={now} empty="Nothing is waiting to fill." />}
+          active={<IdeaList items={ideas.active} now={now} empty="Nothing is active right now." />}
+          history={<IdeaList items={ideas.history} now={now} empty="No trades in your history window yet." />}
+        />
       ) : (
-        <>
-          <section className="mt-8">
-            <SectionTitle icon={Activity} title="Active & pending" action={<ViewAll href="/signals" />} />
-            <SignalList items={signals?.open ?? []} now={now} empty="No open signals right now. New signals appear here within moments of being posted." />
-          </section>
-          <section className="mt-8">
-            <SectionTitle icon={History} title="Recently closed" action={<ViewAll href="/signals" />} />
-            <SignalList items={signals?.closed ?? []} now={now} empty="No closed signals in your history window yet." />
-          </section>
-        </>
+        <BookSections
+          historyCount={signals?.historyCount ?? 0}
+          available={<SignalList items={pending} now={now} empty="No entries are waiting to fill." />}
+          active={<SignalList items={activeSignals} now={now} empty="No trades are active right now." />}
+          history={<SignalList items={signals?.closed ?? []} now={now} empty="No closed signals in your history window yet." />}
+        />
       )}
 
       <section className="mt-8">

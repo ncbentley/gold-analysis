@@ -1,7 +1,6 @@
 import { eq, sql } from "drizzle-orm";
-import { currentBoard, type BoardCard } from "@/server/board/service";
 import { getDb } from "@/server/db";
-import { boardPosts, consolidatedIdeas, dashboardSnapshots, feedRevisions, marketDirectionSnapshots, signalTargets, signals, sourceStats } from "@/server/db/schema";
+import { boardPosts, consolidatedIdeas, dashboardSnapshots, feedRevisions, goldBookEntries, marketDirectionSnapshots, signalTargets, signals, sourceStats } from "@/server/db/schema";
 import { latestMarketDirection } from "@/server/direction/service";
 import { buildAccess, freeAccess } from "@/server/entitlements/access";
 import { getTierConfig, type Viewer } from "@/server/entitlements/service";
@@ -9,9 +8,17 @@ import { listIdeasForViewer } from "@/server/ideas/service";
 import { getRecentBars } from "@/server/market-data";
 import { countOpenSignalsForViewer, listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
 import type { ListedIdea } from "@/server/ideas/service";
+import { goldBookCards } from "@/server/gold/sections";
 import type { SignalListItem } from "@/server/presenters";
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
+
+export interface BookSectionsCache<T> {
+  available: T[];
+  active: T[];
+  history: T[];
+  historyCount: number;
+}
 
 export const DASHBOARD_VIEWS = ["admin", "gold", "silver", "free"] as const;
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
@@ -45,9 +52,10 @@ export interface DashboardCache {
     active: number;
     pending: number;
     total: number;
+    historyCount: number;
   } | null;
-  ideas: { live: ListedIdea[]; history: ListedIdea[] } | null;
-  board: { active: boolean; live: BoardCard[]; playing: BoardCard[]; history: BoardCard[] } | null;
+  ideas: BookSectionsCache<ListedIdea> | null;
+  gold: BookSectionsCache<ListedIdea & { close?: boolean }> | null;
 }
 
 async function viewerFor(view: DashboardView, config: Awaited<ReturnType<typeof getTierConfig>>): Promise<Viewer> {
@@ -96,6 +104,12 @@ async function fingerprint() {
     .from(marketDirectionSnapshots)
     .orderBy(sql`${marketDirectionSnapshots.createdAt} desc`)
     .limit(1);
+  const [goldBook] = await db
+    .select({
+      n: sql<number>`count(*)::int`,
+      digest: sql<string>`md5(coalesce(string_agg(${goldBookEntries.id} || '|' || coalesce(${goldBookEntries.closeCalledAt}::text, '') || '|' || coalesce(${goldBookEntries.exitTime}::text, '') || '|' || ${goldBookEntries.retired}::text, ',' order by ${goldBookEntries.id}), ''))`,
+    })
+    .from(goldBookEntries);
   return [
     CACHE_VERSION,
     signalsRow?.n ?? 0,
@@ -114,6 +128,8 @@ async function fingerprint() {
     board?.id ?? "",
     iso(board?.labeledAt),
     direction?.id ?? "",
+    goldBook?.n ?? 0,
+    goldBook?.digest ?? "",
   ].join("|");
 }
 
@@ -130,28 +146,30 @@ async function buildSnapshot(view: DashboardView, config: Awaited<ReturnType<typ
     ranking,
     signals: null,
     ideas: null,
-    board: null,
+    gold: null,
   };
   if (view === "silver") {
     const ideas = await listIdeasForViewer(viewer, lastBar?.close ?? null);
+    const history = ideas.filter((idea) => idea.phase === "history");
     cache.ideas = {
-      live: ideas.filter((idea) => idea.phase !== "history"),
-      history: ideas.filter((idea) => idea.phase === "history"),
+      available: ideas.filter((idea) => idea.phase === "available"),
+      active: ideas.filter((idea) => idea.phase === "playing-out"),
+      history: history.slice(0, 5),
+      historyCount: history.length,
     };
   } else if (view === "gold") {
-    const board = await currentBoard(lastBar?.close ?? null);
-    const cards = board.post?.active ? board.cards : [];
-    const retired = board.post?.active ? [] : board.cards;
-    cache.board = {
-      active: board.post?.active ?? false,
-      live: cards.filter((card) => card.phase === "available"),
-      playing: cards.filter((card) => card.phase === "playing-out"),
-      history: [...cards.filter((card) => card.phase === "history"), ...retired],
+    const cards = await goldBookCards(viewer, lastBar?.close ?? null);
+    const history = cards.filter((card) => card.section === "history");
+    cache.gold = {
+      available: cards.filter((card) => card.section === "available"),
+      active: cards.filter((card) => card.section === "active"),
+      history: history.slice(0, 5),
+      historyCount: history.length,
     };
   } else {
     const [open, closed, counts] = await Promise.all([
       listSignalsForViewer(viewer, { status: "OPEN" }, { limit: 20, segment: true }),
-      listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 10, segment: true }),
+      listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 5, segment: true }),
       countOpenSignalsForViewer(viewer),
     ]);
     cache.signals = {
@@ -160,6 +178,7 @@ async function buildSnapshot(view: DashboardView, config: Awaited<ReturnType<typ
       active: counts.active,
       pending: counts.pending,
       total: open.total + closed.total,
+      historyCount: closed.total,
     };
   }
   return cache;
