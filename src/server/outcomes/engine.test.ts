@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateSignal, OUTCOME_RULES, type EngineBar, type EngineSignal } from "./engine";
+import { advanceFromCheckpoint, evaluateSignal, OUTCOME_RULES, type EngineBar, type EngineSignal } from "./engine";
 
 const T0 = Date.UTC(2026, 0, 5, 10, 0); // Monday 10:00 UTC
 const min = (n: number) => T0 + n * 60_000;
@@ -275,5 +275,19 @@ describe("excursions", () => {
   it("is deterministic for identical input", () => {
     const b = bars([101, 101, 100, 100.5], [100.5, 105.5, 100.2, 105]);
     expect(evaluateSignal(longZone, b)).toEqual(evaluateSignal(longZone, b));
+  });
+});
+
+describe("checkpoint", () => {
+  it("matches a full replay when the newest bar is applied to a checkpoint", () => {
+    const all = bars([102, 103, 101, 102], [101, 102, 99, 100], [100, 106, 99, 105]);
+    const through = (n: number) => all[n].t + 60_000;
+    const full = evaluateSignal(longZone, all, [], through(2));
+    const prior = evaluateSignal(longZone, all.slice(0, 2), [], through(1));
+    const next = advanceFromCheckpoint(longZone, prior.checkpoint!, [all[2]], [], through(2));
+    expect(next.classification).toBe(full.classification);
+    expect(next.timeline).toEqual(full.timeline);
+    expect(next.entryPrice).toBe(full.entryPrice);
+    expect(next.rResult).toBe(full.rResult);
   });
 });
