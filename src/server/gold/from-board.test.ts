@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
 import { boardPosts, consolidatedIdeas, goldBookEntries, rawEvents, signals, sources } from "@/server/db/schema";
-import { closeRetiredGold, syncGoldBook } from "./from-board";
+import { closeRetiredGold, collapseDuplicateGold, syncGoldBook } from "./from-board";
 import { listGoldEntries } from "./store";
 
 describe("syncGoldBook", () => {
@@ -176,5 +176,85 @@ describe("syncGoldBook", () => {
 
     await syncGoldBook();
     expect((await listGoldEntries()).filter((row) => row.ideaId === null && row.entryMin === 4300)).toHaveLength(1);
+  });
+
+  it("keeps one live row when a composed zone copies a sourced call", async () => {
+    const db = await getDb();
+    const now = Date.now();
+    const [idea] = await db
+      .insert(consolidatedIdeas)
+      .values({
+        direction: "SHORT",
+        entryMin: 4168.89,
+        entryMax: 4168.89,
+        stopLoss: 4173.79,
+        targets: [4165.22, 4144.4],
+        exitSpreadStops: null,
+        exitSpreadTargets: [0, 0],
+        sourceCount: 1,
+        signalIds: [],
+        replacedSignalIds: [],
+        newestSignalAt: new Date(now - 18 * 60_000),
+      })
+      .returning();
+    const [sourced] = await db
+      .insert(goldBookEntries)
+      .values({
+        ideaId: idea.id,
+        direction: "SHORT",
+        entryMin: 4168.89,
+        entryMax: 4168.89,
+        stopLoss: 4173.79,
+        targets: [4165.22, 4144.4],
+        createdAt: new Date(now - 18 * 60_000),
+      })
+      .returning();
+    await db.insert(goldBookEntries).values({
+      ideaId: null,
+      direction: "SHORT",
+      entryMin: 4168.89,
+      entryMax: 4168.89,
+      stopLoss: 4173.79,
+      targets: [4165.22, 4144.4],
+      createdAt: new Date(now - 14 * 60_000),
+    });
+
+    const removed = await collapseDuplicateGold();
+    expect(removed).toHaveLength(1);
+    const zone = (await listGoldEntries()).filter((row) => row.entryMin === 4168.89 && row.exitTime === null && !row.retired);
+    expect(zone).toHaveLength(1);
+    expect(zone[0].id).toBe(sourced.id);
+    expect(zone[0].ideaId).toBe(idea.id);
+
+    await db.update(boardPosts).set({ active: false }).where(eq(boardPosts.active, true));
+    await db.insert(boardPosts).values({
+      active: true,
+      promptVersion: "board-v3",
+      signalIds: [],
+      ideaIds: [],
+      primary: {
+        direction: "SHORT",
+        entryMin: 4168.89,
+        entryMax: 4168.89,
+        stopLoss: 4173.79,
+        targets: [4165.22, 4144.4],
+        writeup: "The same short, written again without a source.",
+        ideaIds: [],
+      },
+      alternates: [
+        {
+          direction: "SHORT",
+          entryMin: 4168.89,
+          entryMax: 4168.89,
+          stopLoss: 4173.79,
+          targets: [4165.22, 4144.4],
+          writeup: "And once more from the silver idea.",
+          ideaIds: [idea.id],
+        },
+      ],
+      cardState: [],
+    });
+    await syncGoldBook();
+    expect((await listGoldEntries()).filter((row) => row.entryMin === 4168.89 && row.exitTime === null && !row.retired)).toHaveLength(1);
   });
 });

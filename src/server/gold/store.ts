@@ -48,3 +48,14 @@ export async function markGoldExit(id: string, exit: { exitTime: Date; exitPrice
   const db = await getDb();
   await db.update(goldBookEntries).set(exit).where(eq(goldBookEntries.id, id));
 }
+
+export async function deleteGoldEntry(id: string) {
+  const db = await getDb();
+  await db.delete(goldBookEntries).where(eq(goldBookEntries.id, id));
+}
+
+/** Attaches a silver idea to a composed row when the zone is the same call. */
+export async function linkGoldEntry(id: string, ideaId: string) {
+  const db = await getDb();
+  await db.update(goldBookEntries).set({ ideaId }).where(and(eq(goldBookEntries.id, id), isNull(goldBookEntries.ideaId)));
+}

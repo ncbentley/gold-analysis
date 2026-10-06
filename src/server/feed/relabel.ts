@@ -1,6 +1,6 @@
 import { getRecentBars } from "@/server/market-data";
 import { publishBoardCards } from "@/server/board/service";
-import { closeRetiredGold } from "@/server/gold/from-board";
+import { closeRetiredGold, collapseDuplicateGold } from "@/server/gold/from-board";
 import { publishIdeaPhases } from "@/server/ideas/service";
 
 /** Recomputes stored labels from the latest bars. The dashboard cache is written separately, and only if those labels changed. */
@@ -10,5 +10,6 @@ export async function relabelFeed() {
   const ideas = await publishIdeaPhases(spot);
   const board = await publishBoardCards(spot);
   const gold = await closeRetiredGold();
-  return { ideas, board, gold: gold.length };
+  const collapsed = await collapseDuplicateGold();
+  return { ideas, board, gold: gold.length + collapsed.length };
 }

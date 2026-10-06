@@ -8,10 +8,40 @@ import type { GoldLevel } from "./geometry";
 import { applyProposal } from "./publish";
 import { sourcesRetired } from "./retire";
 import { settleStoredGoldCloses } from "./settle-stored";
-import { insertGoldEntry, listGoldEntries, liveGoldLevels, markGoldClose } from "./store";
+import { deleteGoldEntry, insertGoldEntry, linkGoldEntry, listGoldEntries, liveGoldLevels, markGoldClose } from "./store";
 
-function signature(level: { direction: string; entryMin: number; entryMax: number; stopLoss: number | null; targets: number[] }) {
-  return [level.direction, level.entryMin, level.entryMax, level.stopLoss ?? "", level.targets.join(",")].join("|");
+function cents(price: number) {
+  return Math.round(price * 100);
+}
+
+/** Same direction and the same prices the member sees. A composed copy of a sourced call is one zone. */
+export function zoneSignature(level: { direction: string; entryMin: number; entryMax: number; stopLoss: number | null; targets: number[] }) {
+  return [level.direction, cents(level.entryMin), cents(level.entryMax), level.stopLoss == null ? "" : cents(level.stopLoss), level.targets.map(cents).join(",")].join("|");
+}
+
+/** Drops a second live row for a zone already on the book. Keeps the sourced call, then the earlier one. */
+export async function collapseDuplicateGold() {
+  const rows = await listGoldEntries();
+  const live = rows.filter((row) => row.exitTime === null && !row.retired && row.closeCalledAt === null);
+  const groups = new Map<string, typeof live>();
+  for (const row of live) {
+    const key = zoneSignature(row);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  const removed: string[] = [];
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const [keep, ...extras] = [...group].sort((a, b) => {
+      if (Boolean(a.ideaId) !== Boolean(b.ideaId)) return a.ideaId ? -1 : 1;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+    for (const extra of extras) {
+      if (!keep.ideaId && extra.ideaId) await linkGoldEntry(keep.id, extra.ideaId);
+      await deleteGoldEntry(extra.id);
+      removed.push(extra.id);
+    }
+  }
+  return removed;
 }
 
 async function retiredSourceIdeas(ideaIds: string[]) {
@@ -94,6 +124,7 @@ async function closeSections(ids: string[], stored: Awaited<ReturnType<typeof li
 /** Puts the model's own prices on the Gold book. A pick with no silver idea is a new idea. */
 export async function syncGoldBook(closeIds: string[] = []) {
   const justClosed = new Set(await closeRetiredGold());
+  await collapseDuplicateGold();
   const db = await getDb();
   const stored = await listGoldEntries();
   const ideaRows = await db.select({ id: consolidatedIdeas.id }).from(consolidatedIdeas);
@@ -111,7 +142,7 @@ export async function syncGoldBook(closeIds: string[] = []) {
     if (!postAt) return false;
     return stored.some((row) => {
       if (!row.closeCalledAt || row.closeCalledAt < postAt) return false;
-      return ideaId ? row.ideaId === ideaId : !row.ideaId && signature(row) === signature(pick);
+      return zoneSignature(row) === zoneSignature(pick) || (ideaId !== null && row.ideaId === ideaId);
     });
   };
 
@@ -119,9 +150,16 @@ export async function syncGoldBook(closeIds: string[] = []) {
     const cited = pick.ideaIds.filter((id) => known.has(id));
     const ideaId = cited.length === 1 ? cited[0] : null;
     if (blocked(pick, ideaId)) continue;
-    const existing = liveRows.find((row) => (ideaId ? row.ideaId === ideaId : !row.ideaId && signature(row) === signature(pick)));
-    if (existing) continue;
-    if (candidates.some((idea) => (ideaId ? idea.ideaId === ideaId : idea.ideaId === null && signature(idea) === signature(pick)))) continue;
+    const existing = liveRows.find((row) => zoneSignature(row) === zoneSignature(pick) || (ideaId !== null && row.ideaId === ideaId));
+    if (existing) {
+      if (!existing.ideaId && ideaId) await linkGoldEntry(existing.id, ideaId);
+      continue;
+    }
+    const twin = candidates.findIndex((idea) => zoneSignature(idea) === zoneSignature(pick) || (ideaId !== null && idea.ideaId === ideaId));
+    if (twin >= 0) {
+      if (!candidates[twin].ideaId && ideaId) candidates[twin] = { ...candidates[twin], id: ideaId, ideaId };
+      continue;
+    }
     candidates.push({
       id: ideaId ?? crypto.randomUUID(),
       ideaId,
