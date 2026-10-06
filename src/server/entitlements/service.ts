@@ -4,8 +4,9 @@ import { getCurrentUser } from "@/server/auth";
 import { getEntitledSubscription } from "@/server/billing/service";
 import { getDb } from "@/server/db";
 import { tierEntitlements, TIERS, type Tier, type User } from "@/server/db/schema";
-import { ANONYMOUS, buildAccess, freeAccess, type Access } from "./access";
+import { ANONYMOUS, buildAccess, type Access } from "./access";
 import { ALL_FEATURES, DEFAULT_TIER_CONFIG, type Feature, type TierConfig } from "./config";
+import { getComplimentaryTier } from "./grants";
 import { accessForMember } from "./trial";
 import { accessForPreview, parseViewAs, VIEW_AS_COOKIE, type ViewAs } from "./view-as";
 
@@ -35,8 +36,8 @@ export async function accessForUser(user: User | null, config?: Record<Tier, Tie
   const cfg = config ?? (await getTierConfig());
   if (!user) return ANONYMOUS;
   if (user.role === "admin") return buildAccess(null, cfg, true);
-  const sub = await getEntitledSubscription(user.id);
-  return sub ? buildAccess(sub.tier, cfg) : freeAccess();
+  const [sub, complimentary] = await Promise.all([getEntitledSubscription(user.id), getComplimentaryTier(user.id)]);
+  return accessForMember({ createdAt: user.createdAt, now: new Date(), subscription: sub, complimentary, config: cfg });
 }
 
 export interface Viewer {
@@ -44,6 +45,8 @@ export interface Viewer {
   access: Access;
   config: Record<Tier, TierConfig>;
   subscription: Awaited<ReturnType<typeof getEntitledSubscription>>;
+  /** Stored complimentary tier, including one that does not outrank a paid plan. */
+  complimentary: Tier | null;
   /** Set only for an admin who is previewing a membership. Admin tools ignore it. */
   viewAs: ViewAs | null;
 }
@@ -57,13 +60,14 @@ export const getViewer = cache(async (scope: "member" | "admin" = "member"): Pro
   const user = await getCurrentUser();
   const config = await getTierConfig();
   const subscription = user ? await getEntitledSubscription(user.id) : null;
+  const complimentary = user ? await getComplimentaryTier(user.id) : null;
   const requested = user?.role === "admin" ? parseViewAs((await cookies()).get(VIEW_AS_COOKIE)?.value) : null;
   const viewAs = scope === "member" ? requested : null;
   const access =
     user?.role === "admin"
       ? accessForPreview(config, viewAs)
       : user
-        ? accessForMember({ createdAt: user.createdAt, now: new Date(), subscription, config })
+        ? accessForMember({ createdAt: user.createdAt, now: new Date(), subscription, complimentary, config })
         : ANONYMOUS;
-  return { user, access, config, subscription, viewAs: requested };
+  return { user, access, config, subscription, complimentary, viewAs: requested };
 });

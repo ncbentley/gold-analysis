@@ -52,7 +52,7 @@ export interface DashboardCache {
 
 async function viewerFor(view: DashboardView, config: Awaited<ReturnType<typeof getTierConfig>>): Promise<Viewer> {
   const access = view === "admin" ? buildAccess(null, config, true) : view === "free" ? freeAccess() : buildAccess(view, config, false);
-  return { user: null, access, config, subscription: null, viewAs: null };
+  return { user: null, access, config, subscription: null, complimentary: null, viewAs: null };
 }
 
 function iso(value: Date | string | null | undefined) {

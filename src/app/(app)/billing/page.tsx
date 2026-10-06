@@ -12,8 +12,10 @@ import { fmtDate, fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { requireUser } from "@/server/auth/guards";
 import { billingMode, PERIOD_LABEL } from "@/server/billing/config";
-import { getEntitledSubscription, getPlan, listUserSubscriptions } from "@/server/billing/service";
+import { getPlan, listUserSubscriptions } from "@/server/billing/service";
+import { appliedComplimentary } from "@/server/entitlements/complimentary";
 import { TIER_LABEL } from "@/server/entitlements/config";
+import { getViewer } from "@/server/entitlements/service";
 
 export const metadata: Metadata = { title: "Billing" };
 
@@ -37,10 +39,12 @@ function InfoTile({ icon: IconCmp, label, children }: { icon: React.ComponentTyp
 export default async function BillingPage({ searchParams }: PageProps<"/billing">) {
   const user = await requireUser("/billing");
   const sp = await searchParams;
-  const [sub, history] = await Promise.all([getEntitledSubscription(user.id), listUserSubscriptions(user.id)]);
-  const plan = sub ? await getPlan(sub.tier, sub.period) : null;
+  const viewer = await getViewer();
+  const sub = viewer.subscription;
+  const applied = user.role === "admin" ? null : appliedComplimentary(sub?.tier ?? null, viewer.complimentary);
+  const [plan, history] = await Promise.all([sub ? getPlan(sub.tier, sub.period) : null, listUserSubscriptions(user.id)]);
   const mode = billingMode();
-  const TierIcon = sub ? TIER_ICON[sub.tier] : Crown;
+  const TierIcon = sub ? TIER_ICON[sub.tier] : applied ? TIER_ICON[applied] : Crown;
   const { period, highlight } = parsePlanParams(sp, sub ? { tier: sub.tier, period: sub.period } : undefined);
 
   return (
@@ -67,13 +71,13 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
           <AlertDescription>Stripe is not configured, so checkout is simulated locally. No payment details are collected.</AlertDescription>
         </Alert>
       )}
-      <Card className={cn("rounded-2xl [--card-spacing:--spacing(5)]", sub && "panel-gold shadow-[0_0_28px_-8px_rgb(245_197_66/0.55)] ring-primary/55")}>
+      <Card className={cn("rounded-2xl [--card-spacing:--spacing(5)]", (sub || applied) && "panel-gold shadow-[0_0_28px_-8px_rgb(245_197_66/0.55)] ring-primary/55")}>
         <CardHeader>
           <div className="flex items-center gap-3.5">
             <span
               className={cn(
                 "flex size-12 shrink-0 items-center justify-center rounded-full ring-2",
-                sub ? "bg-black/40 text-primary shadow-[0_0_18px_-2px_rgb(245_197_66/0.6)] ring-primary/70" : "bg-glow/10 text-[#8db6ff] ring-glow/55",
+                sub || applied ? "bg-black/40 text-primary shadow-[0_0_18px_-2px_rgb(245_197_66/0.6)] ring-primary/70" : "bg-glow/10 text-[#8db6ff] ring-glow/55",
               )}
             >
               <TierIcon className="size-6" />
@@ -90,12 +94,23 @@ export default async function BillingPage({ searchParams }: PageProps<"/billing"
                     <span className={cn(PILL, "border-win/45 bg-win/10 capitalize text-win shadow-[0_0_10px_-3px_var(--win)]")}>{sub.status}</span>
                   )}
                 </div>
+              ) : applied ? (
+                <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <span className="gold-text font-heading text-2xl font-extrabold tracking-tight">{TIER_LABEL[applied]}</span>
+                  <span className={cn(PILL, "border-primary/45 bg-primary/10 text-primary")}>Complimentary</span>
+                </div>
               ) : (
                 <div className="mt-0.5 font-heading text-xl font-bold tracking-tight">No membership</div>
               )}
             </div>
           </div>
-          <CardDescription className="mt-2">{sub ? "Access follows your subscription status and paid period." : "You do not have an active membership."}</CardDescription>
+          <CardDescription className="mt-2">
+            {applied
+              ? `Complimentary ${TIER_LABEL[applied]} access is on this account until an admin removes it. It does not change what you pay.`
+              : sub
+                ? "Access follows your subscription status and paid period."
+                : "You do not have an active membership."}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {sub ? (

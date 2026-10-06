@@ -14,6 +14,7 @@ import { getDb } from "@/server/db";
 import { parseResults } from "@/server/db/schema";
 import { TrialBanner } from "@/components/trial-banner";
 import { TIER_LABEL } from "@/server/entitlements/config";
+import { appliedComplimentary } from "@/server/entitlements/complimentary";
 import { getViewer } from "@/server/entitlements/service";
 import { showTrialBanner, trialEndsAt } from "@/server/entitlements/trial";
 
@@ -65,9 +66,10 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const isAdmin = user.role === "admin";
   const count = isAdmin ? await reviewCount() : 0;
   const previewLabel = viewer.viewAs === "none" ? "No plan" : viewer.viewAs ? TIER_LABEL[viewer.viewAs] : null;
-  const plan = isAdmin ? (previewLabel ? `Viewing as ${previewLabel}` : "Admin · full access") : viewer.subscription ? TIER_LABEL[viewer.subscription.tier] : "No plan";
+  const applied = appliedComplimentary(viewer.subscription?.tier ?? null, viewer.complimentary);
+  const plan = isAdmin ? (previewLabel ? `Viewing as ${previewLabel}` : "Admin · full access") : applied ? `${TIER_LABEL[applied]} · complimentary` : viewer.subscription ? TIER_LABEL[viewer.subscription.tier] : "No plan";
 
-  const footer = <Promo showUpgrade={!isAdmin && !viewer.subscription} />;
+  const footer = <Promo showUpgrade={!isAdmin && !viewer.subscription && applied !== "gold"} />;
 
   const account = (
     <div className="flex items-center gap-2 rounded-xl border border-primary/35 bg-[#0a1428]/80 py-1 pl-1 pr-1.5 shadow-[0_0_16px_-6px_rgb(245_197_66/0.5)]">
@@ -121,7 +123,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
             showTrialBanner({
               createdAt: user.createdAt,
               now: new Date(),
-              hasPlan: Boolean(viewer.subscription),
+              hasPlan: Boolean(viewer.subscription) || viewer.complimentary === "gold",
             }) && <TrialBanner endsAt={trialEndsAt(user.createdAt)} />}
           {children}
         </main>

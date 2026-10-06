@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Trophy,
   UserRound,
+  UsersRound,
   Workflow,
 } from "lucide-react";
 import Link from "next/link";
@@ -39,6 +40,7 @@ const MEMBER: NavItem[] = [
 
 const ADMIN: NavItem[] = [
   { href: "/admin", label: "Command center", icon: Gauge },
+  { href: "/admin/members", label: "Members", icon: UsersRound },
   { href: "/admin/telegram", label: "Telegram", icon: Send },
   { href: "/admin/review", label: "Review queue", icon: ClipboardCheck },
   { href: "/admin/events", label: "Raw events", icon: Inbox },

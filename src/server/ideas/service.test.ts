@@ -386,6 +386,7 @@ describe("replaceConsolidatedIdeas", () => {
       access: buildAccess("silver", DEFAULT_TIER_CONFIG),
       config: DEFAULT_TIER_CONFIG,
       subscription: null,
+      complimentary: null,
       viewAs: null,
     };
     const listed = await listIdeasForViewer(viewer, null);

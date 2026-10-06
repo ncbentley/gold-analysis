@@ -131,6 +131,17 @@ export const tierEntitlements = pgTable("tier_entitlements", {
   updatedAt: updatedAt(),
 });
 
+/** One complimentary tier per member. It never charges and stays until an admin removes it. */
+export const complimentaryGrants = pgTable("complimentary_grants", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  tier: text("tier", { enum: TIERS }).notNull(),
+  grantedByUserId: text("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
 /* ------------------------------------------------------------------ */
 /* Sources and raw evidence                                            */
 /* ------------------------------------------------------------------ */
@@ -634,6 +645,7 @@ export type SignalOutcome = typeof signalOutcomes.$inferSelect;
 export type MarketBar = typeof marketBars.$inferSelect;
 export type AiAnalysis = typeof aiAnalyses.$inferSelect;
 export type Subscription = typeof subscriptions.$inferSelect;
+export type ComplimentaryGrant = typeof complimentaryGrants.$inferSelect;
 export type Plan = typeof plans.$inferSelect;
 export type AffiliateLink = typeof affiliateLinks.$inferSelect;
 export type Job = typeof jobs.$inferSelect;

@@ -58,6 +58,7 @@ const MODULES: { href: string; title: string; description: string; cta: string; 
   { href: "/admin/telegram", title: "Telegram", description: "The account that reads channels, and which of those channels are tracked.", cta: "Manage Telegram", icon: Send },
   { href: "/admin/jobs", title: "Jobs", description: "Market data sync, outcome replay, statistics, AI and billing work, with retries.", cta: "Manage jobs", icon: Workflow },
   { href: "/admin/entitlements", title: "Entitlements", description: "Features and history window included in each membership tier.", cta: "Manage entitlements", icon: ShieldCheck },
+  { href: "/admin/members", title: "Members", description: "Everyone who has joined, and complimentary Silver or Gold that does not charge them.", cta: "View members", icon: UsersRound },
   { href: "/admin/affiliates", title: "Broker links", description: "Affiliate links, where they are placed and how often they are clicked.", cta: "Manage broker links", icon: Link2 },
   { href: "/admin/attribution", title: "Attribution", description: "UTM tags, ad click ids and referrers, from the first visit through signup and every later event.", cta: "View attribution", icon: Megaphone },
   { href: "/admin/audit", title: "Audit log", description: "Every manual change and automated transition, with the actor and reason.", cta: "Open audit log", icon: FileClock },
@@ -147,7 +148,9 @@ export default async function AdminOverviewPage({ searchParams }: PageProps<"/ad
         <Link href="/admin/jobs?status=failed" className={tileLink}>
           <Stat icon={TriangleAlert} tone={failed > 0 ? "loss" : "blue"} label="Failed jobs" value={failed} hint={`${o.jobs.queued ?? 0} queued`} className="h-full" />
         </Link>
-        <Stat icon={UsersRound} label="Users" value={o.users} hint={`${Object.values(o.subscriptions).reduce((a, b) => a + b, 0)} paying`} />
+        <Link href="/admin/members" className={tileLink}>
+          <Stat icon={UsersRound} label="Users" value={o.users} hint={`${Object.values(o.subscriptions).reduce((a, b) => a + b, 0)} paying`} className="h-full" />
+        </Link>
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-3">

@@ -42,6 +42,35 @@ describe("trial access", () => {
     expect(access.tier).toBe("silver");
     expect(access.historyDays).toBe(180);
   });
+
+  it("uses a complimentary grant when nothing is paid", () => {
+    const access = accessForMember({ createdAt, now: after, subscription: null, complimentary: "gold", config });
+    expect(access.tier).toBe("gold");
+  });
+
+  it("lets complimentary gold outrank a paid silver plan after the trial", () => {
+    const access = accessForMember({
+      createdAt,
+      now: after,
+      subscription: { tier: "silver" },
+      complimentary: "gold",
+      config,
+    });
+    expect(access.tier).toBe("gold");
+    expect(access.historyDays).toBeNull();
+  });
+
+  it("ignores a complimentary grant that is not higher than the paid plan", () => {
+    const same = accessForMember({ createdAt, now: after, subscription: { tier: "silver" }, complimentary: "silver", config });
+    const lower = accessForMember({ createdAt, now: after, subscription: { tier: "gold" }, complimentary: "silver", config });
+    expect(same.tier).toBe("silver");
+    expect(lower.tier).toBe("gold");
+  });
+
+  it("applies complimentary gold during the trial when no plan is chosen", () => {
+    const access = accessForMember({ createdAt, now: during, subscription: null, complimentary: "gold", config });
+    expect(access.tier).toBe("gold");
+  });
 });
 
 it("shows the banner until a plan is chosen, and only during the trial", () => {

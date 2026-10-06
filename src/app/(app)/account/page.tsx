@@ -9,6 +9,7 @@ import { fmtDate, initials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { requireUser } from "@/server/auth/guards";
 import { FEATURE_CATALOG, TIER_LABEL } from "@/server/entitlements/config";
+import { appliedComplimentary } from "@/server/entitlements/complimentary";
 import { getViewer } from "@/server/entitlements/service";
 
 export const metadata: Metadata = { title: "My profile" };
@@ -25,7 +26,8 @@ function Row({ icon: IconCmp, label, children }: { icon: React.ComponentType<{ c
 
 export default async function AccountPage() {
   const user = await requireUser("/account");
-  const { access, subscription, viewAs } = await getViewer();
+  const { access, subscription, viewAs, complimentary } = await getViewer();
+  const applied = user.role === "admin" ? null : appliedComplimentary(subscription?.tier ?? null, complimentary);
   const hasAccess = access.features.size > 0;
   return (
     <>
@@ -100,9 +102,11 @@ export default async function AccountPage() {
                       ? `Previewing the ${TIER_LABEL[viewAs]} membership.`
                       : user.role === "admin"
                         ? "Administrators can see everything."
-                        : subscription
-                          ? `${TIER_LABEL[subscription.tier]} membership`
-                          : "No active membership"}
+                        : applied
+                          ? `Complimentary ${TIER_LABEL[applied]} access`
+                          : subscription
+                            ? `${TIER_LABEL[subscription.tier]} membership`
+                            : "No active membership"}
                   {access.historyDays !== null && access.tier ? ` · ${access.historyDays}-day history` : ""}
                 </CardDescription>
               </div>

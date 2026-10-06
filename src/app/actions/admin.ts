@@ -10,12 +10,13 @@ import { PROMPTS } from "@/server/ai/prompts";
 import { recordAudit } from "@/server/audit";
 import { requireAdmin } from "@/server/auth/guards";
 import { SOURCE_TYPES, TIERS, type Tier } from "@/server/db/schema";
-import { ALL_FEATURES, type Feature } from "@/server/entitlements/config";
+import { ALL_FEATURES, TIER_LABEL, type Feature } from "@/server/entitlements/config";
 import { getTierConfig, saveTierConfig } from "@/server/entitlements/service";
 import { ingestRawEvent } from "@/server/ingestion";
 import { enqueueJob, JOB_TYPES, type JobType } from "@/server/jobs/queue";
 import { processJobs, scheduleRecurring } from "@/server/jobs/runner";
 import { markTelegramImportQueued } from "@/server/telegram/import-status";
+import { grantComplimentary, removeComplimentary } from "@/server/members";
 import { correctSignal, dismissReview, processRawEvent, resolveReviewWithSignal, type SignalInput } from "@/server/normalization";
 import { clearOverride, overrideOutcome, recalculateOutcome } from "@/server/outcomes/service";
 import { getMarketDataConfig, resetMarketData } from "@/server/market-data";
@@ -547,5 +548,25 @@ export async function saveMarketDataAction(form: FormData) {
       return "Provider switched. Stored prices were cleared; history is being re-fetched and every outcome recalculated in the background.";
     }
     return "Market data settings saved.";
+  });
+}
+
+export async function grantComplimentaryAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const returnTo = safeReturn(form, "/admin/members");
+  await attempt(returnTo, async () => {
+    const tier = str(form, "tier");
+    if (!(TIERS as readonly string[]).includes(tier)) throw new Error("Unknown tier");
+    await grantComplimentary(actor, str(form, "userId"), tier as Tier);
+    return `Granted complimentary ${TIER_LABEL[tier as Tier]}.`;
+  });
+}
+
+export async function removeComplimentaryAction(form: FormData) {
+  const { actor } = await requireAdmin();
+  const returnTo = safeReturn(form, "/admin/members");
+  await attempt(returnTo, async () => {
+    await removeComplimentary(actor, str(form, "userId"));
+    return "Removed the complimentary plan.";
   });
 }

@@ -25,9 +25,10 @@ const viewer = (tier: "silver" | "gold", cfg = config): Viewer => ({
   access: buildAccess(tier, cfg),
   config: cfg,
   subscription: null,
+  complimentary: null,
   viewAs: null,
 });
-const adminViewer = (): Viewer => ({ user: null, access: buildAccess(null, config, true), config, subscription: null, viewAs: null });
+const adminViewer = (): Viewer => ({ user: null, access: buildAccess(null, config, true), config, subscription: null, complimentary: null, viewAs: null });
 const admin = { userId: null, label: "test-admin" };
 
 // A Tuesday in the mock data range; the market is open.
