@@ -12,6 +12,10 @@ function inTrial(createdAt: Date, now: Date): boolean {
   return now < trialEndsAt(createdAt);
 }
 
+export function showTrialBanner(input: { createdAt: Date; now: Date; hasPlan: boolean }): boolean {
+  return !input.hasPlan && input.now.getTime() < trialEndsAt(input.createdAt).getTime();
+}
+
 export function accessForMember(input: {
   createdAt: Date;
   now: Date;

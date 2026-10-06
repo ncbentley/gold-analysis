@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { can } from "./access";
 import { DEFAULT_TIER_CONFIG } from "./config";
-import { accessForMember, TRIAL_MS } from "./trial";
+import { accessForMember, showTrialBanner, TRIAL_MS } from "./trial";
 
 const config = DEFAULT_TIER_CONFIG;
 const createdAt = new Date("2026-10-01T00:00:00.000Z");
@@ -42,4 +42,10 @@ describe("trial access", () => {
     expect(access.tier).toBe("silver");
     expect(access.historyDays).toBe(180);
   });
+});
+
+it("shows the banner until a plan is chosen, and only during the trial", () => {
+  expect(showTrialBanner({ createdAt, now: during, hasPlan: false })).toBe(true);
+  expect(showTrialBanner({ createdAt, now: during, hasPlan: true })).toBe(false);
+  expect(showTrialBanner({ createdAt, now: after, hasPlan: false })).toBe(false);
 });
