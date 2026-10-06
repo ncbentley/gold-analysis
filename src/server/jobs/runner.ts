@@ -5,8 +5,8 @@ import { refreshMarketDirection } from "@/server/direction/service";
 import { reconcileSubscriptions } from "@/server/billing/service";
 import { getDb } from "@/server/db";
 import { jobs, signalOutcomes, signals, type Job } from "@/server/db/schema";
-import { ensureMarketDataCoverage, syncMarketData } from "@/server/market-data";
-import { openSignalIds, recalculateOutcome } from "@/server/outcomes/service";
+import { ensureMarketDataCoverage, getRecentBars, syncMarketData } from "@/server/market-data";
+import { openSignalsForAdvance, recalculateOutcome, signalsToAdvance } from "@/server/outcomes/service";
 import { processRawEvent } from "@/server/normalization";
 import { repairShortZones } from "@/server/parsing/repair-zones";
 import { refreshBoard } from "@/server/board/service";
@@ -40,7 +40,11 @@ const handlers: Record<JobType, Handler> = {
     return result;
   },
   RECALC_OPEN_SIGNALS: async () => {
-    const ids = await openSignalIds();
+    const rows = await openSignalsForAdvance();
+    const [newest] = (await getRecentBars(1)).slice(-1);
+    const ids = newest
+      ? signalsToAdvance(rows, { h: newest.high, l: newest.low })
+      : rows.map((row) => row.id);
     for (const id of ids) await recalculateOutcome(id);
     await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     return { recalculated: ids.length };

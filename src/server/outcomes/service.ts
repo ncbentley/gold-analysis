@@ -11,7 +11,8 @@ import {
 } from "@/server/db/schema";
 import { enqueueJob } from "@/server/jobs/queue";
 import { getEngineBars, getSyncState } from "@/server/market-data";
-import { evaluateSignal, OUTCOME_RULES, type EngineAdjustment, type EngineOutcome } from "./engine";
+import { evaluateSignal, advanceFromCheckpoint, OUTCOME_RULES, type EngineAdjustment, type EngineOutcome, type ReplayCheckpoint } from "./engine";
+import { barAffectsSignal } from "./affected";
 
 const CLOSED = new Set(["WON", "LOST", "BREAKEVEN", "CANCELLED", "EXPIRED", "AMBIGUOUS"]);
 
@@ -89,6 +90,7 @@ function toRow(signal: Signal, out: EngineOutcome) {
         pricePnl: out.pricePnl,
         dataThrough: out.dataThrough,
         rules: OUTCOME_RULES,
+        checkpoint: out.checkpoint,
       }),
     ),
     createdBy: "engine",
@@ -146,20 +148,27 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
     expiryTime: signal.expiryTime?.getTime() ?? null,
   };
 
-  // Unfilled orders resolve inside two days. A filled trade keeps walking stored bars until it closes.
+  const stored = checkpointOf(current);
+  const adjustmentBeforeCheckpoint = stored ? engineAdjustments.some((adjustment) => adjustment.effectiveAt < stored.barTime) : true;
   const shortUntil = new Date(Math.min(until.getTime(), from.getTime() + 2 * 86_400_000));
-  let cursor = shortUntil;
-  let bars = await getEngineBars(from, cursor, signal.instrument);
-  let out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(cursor.getTime(), syncedThrough));
-  while (out.classification === "OPEN" && cursor.getTime() < syncedThrough) {
-    const next = new Date(Math.min(cursor.getTime() + 14 * 86_400_000, syncedThrough));
-    bars.push(...(await getEngineBars(cursor, next, signal.instrument)));
-    cursor = next;
-    out = evaluateSignal(engineSignal, bars, engineAdjustments, syncedThrough);
-  }
-  if (out.classification === "PENDING" && cursor.getTime() < until.getTime()) {
-    bars = await getEngineBars(from, until, signal.instrument);
-    out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(until.getTime(), syncedThrough));
+  let out: EngineOutcome;
+  if (stored && !opts.force && !adjustmentBeforeCheckpoint) {
+    const newer = await getEngineBars(new Date(stored.barTime + 1), until, signal.instrument);
+    out = advanceFromCheckpoint(engineSignal, stored, newer, engineAdjustments, Math.min(until.getTime(), syncedThrough));
+  } else {
+    let cursor = shortUntil;
+    let bars = await getEngineBars(from, cursor, signal.instrument);
+    out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(cursor.getTime(), syncedThrough));
+    while (out.classification === "OPEN" && cursor.getTime() < syncedThrough) {
+      const next = new Date(Math.min(cursor.getTime() + 14 * 86_400_000, syncedThrough));
+      bars.push(...(await getEngineBars(cursor, next, signal.instrument)));
+      cursor = next;
+      out = evaluateSignal(engineSignal, bars, engineAdjustments, syncedThrough);
+    }
+    if (out.classification === "PENDING" && cursor.getTime() < until.getTime()) {
+      bars = await getEngineBars(from, until, signal.instrument);
+      out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(until.getTime(), syncedThrough));
+    }
   }
   if (out.classification === "PENDING" && !out.entered && Date.now() >= unfilledClosesAt) {
     out = {
@@ -303,6 +312,34 @@ export async function openSignalIds() {
     .from(signals)
     .where(inArray(signals.status, ["PENDING", "ACTIVE", "PARTIAL"]));
   return rows.map((r) => r.id);
+}
+
+export async function openSignalsForAdvance() {
+  const db = await getDb();
+  return db
+    .select({
+      id: signals.id,
+      status: signals.status,
+      entryMin: signals.entryMin,
+      entryMax: signals.entryMax,
+      entryType: signals.entryType,
+    })
+    .from(signals)
+    .where(inArray(signals.status, ["PENDING", "ACTIVE", "PARTIAL"]));
+}
+
+export function signalsToAdvance<T extends { id: string; status: string; entryMin: number; entryMax: number; entryType: "MARKET" | "LIMIT" | "ZONE" }>(
+  rows: T[],
+  bar: { h: number; l: number },
+): string[] {
+  return rows.filter((row) => barAffectsSignal(row, bar)).map((row) => row.id);
+}
+
+function checkpointOf(current: SignalOutcome | null): ReplayCheckpoint | null {
+  if (!current || current.kind !== "computed" || current.calcVersion !== OUTCOME_RULES.version) return null;
+  const checkpoint = current.detailJson.checkpoint;
+  if (!checkpoint || typeof checkpoint !== "object") return null;
+  return checkpoint as ReplayCheckpoint;
 }
 
 export { PIPELINE };
