@@ -17,7 +17,7 @@ rsync -az --delete \
 ssh "$HOST" DIR="$DIR" bash -s <<'REMOTE'
 set -euo pipefail
 cd "$DIR/deploy"
-test -f .env || { echo "Missing $DIR/deploy/.env (see deploy/env.example)" >&2; exit 1; }
+bash render-env.sh
 # Queue is omitted here. It shares the app image, so a normal up would recreate
 # it on every website change and drop the Telegram session.
 docker compose up -d --build --remove-orphans postgres app caddy tunnel
@@ -70,6 +70,7 @@ if ! grep -q '^TUNNEL_TOKEN=.' .env; then
   fi
   if ! grep -qx "APP_URL=$url" .env; then
     sed -i "s#^APP_URL=.*#APP_URL=$url#" .env
+    bash render-env.sh set APP_URL "$url"
     docker compose up -d --no-deps app
   fi
   echo "Live at $url"

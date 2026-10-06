@@ -4,9 +4,13 @@
 	}
 }
 
-# ":80" while traffic arrives through the tunnel. With a domain, set SITE_ADDRESS
-# to "http://gold.example.com" behind a named tunnel, or to "gold.example.com"
-# (and publish ports 80 and 443) to let Caddy terminate TLS itself.
+# The named tunnel speaks HTTP to this container. SITE_ADDRESS is
+# http://goldintelligencegateway.com in production. ":80" remains the fallback
+# for a quick tunnel. www redirects to the apex.
+http://www.goldintelligencegateway.com {
+	redir https://goldintelligencegateway.com{uri} permanent
+}
+
 {$SITE_ADDRESS::80} {
 	@feed path /api/feed/stream
 	handle @feed {
