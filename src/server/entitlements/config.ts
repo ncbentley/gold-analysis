@@ -34,7 +34,7 @@ export const FREE_FEATURES: Feature[] = ["signals.core", "signals.basic_result"]
 export const FREE_HISTORY_DAYS = 7;
 
 const SILVER: Feature[] = [...FREE_FEATURES, "sources.stats.summary"];
-const PLATINUM: Feature[] = [
+const GOLD: Feature[] = [
   ...SILVER,
   "sources.stats.recent",
   "sources.stats.time_of_day",
@@ -59,8 +59,8 @@ export interface TierConfig {
 /** Seed defaults. The live configuration is stored in the tier_entitlements table. */
 export const DEFAULT_TIER_CONFIG: Record<Tier, TierConfig> = {
   silver: { features: SILVER, historyDays: 180 },
-  platinum: { features: PLATINUM, historyDays: null },
+  gold: { features: GOLD, historyDays: null },
 };
 
-export const TIER_ORDER: Tier[] = ["silver", "platinum"];
-export const TIER_LABEL: Record<Tier, string> = { silver: "Silver", platinum: "Platinum" };
+export const TIER_ORDER: Tier[] = ["silver", "gold"];
+export const TIER_LABEL: Record<Tier, string> = { silver: "Silver", gold: "Gold" };
