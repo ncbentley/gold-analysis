@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
-import { boardPosts, consolidatedIdeas, goldBookEntries, rawEvents, signals, sources } from "@/server/db/schema";
+import { boardPosts, consolidatedIdeas, goldBookEntries, marketBars, rawEvents, signals, sources } from "@/server/db/schema";
 import { closeRetiredGold, collapseDuplicateGold, reconcileGoldBook, syncGoldBook } from "./from-board";
 import { listGoldEntries } from "./store";
 
@@ -258,10 +258,20 @@ describe("syncGoldBook", () => {
     expect((await listGoldEntries()).filter((row) => row.entryMin === 4168.89 && row.exitTime === null && !row.retired)).toHaveLength(1);
   });
 
-  it("takes an old one-source gold call off the live book", async () => {
+  it("closes an old unfilled short once price is far below the entry, and leaves a nearby one", async () => {
     const db = await getDb();
     const now = Date.now();
-    const [idea] = await db
+    await db.insert(marketBars).values({
+      instrument: "XAUUSD",
+      resolution: "1m",
+      timestamp: new Date(now),
+      open: 4168,
+      high: 4168,
+      low: 4168,
+      close: 4168,
+      provider: "test",
+    });
+    const [far] = await db
       .insert(consolidatedIdeas)
       .values({
         direction: "SHORT",
@@ -274,23 +284,61 @@ describe("syncGoldBook", () => {
         sourceCount: 1,
         signalIds: [],
         replacedSignalIds: [],
-        newestSignalAt: new Date(now - 13 * 24 * 60 * 60_000),
+        newestSignalAt: new Date(now - 14 * 24 * 60 * 60_000),
         phase: "available",
       })
       .returning();
-    await db.insert(goldBookEntries).values({
-      ideaId: idea.id,
-      direction: "SHORT",
-      entryMin: 4334.88,
-      entryMax: 4334.88,
-      stopLoss: 4343.53,
-      targets: [4302.26],
-      createdAt: new Date(now - 13 * 24 * 60 * 60_000),
-    });
+    const [near] = await db
+      .insert(consolidatedIdeas)
+      .values({
+        direction: "SHORT",
+        entryMin: 4172,
+        entryMax: 4172,
+        stopLoss: 4180,
+        targets: [4160],
+        exitSpreadStops: null,
+        exitSpreadTargets: [0],
+        sourceCount: 1,
+        signalIds: [],
+        replacedSignalIds: [],
+        newestSignalAt: new Date(now - 14 * 24 * 60 * 60_000),
+        phase: "available",
+      })
+      .returning();
+    await db.insert(goldBookEntries).values([
+      {
+        ideaId: far.id,
+        direction: "SHORT",
+        entryMin: 4334.88,
+        entryMax: 4334.88,
+        stopLoss: 4343.53,
+        targets: [4302.26],
+        createdAt: new Date(now - 14 * 24 * 60 * 60_000),
+      },
+      {
+        ideaId: near.id,
+        direction: "SHORT",
+        entryMin: 4172,
+        entryMax: 4172,
+        stopLoss: 4180,
+        targets: [4160],
+        createdAt: new Date(now - 14 * 24 * 60 * 60_000),
+      },
+      {
+        direction: "SHORT",
+        entryMin: 4500,
+        entryMax: 4500,
+        stopLoss: 4510,
+        targets: [4480],
+        createdAt: new Date(now - 60 * 60_000),
+      },
+    ]);
     const result = await reconcileGoldBook(new Date(now));
-    expect(result.closed).toContain(idea.id);
-    const [row] = await db.select().from(goldBookEntries).where(eq(goldBookEntries.ideaId, idea.id));
-    expect(row.closeCalledAt).not.toBeNull();
-    expect(row.sectionAtCall).toBe("available");
+    expect(result.closed).toContain(far.id);
+    expect(result.closed).not.toContain(near.id);
+    const rows = await listGoldEntries();
+    expect(rows.find((row) => row.ideaId === far.id)?.closeCalledAt).not.toBeNull();
+    expect(rows.find((row) => row.ideaId === near.id)?.closeCalledAt).toBeNull();
+    expect(rows.find((row) => row.entryMin === 4500)?.closeCalledAt).toBeNull();
   });
 });
