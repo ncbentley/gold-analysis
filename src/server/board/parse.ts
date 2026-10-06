@@ -14,6 +14,7 @@ const pickSchema = z.object({
 const outputSchema = z.object({
   primary: pickSchema,
   alternates: z.array(pickSchema).default([]),
+  closeIds: z.array(z.string()).default([]),
 });
 
 function keep(pick: z.infer<typeof pickSchema>, knownIdeaIds: ReadonlySet<string>): BoardPick {
@@ -50,10 +51,11 @@ export function finishBoardPick(
 }
 
 /** Prices stay as the model wrote them. Extra alternates are dropped. Unknown idea ids are not linked. */
-export function parseBoardOutput(raw: unknown, knownIdeaIds: ReadonlySet<string>): { primary: BoardPick; alternates: BoardPick[] } {
+export function parseBoardOutput(raw: unknown, knownIdeaIds: ReadonlySet<string>): { primary: BoardPick; alternates: BoardPick[]; closeIds: string[] } {
   const parsed = outputSchema.parse(raw);
   return {
     primary: keep(parsed.primary, knownIdeaIds),
     alternates: parsed.alternates.slice(0, 4).map((pick) => keep(pick, knownIdeaIds)),
+    closeIds: parsed.closeIds,
   };
 }

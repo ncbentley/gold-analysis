@@ -22,6 +22,13 @@ describe("parseBoardOutput", () => {
     expect(parsed.primary.ideaIds).toEqual(["known"]);
     expect(parsed.alternates).toHaveLength(4);
     expect(parsed.alternates[0].entryMin).toBe(2701);
+    expect(parsed.closeIds).toEqual([]);
+  });
+
+  it("keeps the close ids the model named", () => {
+    const parsed = parseBoardOutput({ primary, alternates: [], closeIds: ["gold-1"] }, new Set(["known"]));
+    expect(parsed.closeIds).toEqual(["gold-1"]);
+    expect(parsed.primary.ideaIds).toEqual(["known"]);
   });
 });
 

@@ -12,7 +12,7 @@ export async function settleStoredGoldCloses() {
     const bars = await getEngineBars(new Date(calledAt), new Date(calledAt + 2 * 60_000));
     const exit = settleClose({ sectionAtCall: row.sectionAtCall, calledAt }, bars);
     if (!exit) continue;
-    await markGoldExit(row.ideaId, { exitTime: new Date(exit.exitTime), exitPrice: exit.exitPrice, retired: exit.retired });
+    await markGoldExit(row.id, { exitTime: new Date(exit.exitTime), exitPrice: exit.exitPrice, retired: exit.retired });
     settled += 1;
   }
   return settled;

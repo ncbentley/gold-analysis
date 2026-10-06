@@ -19,6 +19,7 @@ export interface IdeaListItem {
   newestSignalAt: string;
   phase: IdeaPhase;
   close?: boolean;
+  href?: string;
 }
 
 const PHASE_LABEL: Record<IdeaPhase, string> = {
@@ -71,6 +72,7 @@ function Targets({ targets }: { targets: number[] }) {
 }
 
 function sourceLabel(count: number) {
+  if (count === 0) return "Composed";
   return `${count} source${count === 1 ? "" : "s"}`;
 }
 
@@ -118,7 +120,7 @@ export function IdeaList({ items, empty, now = nowMs() }: { items: IdeaListItem[
                 <TableRow key={idea.id} className="group relative border-0 hover:bg-transparent">
                   <TableCell className={cn(cell, "whitespace-nowrap")}>
                     <Link
-                      href={`/ideas/${idea.id}`}
+                      href={idea.href ?? `/ideas/${idea.id}`}
                       className="absolute inset-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary"
                       aria-label="Open idea"
                     />
@@ -152,7 +154,7 @@ export function IdeaList({ items, empty, now = nowMs() }: { items: IdeaListItem[
           return (
             <Link
               key={idea.id}
-              href={`/ideas/${idea.id}`}
+              href={idea.href ?? `/ideas/${idea.id}`}
               className={cn(
                 "panel relative overflow-hidden rounded-xl py-3 pl-4 pr-3 ring-1 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary active:bg-glow/10",
                 long ? "ring-glow/35 shadow-[0_0_18px_-10px_rgb(47_123_255/0.8)]" : "ring-loss/35 shadow-[0_0_18px_-10px_var(--loss)]",

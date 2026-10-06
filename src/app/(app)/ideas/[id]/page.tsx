@@ -40,6 +40,10 @@ function tradeLine(outcome: EngineOutcome) {
   return `${hits.join(", ")} hit`;
 }
 
+function sourcesExpired(items: { status: string }[]) {
+  return items.length > 0 && items.every((item) => item.status === "EXPIRED" || item.status === "CANCELLED");
+}
+
 export default async function IdeaPage({ params }: PageProps<"/ideas/[id]">) {
   const { id } = await params;
   const viewer = await getViewer();
@@ -81,6 +85,13 @@ export default async function IdeaPage({ params }: PageProps<"/ideas/[id]">) {
     );
   }
   const { idea, items, startedAt, outcome } = result;
+  const expired = !outcome.entered && sourcesExpired(items);
+  const path = expired ? "Sources expired" : tradeLine(outcome);
+  const pathHint = expired
+    ? "Every source expired before the entry traded"
+    : outcome.entryTime
+      ? `Filled ${fmtDateTime(new Date(outcome.entryTime))}`
+      : "Waiting for the entry to trade";
   const startedMs = Date.parse(startedAt);
   const endMs = Math.min(nowMs(), (outcome.exitTime ?? nowMs()) + 90 * 60_000);
   const bars = await getEngineBars(new Date(startedMs - 120 * 60_000), new Date(endMs + 60_000));
@@ -105,7 +116,7 @@ export default async function IdeaPage({ params }: PageProps<"/ideas/[id]">) {
             {idea.direction === "LONG" ? "Long" : "Short"} · <span className="tabular-nums">{fmtEntry(idea.entryMin, idea.entryMax)}</span>
           </>
         }
-        description={`${PHASE_LABEL[idea.phase]} · ${tradeLine(outcome)} · ${idea.sourceCount} source${idea.sourceCount === 1 ? "" : "s"} · call ${fmtDateTime(startedAt)}`}
+        description={`${PHASE_LABEL[idea.phase]} · ${path} · ${idea.sourceCount} source${idea.sourceCount === 1 ? "" : "s"} · call ${fmtDateTime(startedAt)}`}
       >
         <div className="mt-3">
           <DirectionBadge direction={idea.direction} />
@@ -129,7 +140,7 @@ export default async function IdeaPage({ params }: PageProps<"/ideas/[id]">) {
             </span>
           }
         />
-        <Stat icon={Crosshair} label="Path" value={tradeLine(outcome)} hint={outcome.entryTime ? `Filled ${fmtDateTime(new Date(outcome.entryTime))}` : "Waiting for the entry to trade"} />
+        <Stat icon={Crosshair} label="Path" value={path} hint={pathHint} />
       </div>
       <div className="mb-8 rounded-xl bg-[#050c1c]/80 p-2 ring-1 ring-glow/25 shadow-[inset_0_0_30px_-12px_rgb(47_123_255/0.4)]">
         <PriceChart points={downsample(bars)} levels={levels} markers={markers} />

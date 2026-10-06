@@ -320,9 +320,7 @@ export const consolidatedIdeas = pgTable("consolidated_ideas", {
 
 export const goldBookEntries = pgTable("gold_book_entries", {
   id: id(),
-  ideaId: text("idea_id")
-    .notNull()
-    .references(() => consolidatedIdeas.id, { onDelete: "cascade" }),
+  ideaId: text("idea_id").references(() => consolidatedIdeas.id, { onDelete: "cascade" }),
   direction: text("direction", { enum: ["LONG", "SHORT"] }).notNull(),
   entryMin: doublePrecision("entry_min").notNull(),
   entryMax: doublePrecision("entry_max").notNull(),

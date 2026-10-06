@@ -10,7 +10,7 @@ import { openSignalsForAdvance, recalculateOutcome, signalsToAdvance } from "@/s
 import { processRawEvent } from "@/server/normalization";
 import { repairShortZones } from "@/server/parsing/repair-zones";
 import { refreshBoard } from "@/server/board/service";
-import { publishBoardIdeasToGold } from "@/server/gold/from-board";
+import { syncGoldBook } from "@/server/gold/from-board";
 import { settleStoredGoldCloses } from "@/server/gold/settle-stored";
 import { relabelFeed } from "@/server/feed/relabel";
 import { syncDashboardCache } from "@/server/feed/snapshot";
@@ -118,7 +118,7 @@ const handlers: Record<JobType, Handler> = {
   REFRESH_BOARD: async (payload) => {
     const result = await refreshBoard({ fullHistory: payload.fullHistory === true });
     if (result.action === "failed") console.error("[board]", result.error);
-    if (result.action === "call" || result.action === "keep") await publishBoardIdeasToGold();
+    if (result.action === "call" || result.action === "keep") await syncGoldBook(result.action === "call" ? result.closeIds : []);
     await enqueueJob("RELABEL_FEED", { cacheOnly: true }, { dedupeKey: "dashboard-cache" });
     return result;
   },

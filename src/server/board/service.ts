@@ -6,6 +6,8 @@ import { replayConsolidatedIdeas } from "@/server/ideas/service";
 import { replayIdea } from "@/server/ideas/replay";
 import type { IdeaPhase } from "@/server/ideas/phase";
 import { getEngineBars, getRecentBars } from "@/server/market-data";
+import { listGoldEntries } from "@/server/gold/store";
+import { sourcesRetired } from "@/server/gold/retire";
 import { decideBoard, type BoardSnapshot } from "./decide";
 import { finishBoardPick, parseBoardOutput } from "./parse";
 import { BOARD_EXAMPLE, BOARD_PROMPT_VERSION, BOARD_SYSTEM } from "./prompt";
@@ -33,7 +35,21 @@ async function loadMarket(now: number, since: Date | null) {
     ? await db.select().from(consolidatedIdeas).where(gte(consolidatedIdeas.newestSignalAt, since))
     : await db.select().from(consolidatedIdeas);
   const ideaReplay = await replayConsolidatedIdeas(ideaRows, spot);
-  const ideas = ideaRows.filter((row) => ideaReplay.get(row.id)?.phase === "available");
+  const memberIds = [...new Set(ideaRows.flatMap((idea) => idea.signalIds))];
+  const members = memberIds.length
+    ? await db.select({ id: signals.id, sourceId: signals.sourceId, status: signals.status }).from(signals).where(inArray(signals.id, memberIds))
+    : [];
+  const memberById = new Map(members.map((member) => [member.id, member]));
+  const retiredIdeaIds: string[] = [];
+  const ideas = ideaRows.filter((row) => {
+    if (ideaReplay.get(row.id)?.phase !== "available") return false;
+    const roster = row.signalIds.map((id) => memberById.get(id)).filter((member) => member != null);
+    if (roster.length && sourcesRetired(roster.map((member) => ({ status: member.status, outcome: null })))) {
+      retiredIdeaIds.push(row.id);
+      return false;
+    }
+    return true;
+  });
 
   const signalRows = await db
     .select({ signal: signals, qa: sources.isQa })
@@ -64,11 +80,8 @@ async function loadMarket(now: number, since: Date | null) {
   });
 
   const [direction] = await db.select().from(marketDirectionSnapshots).orderBy(desc(marketDirectionSnapshots.createdAt)).limit(1);
-  const memberIds = [...new Set(ideas.flatMap((idea) => idea.signalIds))];
-  const members = memberIds.length
-    ? await db.select({ id: signals.id, sourceId: signals.sourceId }).from(signals).where(inArray(signals.id, memberIds))
-    : [];
-  const sourceIds = [...new Set(members.map((member) => member.sourceId))];
+  const memberIdsOnIdeas = [...new Set(ideas.flatMap((idea) => idea.signalIds))];
+  const sourceIds = [...new Set(memberIdsOnIdeas.map((id) => memberById.get(id)?.sourceId).filter((id): id is string => Boolean(id)))];
   const statsRows = sourceIds.length ? await db.select().from(sourceStats).where(inArray(sourceStats.sourceId, sourceIds)) : [];
   const stats = new Map(statsRows.map((row) => [row.sourceId, row.statsJson]));
 
@@ -84,6 +97,7 @@ async function loadMarket(now: number, since: Date | null) {
         sampleSize: typeof json.closedTrades === "number" ? json.closedTrades : 0,
       };
     }),
+    retiredIdeaIds,
   };
 }
 
@@ -149,6 +163,7 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
   }
   if (action === "keep") return { action };
   try {
+    const goldOpen = (await listGoldEntries()).filter((row) => row.exitTime === null && !row.retired && row.closeCalledAt === null);
     const facts = {
       news: market.direction
         ? { lean: market.direction.lean, summary: market.direction.summary, spot: market.direction.spot, change60m: market.direction.change60m, headlines: market.direction.headlines.slice(0, 8).map((headline) => headline.text) }
@@ -161,6 +176,14 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
         stopLoss: idea.stopLoss,
         targets: idea.targets,
         sourceCount: idea.sourceCount,
+      })),
+      gold: goldOpen.map((row) => ({
+        id: row.ideaId ?? row.id,
+        direction: row.direction,
+        entryMin: row.entryMin,
+        entryMax: row.entryMax,
+        stopLoss: row.stopLoss,
+        targets: row.targets,
       })),
       signals: market.signals.map((signal) => ({
         id: signal.id,
@@ -177,7 +200,9 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
       },
     };
     const generated = deps.generate ? { model: "test", raw: await deps.generate(facts) } : await callModel(facts);
-    const parsed = parseBoardOutput(generated.raw, new Set(live.ideaIds));
+    const linkable = new Set<string>([...live.ideaIds, ...market.retiredIdeaIds]);
+    for (const row of goldOpen) if (row.ideaId) linkable.add(row.ideaId);
+    const parsed = parseBoardOutput(generated.raw, linkable);
     const ideaLevels = market.ideas.map((idea) => ({ id: idea.id, stopLoss: idea.stopLoss, targets: idea.targets }));
     const primary = finishBoardPick(parsed.primary, ideaLevels);
     if (!primary) throw new Error("Board primary has no stop or targets");
@@ -202,7 +227,7 @@ export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; 
         labeledAt: new Date(now),
       });
     });
-    return { action: "call" as const };
+    return { action: "call" as const, closeIds: parsed.closeIds };
   } catch (err) {
     if (previous && !(await anyPickLive([previous.primary, ...previous.alternates], previous.createdAt.getTime(), market.spot))) await deactivate();
     return { action: "failed" as const, error: (err as Error).message };

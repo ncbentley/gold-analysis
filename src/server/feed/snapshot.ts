@@ -11,7 +11,7 @@ import type { ListedIdea } from "@/server/ideas/service";
 import { goldBookCards } from "@/server/gold/sections";
 import type { SignalListItem } from "@/server/presenters";
 
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 
 export interface BookSectionsCache<T> {
   available: T[];
@@ -55,7 +55,7 @@ export interface DashboardCache {
     historyCount: number;
   } | null;
   ideas: BookSectionsCache<ListedIdea> | null;
-  gold: BookSectionsCache<ListedIdea & { close?: boolean }> | null;
+  gold: BookSectionsCache<ListedIdea & { close?: boolean; href?: string }> | null;
 }
 
 async function viewerFor(view: DashboardView, config: Awaited<ReturnType<typeof getTierConfig>>): Promise<Viewer> {

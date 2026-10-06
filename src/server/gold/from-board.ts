@@ -1,41 +1,152 @@
-import { gte } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { currentBoard } from "@/server/board/service";
 import { getDb } from "@/server/db";
-import { consolidatedIdeas } from "@/server/db/schema";
+import { consolidatedIdeas, signals, type BoardPick } from "@/server/db/schema";
+import { replayIdea } from "@/server/ideas/replay";
+import { getEngineBars, getRecentBars } from "@/server/market-data";
 import type { GoldLevel } from "./geometry";
 import { applyProposal } from "./publish";
+import { sourcesRetired } from "./retire";
+import { settleStoredGoldCloses } from "./settle-stored";
 import { insertGoldEntry, listGoldEntries, liveGoldLevels, markGoldClose } from "./store";
 
-/** Copies a fresh model board into the Gold book. A failed model call never reaches here. */
-export async function publishBoardIdeasToGold() {
+function signature(level: { direction: string; entryMin: number; entryMax: number; stopLoss: number | null; targets: number[] }) {
+  return [level.direction, level.entryMin, level.entryMax, level.stopLoss ?? "", level.targets.join(",")].join("|");
+}
+
+async function retiredSourceIdeas(ideaIds: string[]) {
+  const retired = new Set<string>();
+  if (!ideaIds.length) return retired;
   const db = await getDb();
-  const rows = await db.select().from(consolidatedIdeas).where(gte(consolidatedIdeas.sourceCount, 3));
-  const ideas: (GoldLevel & { targets: number[]; phase: string })[] = rows.map((row) => ({
-    id: row.id,
-    direction: row.direction,
-    entryMin: row.entryMin,
-    entryMax: row.entryMax,
-    stopLoss: row.stopLoss,
-    targets: row.targets,
-    phase: row.phase,
-  }));
+  const ideas = await db
+    .select({ id: consolidatedIdeas.id, signalIds: consolidatedIdeas.signalIds })
+    .from(consolidatedIdeas)
+    .where(inArray(consolidatedIdeas.id, ideaIds));
+  const signalIds = [...new Set(ideas.flatMap((idea) => idea.signalIds))];
+  const members = signalIds.length
+    ? await db.select({ id: signals.id, status: signals.status }).from(signals).where(inArray(signals.id, signalIds))
+    : [];
+  const byId = new Map(members.map((member) => [member.id, member]));
+  for (const idea of ideas) {
+    const roster = idea.signalIds.map((id) => byId.get(id)).filter((member) => member != null);
+    if (sourcesRetired(roster.map((member) => ({ status: member.status, outcome: null })))) retired.add(idea.id);
+  }
+  return retired;
+}
+
+/** Takes Gold calls off the book once every source they used has expired or been cancelled without a fill. */
+export async function closeRetiredGold(now = new Date()) {
+  const db = await getDb();
+  const rows = await listGoldEntries();
+  const live = rows.filter((row) => row.exitTime === null && !row.retired && row.closeCalledAt === null && row.ideaId);
+  if (!live.length) return [];
+  const ideas = await db.select().from(consolidatedIdeas).where(inArray(consolidatedIdeas.id, live.map((row) => row.ideaId!)));
+  const signalIds = [...new Set(ideas.flatMap((idea) => idea.signalIds))];
+  const members = signalIds.length
+    ? await db.select({ id: signals.id, status: signals.status, closedAt: signals.closedAt }).from(signals).where(inArray(signals.id, signalIds))
+    : [];
+  const byId = new Map(members.map((member) => [member.id, member]));
+  const closed: string[] = [];
+  for (const row of live) {
+    const idea = ideas.find((item) => item.id === row.ideaId);
+    if (!idea) continue;
+    const roster = idea.signalIds.map((id) => byId.get(id)).filter((member) => member != null);
+    if (!sourcesRetired(roster.map((member) => ({ status: member.status, outcome: null })))) continue;
+    const calledAt = roster.reduce<Date | null>((latest, member) => {
+      if (!member.closedAt) return latest;
+      return !latest || member.closedAt > latest ? member.closedAt : latest;
+    }, null) ?? now;
+    await markGoldClose(row.ideaId!, calledAt, "available");
+    closed.push(row.ideaId!);
+  }
+  if (closed.length) await settleStoredGoldCloses();
+  return closed;
+}
+
+async function closeSections(ids: string[], stored: Awaited<ReturnType<typeof listGoldEntries>>) {
+  const sections = new Map<string, "available" | "active">();
+  const rows = ids
+    .map((id) => stored.find((row) => (row.ideaId ?? row.id) === id && row.exitTime === null && !row.retired))
+    .filter((row) => row != null);
+  if (!rows.length) return sections;
+  const from = Math.min(...rows.map((row) => row.createdAt.getTime()));
+  const bars = await getEngineBars(new Date(from), new Date(Date.now() + 60_000));
+  const [bar] = (await getRecentBars(1)).slice(-1);
+  for (const row of rows) {
+    const played = replayIdea(
+      {
+        direction: row.direction,
+        entryMin: row.entryMin,
+        entryMax: row.entryMax,
+        stopLoss: row.stopLoss,
+        targets: row.targets,
+        startedAt: row.createdAt.getTime(),
+      },
+      bars,
+      bar?.close ?? null,
+      true,
+    );
+    sections.set(row.ideaId ?? row.id, played.outcome.entered ? "active" : "available");
+  }
+  return sections;
+}
+
+/** Puts the model's own prices on the Gold book. A pick with no silver idea is a new idea. */
+export async function syncGoldBook(closeIds: string[] = []) {
+  const justClosed = new Set(await closeRetiredGold());
+  const db = await getDb();
   const stored = await listGoldEntries();
-  const stillOpen = new Set(ideas.filter((idea) => idea.phase !== "history").map((idea) => idea.id));
+  const ideaRows = await db.select({ id: consolidatedIdeas.id }).from(consolidatedIdeas);
+  const known = new Set(ideaRows.map((idea) => idea.id));
   const board = await currentBoard(null);
-  const addIdeaIds = board.post?.active ? [board.post.primary, ...board.post.alternates].flatMap((pick) => pick.ideaIds) : [];
+  const picks = board.post?.active ? [board.post.primary, ...board.post.alternates] : [];
+  const sourceRetired = await retiredSourceIdeas([...new Set(picks.flatMap((pick) => pick.ideaIds))]);
+  const liveRows = stored.filter((row) => row.exitTime === null && !row.retired && row.closeCalledAt === null);
+  const postAt = board.post?.createdAt ?? null;
+  const candidates: (GoldLevel & { targets: number[]; ideaId: string | null })[] = [];
+
+  const blocked = (pick: BoardPick, ideaId: string | null) => {
+    const cited = pick.ideaIds.filter((id) => known.has(id));
+    if (cited.length && cited.every((id) => sourceRetired.has(id) || justClosed.has(id))) return true;
+    if (!postAt) return false;
+    return stored.some((row) => {
+      if (!row.closeCalledAt || row.closeCalledAt < postAt) return false;
+      return ideaId ? row.ideaId === ideaId : !row.ideaId && signature(row) === signature(pick);
+    });
+  };
+
+  for (const pick of picks) {
+    const cited = pick.ideaIds.filter((id) => known.has(id));
+    const ideaId = cited.length === 1 ? cited[0] : null;
+    if (blocked(pick, ideaId)) continue;
+    const existing = liveRows.find((row) => (ideaId ? row.ideaId === ideaId : !row.ideaId && signature(row) === signature(pick)));
+    if (existing) continue;
+    if (candidates.some((idea) => (ideaId ? idea.ideaId === ideaId : idea.ideaId === null && signature(idea) === signature(pick)))) continue;
+    candidates.push({
+      id: ideaId ?? crypto.randomUUID(),
+      ideaId,
+      direction: pick.direction,
+      entryMin: pick.entryMin,
+      entryMax: pick.entryMax,
+      stopLoss: pick.stopLoss,
+      targets: pick.targets,
+    });
+  }
+
+  const live = liveGoldLevels(stored).filter((level) => !justClosed.has(level.id) && !sourceRetired.has(level.id));
+  const sections = await closeSections(closeIds, stored);
   return applyProposal({
-    ideas,
-    live: liveGoldLevels(stored).filter((level) => stillOpen.has(level.id)),
-    propose: async () => ({ addIdeaIds, closeIdeaIds: [] }),
+    ideas: candidates,
+    live,
+    propose: async () => ({ addIdeaIds: candidates.map((idea) => idea.id), closeIdeaIds: closeIds }),
     write: async (plan) => {
-      const byId = new Map(ideas.map((idea) => [idea.id, idea]));
+      const byId = new Map(candidates.map((idea) => [idea.id, idea]));
       for (const idea of plan.add) {
         const full = byId.get(idea.id);
         if (full) await insertGoldEntry(full);
       }
       for (const id of plan.closeIds) {
-        const idea = byId.get(id);
-        await markGoldClose(id, new Date(), idea?.phase === "playing-out" ? "active" : "available");
+        await markGoldClose(id, new Date(), sections.get(id) ?? "available");
       }
     },
   });
