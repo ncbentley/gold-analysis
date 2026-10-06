@@ -5,7 +5,7 @@ Known gaps and next steps after the MVP, roughly in priority order.
 ## Before launch
 
 - [ ] **Legal review** of `/terms` and `/privacy`; both are working templates.
-- [x] **Real email delivery.** `sendEmail` uses Resend when `RESEND_API_KEY` is set, and the dev mailbox stays off. The sender is Resend's test address until `EMAIL_FROM` is a verified domain.
+- [x] **Real email delivery.** `sendEmail` uses Resend when `RESEND_API_KEY` is set, and the dev mailbox stays off. The sender is `noreply@goldintelligencegateway.com`.
 - [ ] **Stripe setup.** Create products and prices, set `STRIPE_PRICE_*`, register the webhook endpoint `/api/billing/webhook` for `checkout.session.completed` and `customer.subscription.*`, and configure the Customer Portal. Confirm the real prices in the `plans` table.
 - [ ] **Production database.** Point `DATABASE_URL` at managed Postgres and apply the migrations in `drizzle/`. Add backups.
 - [ ] **Market data licence** check for the chosen provider, or add another adapter in `src/server/market-data/`.

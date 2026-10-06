@@ -48,7 +48,7 @@ Outcomes are replayed against 1-minute XAU/USD bars. Until you configure a provi
 
 ## Billing and email
 
-Billing runs in test mode until Stripe keys are set: choosing a plan on `/pricing` opens a mock checkout that activates the subscription immediately. With `RESEND_API_KEY` set, verification and password-reset emails go out through Resend. Until a domain is verified, the sender is `onboarding@resend.dev`, which only delivers to the Resend account email. Without a key, those emails stay in the dev mailbox and a link appears on `/check-email`.
+Billing runs in test mode until Stripe keys are set: choosing a plan on `/pricing` opens a mock checkout that activates the subscription immediately. With `RESEND_API_KEY` set, verification and password-reset emails go out through Resend from `noreply@goldintelligencegateway.com`. Without a key, those emails stay in the dev mailbox and a link appears on `/check-email`.
 
 To see what each tier sees without paying, run `SEED_DEMO_USERS=1 pnpm db:reset`. This creates `free@`, `silver@`, `gold@` and `platinum@example.com` with password `demo12345`.
 

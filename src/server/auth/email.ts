@@ -1,9 +1,13 @@
-/** Resend's shared test sender. It delivers only to the Resend account address until a domain is verified. */
-export const DEV_EMAIL_FROM = "Gold Intelligence Gateway <onboarding@resend.dev>";
+/** Verified on Resend for goldintelligencegateway.com. */
+export const EMAIL_FROM_ADDRESS = "Gold Intelligence Gateway <noreply@goldintelligencegateway.com>";
+
+/** Resend's shared test sender. It only delivers to the Resend account address. */
+const RETIRED_TEST_SENDER = "onboarding@resend.dev";
 
 export function emailFrom() {
   const from = process.env.EMAIL_FROM?.trim();
-  return from || DEV_EMAIL_FROM;
+  if (!from || from.includes(RETIRED_TEST_SENDER)) return EMAIL_FROM_ADDRESS;
+  return from;
 }
 
 /** Tests and local development keep the database mailbox. A key sends through Resend. */

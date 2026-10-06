@@ -99,6 +99,7 @@ Computed when a signal is read. It is not stored, and it does not use a hand-pic
 - **Production secrets live in Infisical**, the self-hosted instance at `https://vault.mountainwest.digital`, project Gold Intelligence Gateway, environment `prod`. The VPS machine identity in `~/.infisical/auth.env` renders them to `deploy/.env` on each deploy. That file is not committed. The workstation does not store this project as its global Infisical login. `.infisical.json` selects the project only when the CLI is run from this repository, and its default environment is `dev`.
 - **The site is published through a named Cloudflare Tunnel** (`gold-intelligence-gateway`) to `https://goldintelligencegateway.com`. `cloudflared` makes the outbound connection. Caddy is the origin on the Docker network at `http://caddy:80`. The VPS does not publish ports 80 or 443. `www` redirects to the apex.
 - **`APP_SECRET` is stable.** It encrypts the Telegram session and admin-entered API keys. Rotating it requires signing in to Telegram again.
+- **Mail sends from the verified domain.** Resend delivers verification and password-reset messages when `RESEND_API_KEY` is set. The from address is `Gold Intelligence Gateway <noreply@goldintelligencegateway.com>`. A leftover `onboarding@resend.dev` value is ignored. Without a key, messages stay in the local dev mailbox.
 
 ## Security
 
