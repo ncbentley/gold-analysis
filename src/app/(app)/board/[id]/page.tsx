@@ -45,12 +45,12 @@ export default async function BoardPickPage({
   const { id } = await params;
   const { pick: slot = "primary" } = await searchParams;
   const viewer = await getViewer();
-  const allowed = viewer.access.isAdmin || viewer.access.tier === "platinum";
+  const allowed = viewer.access.isAdmin || viewer.access.tier === "gold";
   if (!allowed || !can(viewer.access, "signals.core")) {
     return (
       <>
         <PageHeader title="Board" icon={Layers} description="The primary idea and its alternates." />
-        <LockedPanel feature="signals.core" requiredTier={lowestTierWith("signals.core", viewer.config)} title="The board is a Platinum feature" userId={viewer.user?.id} />
+        <LockedPanel feature="signals.core" requiredTier={lowestTierWith("signals.core", viewer.config)} title="The book is a Gold feature" userId={viewer.user?.id} />
       </>
     );
   }

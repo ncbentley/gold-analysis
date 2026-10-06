@@ -113,7 +113,7 @@ export function SignalFilters({
     ) : (
       <Tooltip key={key}>
         <TooltipTrigger render={<div className="relative">{el}<Lock className="pointer-events-none absolute right-8 top-2.5 size-3.5 text-primary/80" /></div>} />
-        <TooltipContent>Advanced filters are included with Platinum</TooltipContent>
+        <TooltipContent>Advanced filters are included with Gold</TooltipContent>
       </Tooltip>
     );
 

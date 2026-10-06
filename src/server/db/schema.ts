@@ -78,7 +78,7 @@ export const outboundEmails = pgTable("outbound_emails", {
 /* Billing and entitlements                                            */
 /* ------------------------------------------------------------------ */
 
-export const TIERS = ["silver", "platinum"] as const;
+export const TIERS = ["silver", "gold"] as const;
 export type Tier = (typeof TIERS)[number];
 export const PERIODS = ["weekly", "monthly", "annual"] as const;
 export type BillingPeriod = (typeof PERIODS)[number];

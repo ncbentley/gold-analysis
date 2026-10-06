@@ -58,12 +58,12 @@ export async function listUserSubscriptions(userId: string) {
 
 /** Retired prices stay in the catalog for existing subscriptions, but new checkout cannot sell them. */
 function rejectRetiredCheckout(tier: Tier, period: BillingPeriod) {
-  if (tier === "platinum" && period === "weekly") throw new Error("Platinum weekly is no longer offered.");
+  if (tier === "gold" && period === "weekly") throw new Error("Gold weekly is no longer offered.");
 }
 
-/** Gold and weekly Platinum keep access through the period already paid, then stop. */
+/** Gold weekly keeps access through the period already paid, then stop. */
 export function stopsAtPeriodEnd(sub: { tier: Tier; period: BillingPeriod }) {
-  return sub.tier === "platinum" && sub.period === "weekly";
+  return sub.tier === "gold" && sub.period === "weekly";
 }
 
 export async function startCheckout(user: { id: string; email: string }, tier: Tier, period: BillingPeriod) {

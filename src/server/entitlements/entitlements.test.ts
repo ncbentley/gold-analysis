@@ -7,7 +7,7 @@ import { DEFAULT_TIER_CONFIG, type TierConfig } from "./config";
 
 const config = DEFAULT_TIER_CONFIG;
 const silver = buildAccess("silver", config);
-const platinum = buildAccess("platinum", config);
+const gold = buildAccess("gold", config);
 
 const now = new Date("2026-02-01T12:00:00Z");
 const signal: Signal = {
@@ -125,10 +125,10 @@ describe("access", () => {
   });
 
   it("tiers are cumulative by default", () => {
-    for (const f of config.silver.features) expect(can(platinum, f)).toBe(true);
+    for (const f of config.silver.features) expect(can(gold, f)).toBe(true);
     expect(can(silver, "sources.stats.summary")).toBe(true);
     expect(can(silver, "sources.stats.recent")).toBe(false);
-    expect(can(platinum, "ai.summary")).toBe(false);
+    expect(can(gold, "ai.summary")).toBe(false);
   });
 
   it("admins get every feature", () => {
@@ -136,9 +136,13 @@ describe("access", () => {
     expect(can(admin, "export.csv")).toBe(true);
   });
 
+  it("gives an admin the gold tier label", () => {
+    expect(buildAccess(null, config, true).tier).toBe("gold");
+  });
+
   it("reports the lowest tier that unlocks a feature", () => {
     expect(lowestTierWith("signals.core", config)).toBe("silver");
-    expect(lowestTierWith("similar.summary", config)).toBe("platinum");
+    expect(lowestTierWith("similar.summary", config)).toBe("gold");
     expect(lowestTierWith("ai.patterns", config)).toBeNull();
     expect(lowestTierWith("consensus.grade", config)).toBeNull();
     expect(lowestTierWith("consensus.timing", config)).toBeNull();
@@ -147,7 +151,7 @@ describe("access", () => {
   });
 
   it("follows configuration rather than hard-coded tiers", () => {
-    const custom: Record<"silver" | "platinum", TierConfig> = {
+    const custom: Record<"silver" | "gold", TierConfig> = {
       ...config,
       silver: { features: [...config.silver.features, "ai.summary"], historyDays: 7 },
     };
@@ -157,15 +161,15 @@ describe("access", () => {
     expect(historyCutoff(s, now)?.toISOString()).toBe("2026-01-25T12:00:00.000Z");
   });
 
-  it("platinum has unlimited history", () => {
-    expect(historyCutoff(platinum, now)).toBeNull();
+  it("gold has unlimited history", () => {
+    expect(historyCutoff(gold, now)).toBeNull();
   });
 
   it("names the cheapest plan whose history window covers the signal", () => {
     const eightDaysAgo = new Date(now.getTime() - 8 * 86_400_000);
     const twoHundredDaysAgo = new Date(now.getTime() - 200 * 86_400_000);
     expect(tierForSignalTime(eightDaysAgo, config, now)).toBe("silver");
-    expect(tierForSignalTime(twoHundredDaysAgo, config, now)).toBe("platinum");
+    expect(tierForSignalTime(twoHundredDaysAgo, config, now)).toBe("gold");
   });
 
   it("gives a signed-in user with no subscription the raw feed for seven days", () => {
@@ -204,8 +208,8 @@ describe("signal detail projection", () => {
     expect(json).not.toContain("Consensus Score");
   });
 
-  it("platinum gets full history features without AI", () => {
-    const d = detailFor(platinum);
+  it("gold gets full history features without AI", () => {
+    const d = detailFor(gold);
     expect(d.ai.classification.locked).toBe(true);
     expect(d.ai.summary.locked).toBe(true);
     expect(d.outcome.excursionDetail).toMatchObject({ locked: false, data: { bestPrice: 3405 } });
@@ -214,10 +218,10 @@ describe("signal detail projection", () => {
     expect(JSON.stringify(d)).not.toContain("SECRET_SUMMARY");
   });
 
-  it("keeps original posts off member payloads, including platinum", () => {
+  it("keeps original posts off member payloads, including gold", () => {
     const d = presentSignalDetail(
       { signal, source: { id: "s", name: "S", nickname: "Amber Fox", slug: "s", isQa: false }, targets, outcome, rawText: "PRIVATE", updates: [], sourceStats: null, similar: null, analysis: null },
-      platinum,
+      gold,
       config,
     );
     expect(JSON.stringify(d)).not.toContain("PRIVATE");

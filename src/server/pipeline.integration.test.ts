@@ -20,7 +20,7 @@ import { getSignalDetailForViewer, getSourceBySlugOrId, listSignalsForViewer, li
 
 // Unlimited history so the fixed-date fixture stays visible; the default windows are tested separately.
 const config = Object.fromEntries(TIERS.map((t) => [t, { ...DEFAULT_TIER_CONFIG[t], historyDays: null }])) as typeof DEFAULT_TIER_CONFIG;
-const viewer = (tier: "silver" | "platinum", cfg = config): Viewer => ({
+const viewer = (tier: "silver" | "gold", cfg = config): Viewer => ({
   user: null,
   access: buildAccess(tier, cfg),
   config: cfg,
@@ -60,7 +60,7 @@ beforeAll(async () => {
   expect(res.status).toBe("stored");
   const [sig] = await db.select().from(signals).where(eq(signals.sourceId, sourceId));
   signalId = sig.id;
-  const listed = await listSignalsForViewer(viewer("platinum"), {});
+  const listed = await listSignalsForViewer(viewer("gold"), {});
   expect(listed.items.map((item) => item.id)).toContain(signalId);
   const [aiJob] = await db
     .select({ status: jobs.status })
@@ -107,27 +107,27 @@ describe("pipeline", () => {
 
   it("filters fields by tier through the read API", async () => {
     const silver = await getSignalDetailForViewer(signalId, viewer("silver"));
-    const platinum = await getSignalDetailForViewer(signalId, viewer("platinum"));
+    const goldDetail = await getSignalDetailForViewer(signalId, viewer("gold"));
     expect(silver.kind).toBe("ok");
-    expect(platinum.kind).toBe("ok");
-    if (silver.kind !== "ok" || platinum.kind !== "ok") return;
+    expect(goldDetail.kind).toBe("ok");
+    if (silver.kind !== "ok" || goldDetail.kind !== "ok") return;
     expect(silver.detail.ai.summary.locked).toBe(true);
     expect(silver.detail.consensus.grade.locked).toBe(true);
     expect(JSON.stringify(silver.detail)).not.toContain("setupClassification");
     expect(JSON.stringify(silver.detail.consensus)).not.toContain("Consensus Score");
-    expect(platinum.detail.ai.classification.locked).toBe(true);
-    expect(platinum.detail.ai.summary.locked).toBe(true);
-    expect(platinum.detail.ai.meta).toBeNull();
-    expect(platinum.detail.consensus.grade.locked).toBe(true);
-    expect(platinum.detail.consensus.mapping.locked).toBe(true);
-    expect(JSON.stringify(platinum.detail.consensus)).not.toContain("Consensus Score");
-    expect(JSON.stringify(platinum.detail)).not.toContain("Test Desk");
+    expect(goldDetail.detail.ai.classification.locked).toBe(true);
+    expect(goldDetail.detail.ai.summary.locked).toBe(true);
+    expect(goldDetail.detail.ai.meta).toBeNull();
+    expect(goldDetail.detail.consensus.grade.locked).toBe(true);
+    expect(goldDetail.detail.consensus.mapping.locked).toBe(true);
+    expect(JSON.stringify(goldDetail.detail.consensus)).not.toContain("Consensus Score");
+    expect(JSON.stringify(goldDetail.detail)).not.toContain("Test Desk");
   });
 
   it("locks signals older than the tier's history window", async () => {
     const res = await getSignalDetailForViewer(signalId, viewer("silver", DEFAULT_TIER_CONFIG));
-    expect(res).toMatchObject({ kind: "history_locked", requiredTier: "platinum" });
-    const list = await listSignalsForViewer(viewer("platinum", DEFAULT_TIER_CONFIG), {});
+    expect(res).toMatchObject({ kind: "history_locked", requiredTier: "gold" });
+    const list = await listSignalsForViewer(viewer("gold", DEFAULT_TIER_CONFIG), {});
     expect(list.items.map((item) => item.id)).toContain(signalId);
   });
 
@@ -135,8 +135,8 @@ describe("pipeline", () => {
     const res = await listSignalsForViewer(viewer("silver"), { entryType: "ZONE", q: "BUY" });
     expect(res.ignoredFilters.sort()).toEqual(["entryType", "q"]);
     expect(res.items.length).toBe(1);
-    const plat = await listSignalsForViewer(viewer("platinum"), { entryType: "ZONE" });
-    expect(plat.items.length).toBe(0);
+    const goldList = await listSignalsForViewer(viewer("gold"), { entryType: "ZONE" });
+    expect(goldList.items.length).toBe(0);
   });
 
   it("corrects a signal without losing history and audits the change", async () => {
@@ -197,9 +197,9 @@ describe("pipeline", () => {
     const [qaSignal] = await db.select().from(signals).where(eq(signals.sourceId, qa.id));
     expect(qaSignal).toBeDefined();
 
-    expect((await getSignalDetailForViewer(qaSignal.id, viewer("platinum"))).kind).toBe("not_found");
+    expect((await getSignalDetailForViewer(qaSignal.id, viewer("gold"))).kind).toBe("not_found");
     expect((await getSignalDetailForViewer(qaSignal.id, adminViewer())).kind).toBe("ok");
-    const member = await listSignalsForViewer(viewer("platinum"), {});
+    const member = await listSignalsForViewer(viewer("gold"), {});
     expect(member.items.map((i) => i.id)).not.toContain(qaSignal.id);
     expect(member.total).toBe(member.items.length);
     const adminList = await listSignalsForViewer(adminViewer(), {});

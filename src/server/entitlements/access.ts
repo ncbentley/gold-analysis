@@ -19,7 +19,7 @@ export function freeAccess(): Access {
 }
 
 export function buildAccess(tier: Tier | null, config: Record<Tier, TierConfig>, isAdmin = false): Access {
-  if (isAdmin) return { tier: "platinum", isAdmin: true, features: new Set(ALL_FEATURES), historyDays: null };
+  if (isAdmin) return { tier: "gold", isAdmin: true, features: new Set(ALL_FEATURES), historyDays: null };
   if (!tier) return ANONYMOUS;
   const c = config[tier];
   return { tier, isAdmin: false, features: new Set(c.features), historyDays: c.historyDays };

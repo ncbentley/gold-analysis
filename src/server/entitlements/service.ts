@@ -6,6 +6,7 @@ import { getDb } from "@/server/db";
 import { tierEntitlements, TIERS, type Tier, type User } from "@/server/db/schema";
 import { ANONYMOUS, buildAccess, freeAccess, type Access } from "./access";
 import { ALL_FEATURES, DEFAULT_TIER_CONFIG, type Feature, type TierConfig } from "./config";
+import { accessForMember } from "./trial";
 import { accessForPreview, parseViewAs, VIEW_AS_COOKIE, type ViewAs } from "./view-as";
 
 export async function getTierConfig(): Promise<Record<Tier, TierConfig>> {
@@ -61,8 +62,8 @@ export const getViewer = cache(async (scope: "member" | "admin" = "member"): Pro
   const access =
     user?.role === "admin"
       ? accessForPreview(config, viewAs)
-      : user && !subscription
-        ? freeAccess()
-        : buildAccess(subscription?.tier ?? null, config);
+      : user
+        ? accessForMember({ createdAt: user.createdAt, now: new Date(), subscription, config })
+        : ANONYMOUS;
   return { user, access, config, subscription, viewAs: requested };
 });

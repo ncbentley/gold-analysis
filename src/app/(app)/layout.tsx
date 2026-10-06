@@ -12,8 +12,10 @@ import { cn } from "@/lib/utils";
 import { requireUser } from "@/server/auth/guards";
 import { getDb } from "@/server/db";
 import { parseResults } from "@/server/db/schema";
+import { TrialBanner } from "@/components/trial-banner";
 import { TIER_LABEL } from "@/server/entitlements/config";
 import { getViewer } from "@/server/entitlements/service";
+import { showTrialBanner, trialEndsAt } from "@/server/entitlements/trial";
 
 async function reviewCount() {
   const db = await getDb();
@@ -114,15 +116,13 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
             </Suspense>
           </div>
         )}
-        {!isAdmin && !viewer.subscription && user.emailVerifiedAt && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-primary/15 bg-primary/[0.04] px-4 py-2 text-sm lg:px-8">
-            <span>Your feed is open for the last 7 days. Silver adds 180 days of history and the consolidated feed.</span>
-            <Link href="/billing#plans" className="font-medium text-primary underline-offset-2 hover:underline">
-              Compare packages
-            </Link>
-          </div>
-        )}
         <main id="main" className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-5 lg:px-6 lg:py-6">
+          {!isAdmin &&
+            showTrialBanner({
+              createdAt: user.createdAt,
+              now: new Date(),
+              hasPlan: Boolean(viewer.subscription),
+            }) && <TrialBanner endsAt={trialEndsAt(user.createdAt)} />}
           {children}
         </main>
       </div>
