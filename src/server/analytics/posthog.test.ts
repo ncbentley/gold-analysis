@@ -155,7 +155,10 @@ describe("posthog client", () => {
     const db = await getDb();
     const email = `forward-${crypto.randomUUID()}@example.com`;
     const [user] = await db.insert(users).values({ email, passwordHash: "x" }).returning();
-    await identifyAttribution(user.id, state);
+    await identifyAttribution(user.id, {
+      ...state,
+      last: { ...state.last, params: { ...state.last.params, source: "twitter" } },
+    });
     const { events } = recordSender();
     await trackEvent("signal_viewed", user.id, { source: "amber-falcon", signalId: "sig-1" });
     expect(events).toEqual([
@@ -223,5 +226,21 @@ describe("posthog client", () => {
     expect(people[0].setOnce).toMatchObject({ initial_source: "google", initial_campaign: "brand", initial_landing: "/" });
     expect(people[1].setOnce).toMatchObject({ initial_source: "google", initial_landing: "/" });
     expect(people[0].set).toMatchObject({ latest_campaign: "launch", email });
+  });
+
+  it("aliases each browser visitor id on sign-in", async () => {
+    const db = await getDb();
+    const email = `second-browser-${crypto.randomUUID()}@example.com`;
+    const [user] = await db.insert(users).values({ email, passwordHash: "x" }).returning();
+    const secondVisitorId = "55555555-5555-4555-8555-555555555555";
+    const { aliases, people } = recordSender();
+    await identifyAttribution(user.id, state);
+    await identifyAttribution(user.id, { ...state, visitorId: secondVisitorId });
+    expect(aliases).toEqual([
+      { userId: user.id, visitorId: state.visitorId },
+      { userId: user.id, visitorId: secondVisitorId },
+    ]);
+    expect(people).toHaveLength(2);
+    expect(people[1].setOnce).toMatchObject({ initial_source: "google", initial_landing: "/" });
   });
 });

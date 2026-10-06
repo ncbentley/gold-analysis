@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { userFromSessionToken, SESSION_COOKIE } from "@/server/auth";
 import { ATTR_COOKIE, VID_COOKIE, decodeAttribution, validVisitorId } from "@/server/analytics/attribution";
 import { acceptPagePath } from "@/server/analytics/page-view";
-import { capturePostHog, touchProperties } from "@/server/analytics/posthog";
+import { capturePostHog, capturedProperties } from "@/server/analytics/posthog";
 
 export async function POST(req: Request) {
   let pathname: string | null = null;
@@ -19,11 +19,11 @@ export async function POST(req: Request) {
     if (!visitorId) return new Response(null, { status: 204 });
     const user = await userFromSessionToken(jar.get(SESSION_COOKIE)?.value);
     const attribution = decodeAttribution(jar.get(ATTR_COOKIE)?.value);
-    capturePostHog(user?.id ?? visitorId, "$pageview", {
-      $pathname: pathname,
-      $current_url: pathname,
-      ...touchProperties(attribution?.last ?? null, visitorId),
-    });
+    capturePostHog(
+      user?.id ?? visitorId,
+      "$pageview",
+      capturedProperties({ $pathname: pathname, $current_url: pathname }, attribution?.last ?? null, visitorId),
+    );
   } catch (err) {
     console.warn("[analytics] dropped event", "$pageview", (err as Error).message);
   }

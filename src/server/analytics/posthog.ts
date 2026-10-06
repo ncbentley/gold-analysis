@@ -15,6 +15,25 @@ export function touchProperties(touch: Pick<Touch, "params" | "referrer" | "land
   };
 }
 
+const ATTR_KEYS = ["attr_source", "attr_medium", "attr_campaign", "attr_landing", "attr_referrer"] as const;
+
+/** PostHog capture props: caller wins over raw touch params; attr_* and visitor_id win over caller. */
+export function capturedProperties(
+  caller: Record<string, unknown>,
+  touch: Pick<Touch, "params" | "referrer" | "landing"> | null,
+  visitorId: string | null,
+) {
+  const fromTouch = touchProperties(touch, visitorId);
+  const { visitor_id, ...rest } = fromTouch;
+  const attr: Record<string, unknown> = {};
+  const rawParams: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if ((ATTR_KEYS as readonly string[]).includes(key)) attr[key] = value;
+    else rawParams[key] = value;
+  }
+  return { ...rawParams, ...caller, ...attr, visitor_id };
+}
+
 export function personProperties(state: AttributionState, email: string) {
   const first = channelOf(state.first);
   const last = channelOf(state.last);

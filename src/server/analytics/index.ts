@@ -1,7 +1,7 @@
 import { getDb } from "@/server/db";
 import { analyticsEvents } from "@/server/db/schema";
 import { attributionSnapshot } from "./persist";
-import { capturePostHog, touchProperties } from "./posthog";
+import { capturePostHog, capturedProperties } from "./posthog";
 
 export const ANALYTICS_EVENTS = [
   "account_created",
@@ -32,10 +32,11 @@ export async function trackEvent(name: AnalyticsEvent, userId: string | null, pr
     const distinctId = userId ?? attribution?.visitorId ?? null;
     if (!distinctId) return;
     try {
-      capturePostHog(distinctId, name, {
-        ...props,
-        ...touchProperties(attribution?.last ?? null, attribution?.visitorId ?? null),
-      });
+      capturePostHog(
+        distinctId,
+        name,
+        capturedProperties(props, attribution?.last ?? null, attribution?.visitorId ?? null),
+      );
     } catch (err) {
       console.warn("[analytics] dropped event", name, (err as Error).message);
     }
@@ -57,14 +58,21 @@ export async function trackRevenue(userId: string, input: RevenueInput) {
   if (!Number.isFinite(input.amountCents) || input.amountCents < 0) return;
   try {
     const attribution = await attributionSnapshot(userId);
-    capturePostHog(userId, "invoice_paid", {
-      ...touchProperties(attribution?.last ?? null, attribution?.visitorId ?? null),
-      revenue: input.amountCents / 100,
-      currency: input.currency.toUpperCase(),
-      tier: input.tier,
-      period: input.period,
-      provider: input.provider,
-    });
+    capturePostHog(
+      userId,
+      "invoice_paid",
+      capturedProperties(
+        {
+          revenue: input.amountCents / 100,
+          currency: input.currency.toUpperCase(),
+          tier: input.tier,
+          period: input.period,
+          provider: input.provider,
+        },
+        attribution?.last ?? null,
+        attribution?.visitorId ?? null,
+      ),
+    );
   } catch (err) {
     console.warn("[analytics] dropped event", "invoice_paid", (err as Error).message);
   }

@@ -48,20 +48,20 @@ export async function identifyAttribution(userId: string, known?: AttributionSta
       .update(attributionTouches)
       .set({ userId })
       .where(and(eq(attributionTouches.visitorId, state.visitorId), isNull(attributionTouches.userId)));
-    await forwardIdentity(userId);
+    await forwardIdentity(userId, state.visitorId);
   } catch (err) {
     console.warn("[analytics] identify dropped", (err as Error).message);
   }
 }
 
-async function forwardIdentity(userId: string) {
+async function forwardIdentity(userId: string, visitorId: string) {
   try {
     const db = await getDb();
     const [row] = await db.select().from(userAttributions).where(eq(userAttributions.userId, userId));
     const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId));
     if (!row || !user) return;
     const stored: AttributionState = { visitorId: row.visitorId, first: row.firstTouch, last: row.lastTouch };
-    aliasVisitor(userId, stored.visitorId);
+    aliasVisitor(userId, visitorId);
     const person = personProperties(stored, user.email);
     setPerson(userId, person.setOnce, person.set);
   } catch (err) {
