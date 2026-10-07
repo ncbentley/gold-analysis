@@ -89,6 +89,7 @@ export default async function GoldIdeaPage({ params }: PageProps<"/gold/[id]">) 
       sectionAtCall: row.sectionAtCall,
       closeCalledAt: row.closeCalledAt ? row.closeCalledAt.getTime() : null,
       phase: played.phase,
+      finished: played.outcome.entered && played.outcome.exitTime !== null && played.phase === "history",
     },
     now,
   );

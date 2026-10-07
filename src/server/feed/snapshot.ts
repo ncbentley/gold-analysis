@@ -11,7 +11,7 @@ import type { ListedIdea } from "@/server/ideas/service";
 import { goldBookCards } from "@/server/gold/sections";
 import type { SignalListItem } from "@/server/presenters";
 
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 
 export interface BookSectionsCache<T> {
   available: T[];

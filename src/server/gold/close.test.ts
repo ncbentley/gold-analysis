@@ -17,6 +17,10 @@ describe("gold close", () => {
     expect(goldSection({ sectionAtCall: "available", closeCalledAt: calledAt }, calledAt + CLOSE_HOLD_MS)).toBe("history");
   });
 
+  it("puts a trade that already finished at its target or stop into history during the close hold", () => {
+    expect(goldSection({ sectionAtCall: "active", closeCalledAt: calledAt, finished: true }, calledAt + 1)).toBe("history");
+  });
+
   it("follows the idea phase when no close has been called", () => {
     expect(goldSection({ sectionAtCall: null, closeCalledAt: null, phase: "playing-out" }, calledAt)).toBe("active");
     expect(goldSection({ sectionAtCall: null, closeCalledAt: null, phase: "history" }, calledAt)).toBe("history");

@@ -48,11 +48,13 @@ export async function goldBookCards(_viewer: Viewer, spot: number | null, now = 
       spot,
       true,
     );
+    const finished = played.outcome.entered && played.outcome.exitTime !== null && played.phase === "history";
     const section = goldSection(
       {
         sectionAtCall: row.sectionAtCall,
         closeCalledAt: row.closeCalledAt ? row.closeCalledAt.getTime() : null,
         phase: played.phase,
+        finished,
       },
       now,
     );

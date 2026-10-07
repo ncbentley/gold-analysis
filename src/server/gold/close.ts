@@ -9,9 +9,12 @@ export function goldSection(
     sectionAtCall: "available" | "active" | null;
     closeCalledAt: number | null;
     phase?: "available" | "playing-out" | "history";
+    /** Filled, then finished at a target or the stop. That trade is history, not a held close. */
+    finished?: boolean;
   },
   now: number,
 ): "available" | "active" | "history" {
+  if (entry.finished) return "history";
   if (entry.closeCalledAt !== null && entry.sectionAtCall) {
     return now < entry.closeCalledAt + CLOSE_HOLD_MS ? entry.sectionAtCall : "history";
   }
