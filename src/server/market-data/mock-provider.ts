@@ -1,4 +1,4 @@
-import { isGoldMarketOpen, type MarketDataProvider, type ProviderBar } from "./provider";
+import { clipToClock, isGoldMarketOpen, type MarketDataProvider, type ProviderBar } from "./provider";
 
 /**
  * Deterministic synthetic XAU/USD minute bars. The same timestamp always yields the same bar,
@@ -72,9 +72,11 @@ export const mockMarketDataProvider: MarketDataProvider = {
   name: "mock-xauusd",
   async fetchMinuteBars(instrument, from, to) {
     if (instrument !== "XAUUSD") return [];
+    const window = clipToClock(from, to);
+    if (!window) return [];
     const out: ProviderBar[] = [];
-    for (const bar of walk(from.getTime(), to.getTime())) {
-      if (bar.timestamp.getTime() >= from.getTime()) out.push(bar);
+    for (const bar of walk(window.from.getTime(), window.to.getTime())) {
+      if (bar.timestamp.getTime() >= window.from.getTime()) out.push(bar);
     }
     return out;
   },

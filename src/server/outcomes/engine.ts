@@ -497,7 +497,7 @@ function finishReplay(state: ReplayState, dataThrough: number | null, rules: Out
 
 /**
  * @param dataThrough epoch ms up to which market data is known to be complete.
- *   Used to decide whether an unfilled signal is expired or still pending.
+ *   Bars after this moment are ignored. Also decides whether an unfilled signal is expired or still pending.
  */
 export function evaluateSignal(
   signal: EngineSignal,
@@ -514,6 +514,8 @@ export function evaluateSignal(
   const lastKnown = dataThrough ?? (lastBar ? lastBar.t + rules.barMs : null);
   let state = createReplay(signal, adjustments, rules);
   for (let i = origin; i < series.length; i++) {
+    // dataThrough is the last moment that counts. A later bar is not a fill.
+    if (dataThrough !== null && series[i].t > dataThrough) continue;
     if (state.cp.done) break;
     state = stepBar(state, series[i], rules);
   }
@@ -530,6 +532,7 @@ export function advanceFromCheckpoint(
 ): EngineOutcome {
   let state = restoreReplay(checkpoint, signal, adjustments, rules);
   for (const bar of bars) {
+    if (dataThrough !== null && bar.t > dataThrough) continue;
     if (bar.t <= checkpoint.barTime || state.cp.done) continue;
     state = stepBar(state, bar, rules);
   }

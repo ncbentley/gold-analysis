@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, or } from "drizzle-orm";
 import { PIPELINE, recordAudit, type Actor } from "@/server/audit";
 import { getDb } from "@/server/db";
 import {
@@ -13,6 +13,7 @@ import { enqueueJob } from "@/server/jobs/queue";
 import { getEngineBars, getSyncState } from "@/server/market-data";
 import { evaluateSignal, advanceFromCheckpoint, OUTCOME_RULES, type EngineAdjustment, type EngineOutcome, type ReplayCheckpoint } from "./engine";
 import { barAffectsSignal } from "./affected";
+import { knownMarketThrough, outcomeUsesFutureBar } from "./replay-window";
 
 const CLOSED = new Set(["WON", "LOST", "BREAKEVEN", "CANCELLED", "EXPIRED", "AMBIGUOUS"]);
 
@@ -115,23 +116,37 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
   const targets = await db.select().from(signalTargets).where(eq(signalTargets.signalId, signalId)).orderBy(asc(signalTargets.targetIndex));
   const adjustments = await db.select().from(signalAdjustments).where(eq(signalAdjustments.signalId, signalId));
   const sync = await getSyncState(signal.instrument);
+  const clock = Date.now();
+  const scoredAhead = outcomeUsesFutureBar(
+    current
+      ? {
+          kind: current.kind,
+          entryTime: current.entryTime,
+          exitTime: current.exitTime,
+          checkpointBarTime: checkpointOf(current)?.barTime ?? null,
+        }
+      : null,
+    clock,
+  );
   const unfilledLifetimeMs = OUTCOME_RULES.defaultExpiryMinutes * 60_000;
   const unfilledClosesAt = (signal.expiryTime?.getTime() ?? signal.signalTime.getTime()) + unfilledLifetimeMs;
-  if (!sync?.firstBarAt || sync.firstBarAt.getTime() > signal.signalTime.getTime()) {
-    if (signal.status === "PENDING" && Date.now() >= unfilledClosesAt) {
+  const covered = Boolean(sync?.firstBarAt && sync.firstBarAt.getTime() <= signal.signalTime.getTime());
+  if (!covered && !scoredAhead) {
+    if (signal.status === "PENDING" && clock >= unfilledClosesAt) {
       await closeUnfilledOrder(signal, unfilledClosesAt);
       return { classification: "EXPIRED" as const, changed: true };
     }
     await enqueueJob("MARKET_DATA_BACKFILL", {}, { dedupeKey: "market-backfill" });
     return { skipped: "no_market_data" as const };
   }
+  if (!covered) await enqueueJob("MARKET_DATA_BACKFILL", {}, { dedupeKey: "market-backfill" });
 
-  const syncedThrough = sync.syncedThrough.getTime();
+  const knownThrough = knownMarketThrough(sync?.syncedThrough.getTime() ?? clock, clock);
   const horizonMs = Number.isFinite(OUTCOME_RULES.maxHoldMinutes)
     ? (OUTCOME_RULES.defaultExpiryMinutes + OUTCOME_RULES.maxHoldMinutes + 24 * 60) * 60_000
-    : Math.max(0, syncedThrough - signal.signalTime.getTime());
+    : Math.max(0, knownThrough - signal.signalTime.getTime());
   const from = new Date(signal.signalTime.getTime() - 60_000);
-  const until = new Date(Math.min((signal.expiryTime?.getTime() ?? signal.signalTime.getTime()) + horizonMs, syncedThrough));
+  const until = new Date(Math.min((signal.expiryTime?.getTime() ?? signal.signalTime.getTime()) + horizonMs, knownThrough));
   const engineAdjustments: EngineAdjustment[] = adjustments.map((a) =>
     a.type === "MOVE_STOP"
       ? { type: "MOVE_STOP", effectiveAt: a.effectiveAt.getTime(), stop: a.payloadJson.stop as number | "ENTRY" }
@@ -148,26 +163,26 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
     expiryTime: signal.expiryTime?.getTime() ?? null,
   };
 
-  const stored = checkpointOf(current);
+  const stored = scoredAhead ? null : checkpointOf(current);
   const adjustmentBeforeCheckpoint = stored ? engineAdjustments.some((adjustment) => adjustment.effectiveAt < stored.barTime) : true;
   const shortUntil = new Date(Math.min(until.getTime(), from.getTime() + 2 * 86_400_000));
   let out: EngineOutcome;
   if (stored && !opts.force && !adjustmentBeforeCheckpoint) {
     const newer = await getEngineBars(new Date(stored.barTime + 1), until, signal.instrument);
-    out = advanceFromCheckpoint(engineSignal, stored, newer, engineAdjustments, Math.min(until.getTime(), syncedThrough));
+    out = advanceFromCheckpoint(engineSignal, stored, newer, engineAdjustments, Math.min(until.getTime(), knownThrough));
   } else {
     let cursor = shortUntil;
     let bars = await getEngineBars(from, cursor, signal.instrument);
-    out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(cursor.getTime(), syncedThrough));
-    while (out.classification === "OPEN" && cursor.getTime() < syncedThrough) {
-      const next = new Date(Math.min(cursor.getTime() + 14 * 86_400_000, syncedThrough));
+    out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(cursor.getTime(), knownThrough));
+    while (out.classification === "OPEN" && cursor.getTime() < knownThrough) {
+      const next = new Date(Math.min(cursor.getTime() + 14 * 86_400_000, knownThrough));
       bars.push(...(await getEngineBars(cursor, next, signal.instrument)));
       cursor = next;
-      out = evaluateSignal(engineSignal, bars, engineAdjustments, syncedThrough);
+      out = evaluateSignal(engineSignal, bars, engineAdjustments, knownThrough);
     }
     if (out.classification === "PENDING" && cursor.getTime() < until.getTime()) {
       bars = await getEngineBars(from, until, signal.instrument);
-      out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(until.getTime(), syncedThrough));
+      out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(until.getTime(), knownThrough));
     }
   }
   if (out.classification === "PENDING" && !out.entered && Date.now() >= unfilledClosesAt) {
@@ -303,6 +318,22 @@ export async function clearOverride(signalId: string, actor: Actor, reason: stri
 export async function listOutcomeHistory(signalId: string): Promise<SignalOutcome[]> {
   const db = await getDb();
   return db.select().from(signalOutcomes).where(eq(signalOutcomes.signalId, signalId)).orderBy(desc(signalOutcomes.computedAt));
+}
+
+/** Computed outcomes whose fill or exit is dated after the clock. */
+export async function signalIdsScoredAfter(instant: Date) {
+  const db = await getDb();
+  const rows = await db
+    .select({ id: signalOutcomes.signalId })
+    .from(signalOutcomes)
+    .where(
+      and(
+        eq(signalOutcomes.isCurrent, true),
+        eq(signalOutcomes.kind, "computed"),
+        or(gt(signalOutcomes.entryTime, instant), gt(signalOutcomes.exitTime, instant)),
+      ),
+    );
+  return rows.map((row) => row.id);
 }
 
 export async function openSignalIds() {

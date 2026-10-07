@@ -37,7 +37,7 @@ import { getAiProvider } from "@/server/ai/service";
 import { billingMode } from "@/server/billing/config";
 import { requireAdmin } from "@/server/auth/guards";
 import { TIER_LABEL, TIER_ORDER } from "@/server/entitlements/config";
-import { getMarketDataProvider } from "@/server/market-data";
+import { getMarketDataConfig } from "@/server/market-data";
 import { nowMs } from "@/lib/clock";
 import { telegramStatus } from "@/server/telegram";
 
@@ -68,7 +68,8 @@ const MODULES: { href: string; title: string; description: string; cta: string; 
 export default async function AdminOverviewPage({ searchParams }: PageProps<"/admin">) {
   await requireAdmin();
   const sp = await searchParams;
-  const [o, provider, tg] = await Promise.all([getAdminOverview(), getMarketDataProvider(), telegramStatus()]);
+  const [o, market, tg] = await Promise.all([getAdminOverview(), getMarketDataConfig(), telegramStatus()]);
+  const synthetic = market.provider !== "twelvedata";
   const open = (o.signals.PENDING ?? 0) + (o.signals.ACTIVE ?? 0) + (o.signals.PARTIAL ?? 0);
   const closed = (o.signals.WON ?? 0) + (o.signals.LOST ?? 0) + (o.signals.BREAKEVEN ?? 0);
   const staleMinutes = o.market.last ? (nowMs() - new Date(o.market.last).getTime()) / 60_000 : null;
@@ -115,7 +116,7 @@ export default async function AdminOverviewPage({ searchParams }: PageProps<"/ad
       </PageHeader>
       <Notice searchParams={sp} />
 
-      {(!tg.signedIn || provider.name === "mock") && (
+      {(!tg.signedIn || synthetic) && (
         <div className="mb-4 grid gap-3 lg:grid-cols-2">
           {!tg.signedIn && (
             <Callout tone="gold" icon={Send}>
@@ -126,13 +127,13 @@ export default async function AdminOverviewPage({ searchParams }: PageProps<"/ad
               .
             </Callout>
           )}
-          {provider.name === "mock" && (
+          {synthetic && (
             <Callout tone="warn">
-              Outcomes are being replayed against synthetic prices. Before publishing results,{" "}
+              Outcomes are being replayed against synthetic prices.{" "}
               <Link href="/admin/settings" className="font-medium text-amber-200 underline underline-offset-2">
-                connect a real XAU/USD data provider
-              </Link>
-              .
+                Connect Twelve Data
+              </Link>{" "}
+              to replace them.
             </Callout>
           )}
         </div>
@@ -159,7 +160,7 @@ export default async function AdminOverviewPage({ searchParams }: PageProps<"/ad
             <SectionTitle icon={CandlestickChart} title="Market data" className="mb-0" action={<PanelLink href="/admin/settings">Settings</PanelLink>} />
           </CardHeader>
           <CardContent className="text-sm">
-            <Row k="Provider" v={provider.name === "mock" ? "Synthetic (development)" : provider.name} />
+            <Row k="Provider" v={synthetic ? "Synthetic" : "Twelve Data"} />
             <Row k="Bars stored" v={o.market.count.toLocaleString()} />
             <Row k="First bar" v={fmtDateTime(o.market.first)} />
             <Row

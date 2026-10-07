@@ -13,8 +13,15 @@ export interface MarketDataProvider {
   minSyncIntervalMs?: number;
   /** Pause between chunked requests during large backfills. */
   requestSpacingMs?: number;
-  /** Returns 1-minute bars with timestamp in [from, to). */
+  /** Returns 1-minute bars with timestamp in [from, to). Never a bar after the clock. */
   fetchMinuteBars(instrument: string, from: Date, to: Date): Promise<ProviderBar[]>;
+}
+
+/** Prices that have not printed are not bars. `to` is clipped to the clock. */
+export function clipToClock(from: Date, to: Date, now = Date.now()): { from: Date; to: Date } | null {
+  const end = Math.min(to.getTime(), now);
+  if (from.getTime() >= end) return null;
+  return { from, to: new Date(end) };
 }
 
 /** Spot gold trades roughly Sunday 22:00 UTC to Friday 21:00 UTC. */

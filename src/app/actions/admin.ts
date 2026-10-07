@@ -526,7 +526,7 @@ export async function saveMarketDataAction(form: FormData) {
   const { actor } = await requireAdmin();
   await attempt("/admin/settings", async () => {
     const provider = str(form, "provider");
-    if (provider !== "mock" && provider !== "twelvedata") throw new Error("Choose a market data provider.");
+    if (provider !== "twelvedata") throw new Error("Twelve Data is the only market data provider.");
     const before = await getMarketDataConfig();
     const keyInput = str(form, "twelvedataApiKey");
     const twelvedataApiKey = keyInput || (before.provider === "twelvedata" ? before.twelvedataApiKey ?? null : null);

@@ -1,4 +1,4 @@
-import type { MarketDataProvider, ProviderBar } from "./provider";
+import { clipToClock, type MarketDataProvider, type ProviderBar } from "./provider";
 
 /**
  * Twelve Data adapter (https://twelvedata.com). The free plan allows 8 requests per minute
@@ -10,14 +10,16 @@ export function createTwelveDataProvider(apiKey: string): MarketDataProvider {
     minSyncIntervalMs: 2 * 60_000,
     requestSpacingMs: 8_000,
     async fetchMinuteBars(instrument, from, to) {
+      const window = clipToClock(from, to);
+      if (!window) return [];
       const symbol = instrument === "XAUUSD" ? "XAU/USD" : instrument;
       const fmt = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
       const url = new URL("https://api.twelvedata.com/time_series");
       url.search = new URLSearchParams({
         symbol,
         interval: "1min",
-        start_date: fmt(from),
-        end_date: fmt(to),
+        start_date: fmt(window.from),
+        end_date: fmt(window.to),
         timezone: "UTC",
         order: "ASC",
         outputsize: "5000",
@@ -36,7 +38,7 @@ export function createTwelveDataProvider(apiKey: string): MarketDataProvider {
           close: Number(v.close),
           volume: v.volume ? Number(v.volume) : null,
         }))
-        .filter((b) => b.timestamp >= from && b.timestamp < to);
+        .filter((b) => b.timestamp >= window.from && b.timestamp < window.to && b.timestamp.getTime() <= Date.now());
     },
   };
 }

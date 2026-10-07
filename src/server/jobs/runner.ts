@@ -5,8 +5,8 @@ import { refreshMarketDirection } from "@/server/direction/service";
 import { reconcileSubscriptions } from "@/server/billing/service";
 import { getDb } from "@/server/db";
 import { jobs, signalOutcomes, signals, type Job } from "@/server/db/schema";
-import { ensureMarketDataCoverage, getRecentBars, syncMarketData } from "@/server/market-data";
-import { openSignalsForAdvance, recalculateOutcome, signalsToAdvance } from "@/server/outcomes/service";
+import { discardUnrealBars, ensureMarketDataCoverage, getRecentBars, syncMarketData } from "@/server/market-data";
+import { openSignalsForAdvance, recalculateOutcome, signalIdsScoredAfter, signalsToAdvance } from "@/server/outcomes/service";
 import { processRawEvent } from "@/server/normalization";
 import { repairShortZones } from "@/server/parsing/repair-zones";
 import { refreshBoard } from "@/server/board/service";
@@ -26,13 +26,17 @@ type Handler = (payload: Record<string, unknown>) => Promise<unknown>;
 
 const handlers: Record<JobType, Handler> = {
   MARKET_DATA_SYNC: async () => {
+    const repair = await discardUnrealBars();
     const res = await syncMarketData();
     await settleStoredGoldCloses();
-    if (res.inserted > 0) {
+    if (repair === "reset") await enqueueJob("MARKET_DATA_BACKFILL", { recalcAll: true }, { dedupeKey: "market-refetch-real" });
+    const ahead = await signalIdsScoredAfter(new Date());
+    for (const id of ahead) await enqueueJob("RECALC_OUTCOME", { signalId: id }, { dedupeKey: `recalc:${id}` });
+    if (res.inserted > 0 || ahead.length > 0 || repair !== "clean") {
       await enqueueJob("RECALC_OPEN_SIGNALS", {}, { dedupeKey: "recalc-open" });
       await enqueueJob("RELABEL_FEED", {}, { dedupeKey: "relabel-feed" });
     }
-    return res;
+    return { ...res, repair };
   },
   RECALC_OUTCOME: async (p) => {
     const result = await recalculateOutcome(String(p.signalId), { force: Boolean(p.force) });
@@ -85,9 +89,10 @@ const handlers: Record<JobType, Handler> = {
     }
     return { status: result.status };
   },
-  MARKET_DATA_BACKFILL: async () => {
+  MARKET_DATA_BACKFILL: async (p) => {
     const res = await ensureMarketDataCoverage();
-    await enqueueJob("RECALC_ALL_SIGNALS", { onlyMissing: true }, { dedupeKey: "recalc-all-missing" });
+    const recalcAll = p.recalcAll === true;
+    await enqueueJob("RECALC_ALL_SIGNALS", recalcAll ? {} : { onlyMissing: true }, { dedupeKey: recalcAll ? "recalc-all-after-real-data" : "recalc-all-missing" });
     return res;
   },
   REPAIR_QUOTE_PARSES: async () => {

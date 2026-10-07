@@ -1,6 +1,6 @@
 import { CandlestickChart, Gauge, Settings } from "lucide-react";
 import { saveMarketDataAction } from "@/app/actions/admin";
-import { Callout, Field, NativeSelect, Notice } from "@/components/admin-bits";
+import { Callout, Field, Notice } from "@/components/admin-bits";
 import { PageHeader, SectionTitle } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
@@ -33,24 +33,16 @@ export default async function AdminSettingsPage({ searchParams }: PageProps<"/ad
         <Card>
           <CardHeader>
             <SectionTitle icon={CandlestickChart} title="Market data" className="mb-0" />
-            <CardDescription>
-              Outcomes are replayed against 1-minute XAU/USD bars. Synthetic prices are for development only; results computed against them are not
-              real.
-            </CardDescription>
+            <CardDescription>Outcomes are replayed against real 1-minute XAU/USD bars from Twelve Data.</CardDescription>
           </CardHeader>
           <CardContent>
             {cfg.provider === "mock" && (
               <Callout tone="warn" className="mb-4">
-                Synthetic prices are active. Connect Twelve Data (a free plan covers one instrument) before showing results to members.
+                Stored prices are still synthetic. Save a Twelve Data key to replace them and recalculate every outcome.
               </Callout>
             )}
             <form action={saveMarketDataAction} className="space-y-3.5">
-              <Field label="Provider" htmlFor="md-provider">
-                <NativeSelect id="md-provider" name="provider" defaultValue={cfg.provider}>
-                  <option value="twelvedata">Twelve Data (real XAU/USD)</option>
-                  <option value="mock">Synthetic (development)</option>
-                </NativeSelect>
-              </Field>
+              <input type="hidden" name="provider" value="twelvedata" />
               <Field
                 label="Twelve Data API key"
                 htmlFor="md-key"
@@ -63,7 +55,9 @@ export default async function AdminSettingsPage({ searchParams }: PageProps<"/ad
                 <Input id="md-key" name="twelvedataApiKey" type="password" autoComplete="off" spellCheck={false} className="font-mono" />
               </Field>
               <p className="text-xs text-muted-foreground">
-                Switching provider clears stored bars, re-fetches history back to the oldest signal and recalculates every outcome.
+                {cfg.provider === "mock"
+                  ? "Saving clears the synthetic series, fetches real history back to the oldest signal, and recalculates every outcome."
+                  : "Any synthetic bars still stored are replaced on the next sync, and outcomes scored from them are recalculated."}
               </p>
               <Button type="submit">Save market data</Button>
             </form>

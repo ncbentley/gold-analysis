@@ -120,6 +120,13 @@ describe("entry", () => {
     const out = evaluateSignal({ ...longZone, expiryTime: min(60) }, bars([103, 104, 101, 102]), [], min(1));
     expect(out.classification).toBe("PENDING");
   });
+
+  it("does not fill on a bar after dataThrough", () => {
+    const later = { t: min(6 * 24 * 60), o: 100, h: 120, l: 90, c: 115 };
+    const out = evaluateSignal(longZone, [later], [], min(2));
+    expect(out.entered).toBe(false);
+    expect(out.classification).toBe("PENDING");
+  });
 });
 
 describe("targets and stops", () => {
