@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ideaPhase, phaseFromMembers, type PhaseInput, type PhaseMember } from "./phase";
+import { callCovered, ideaPhase, phaseFromMembers, type PhaseInput, type PhaseMember } from "./phase";
 
 const long: PhaseInput = {
   direction: "LONG",
@@ -11,6 +11,17 @@ const long: PhaseInput = {
   closed: false,
   cancelled: false,
 };
+
+describe("callCovered", () => {
+  it("is covered by the bar that opens the call", () => {
+    expect(callCovered([{ t: 1_000 }, { t: 60_000 }], 0)).toBe(true);
+  });
+
+  it("is not covered when the first bar arrives later", () => {
+    expect(callCovered([{ t: 21 * 60_000 }], 0)).toBe(false);
+    expect(callCovered([], 0)).toBe(false);
+  });
+});
 
 describe("ideaPhase", () => {
   it("stays available while a long can still be filled from above", () => {
@@ -46,6 +57,11 @@ describe("ideaPhase", () => {
 
   it("stays available when spot is missing and the trade is still open", () => {
     expect(ideaPhase({ ...long, spot: null })).toBe("available");
+  });
+
+  it("stays available when the series does not start at the call", () => {
+    expect(ideaPhase({ ...long, spot: 2644, covered: false })).toBe("available");
+    expect(ideaPhase({ ...long, spot: 2648, covered: false })).toBe("available");
   });
 });
 

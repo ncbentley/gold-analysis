@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, gt, gte, lte, lt, ne, sql } from "drizzle-orm";
 import { getDb } from "@/server/db";
-import { marketBars, marketDataSync, signals } from "@/server/db/schema";
+import { marketBars, marketDataSync, marketTicks, signals } from "@/server/db/schema";
 import { getSetting, SETTING_KEYS } from "@/server/settings";
-import type { EngineBar } from "@/server/outcomes/engine";
+import type { EngineBar, EngineTick } from "@/server/outcomes/engine";
 import { mockMarketDataProvider } from "./mock-provider";
 import { isGoldMarketOpen, type MarketDataProvider } from "./provider";
 import { routineSyncStart, seriesRepair, syncedRecently } from "./sync-window";
@@ -175,6 +175,19 @@ export async function getEngineBars(from: Date, to: Date, instrument = INSTRUMEN
     )
     .orderBy(asc(marketBars.timestamp));
   return rows.map((r) => ({ ...r, t: r.t.getTime() }));
+}
+
+/** Prints in vendor time, then the order they were stored. Minutes with none fall back to the candle path. */
+export async function getEngineTicks(from: Date, to: Date, instrument = INSTRUMENT): Promise<EngineTick[]> {
+  const end = new Date(Math.min(to.getTime(), Date.now() + MINUTE));
+  if (from.getTime() >= end.getTime()) return [];
+  const db = await getDb();
+  const rows = await db
+    .select({ t: marketTicks.at, price: marketTicks.price })
+    .from(marketTicks)
+    .where(and(eq(marketTicks.instrument, instrument), gte(marketTicks.at, from), lt(marketTicks.at, end)))
+    .orderBy(asc(marketTicks.at), asc(marketTicks.receivedAt), asc(marketTicks.seq));
+  return rows.map((row) => ({ t: row.t.getTime(), price: row.price }));
 }
 
 export async function getRecentBars(minutes: number, instrument = INSTRUMENT) {

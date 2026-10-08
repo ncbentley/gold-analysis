@@ -41,6 +41,11 @@ describe("replayIdea", () => {
     expect(phase).toBe("history");
   });
 
+  it("stays available when the only bar is long after the call", () => {
+    const bars = [bar(60, 2640, 2642, 2638, 2640)];
+    expect(replayIdea(idea, bars, 2640).phase).toBe("available");
+  });
+
   it("stays available while spot can still fill the entry", () => {
     const bars = [bar(1, 2655, 2656, 2654, 2655)];
     expect(replayIdea(idea, bars, 2655).phase).toBe("available");

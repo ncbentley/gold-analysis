@@ -127,6 +127,13 @@
       "when": 1792108800000,
       "tag": "0017_gold_book_synthesized",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792195200000,
+      "tag": "0018_market_ticks",
+      "breakpoints": true
     }
   ]
 }

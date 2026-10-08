@@ -1,3 +1,4 @@
+import { startTwelveDataStream } from "@/server/market-data/twelvedata-stream";
 import { connectTelegram } from "@/server/telegram";
 import { LANE_POLL_MS, TELEGRAM_SCHEDULE_MS } from "./limits";
 import { JOB_TYPES, setJobEnqueuedListener, type JobType } from "./queue";
@@ -66,6 +67,7 @@ export function startWorker() {
     await scheduleRecurring("telegram");
     await scheduleRecurring("hourly");
     await scheduleRecurring("board");
+    startTwelveDataStream();
   })();
 
   setInterval(minute, 60_000).unref();

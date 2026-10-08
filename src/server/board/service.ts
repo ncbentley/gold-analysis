@@ -5,7 +5,7 @@ import { boardPosts, consolidatedIdeas, feedRevisions, marketDirectionSnapshots,
 import { MIN_CONSOLIDATED_SOURCES, replayConsolidatedIdeas } from "@/server/ideas/service";
 import { replayIdea } from "@/server/ideas/replay";
 import type { IdeaPhase } from "@/server/ideas/phase";
-import { getEngineBars, getRecentBars } from "@/server/market-data";
+import { getEngineBars, getEngineTicks, getRecentBars } from "@/server/market-data";
 import { listGoldEntries } from "@/server/gold/store";
 import { sourcesRetired } from "@/server/gold/retire";
 import { decideBoard, type BoardSnapshot } from "./decide";
@@ -62,7 +62,9 @@ async function loadMarket(now: number, since: Date | null) {
   const ids = usable.map((row) => row.signal.id);
   const targetRows = ids.length ? await db.select().from(signalTargets).where(inArray(signalTargets.signalId, ids)) : [];
   const earliest = usable.reduce((min, row) => Math.min(min, row.signal.signalTime.getTime()), now);
-  const bars = usable.length ? await getEngineBars(new Date(earliest), new Date(now + 60_000)) : [];
+  const windowStart = new Date(earliest);
+  const windowEnd = new Date(now + 60_000);
+  const [bars, ticks] = usable.length ? await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]) : [[], []];
   const liveSignals = usable.filter((row) => {
     if (!silverSignalIds.has(row.signal.id)) return false;
     const targets = targetRows.filter((target) => target.signalId === row.signal.id).sort((a, b) => a.targetIndex - b.targetIndex).map((target) => target.price).filter((price): price is number => price !== null);
@@ -78,6 +80,7 @@ async function loadMarket(now: number, since: Date | null) {
       bars,
       spot,
       true,
+      ticks,
     ).phase;
     return phase === "available";
   });
@@ -138,7 +141,10 @@ async function callModel(facts: Record<string, unknown>) {
 }
 
 async function pickPhase(pick: BoardPick, startedAt: number, spot: number | null) {
-  return replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), spot, true);
+  const from = new Date(startedAt);
+  const to = new Date(Date.now() + 60_000);
+  const [bars, ticks] = await Promise.all([getEngineBars(from, to), getEngineTicks(from, to)]);
+  return replayIdea({ ...pick, startedAt }, bars, spot, true, ticks);
 }
 
 async function anyPickLive(picks: BoardPick[], startedAt: number, spot: number | null) {
@@ -246,9 +252,11 @@ function callStartedAt(stored: number | undefined, publishedAt: number) {
 /** Labels the handful of picks on one board. This runs in the queue, not on a page request. */
 export async function labelPicks(picks: BoardPick[], spot: number | null, fallback: number): Promise<BoardCardState[]> {
   const slots: { slot: "primary" | number; pick: BoardPick }[] = picks.map((pick, index) => ({ slot: index === 0 ? "primary" : index - 1, pick }));
-  const bars = await getEngineBars(new Date(fallback), new Date(Date.now() + 60_000));
+  const from = new Date(fallback);
+  const to = new Date(Date.now() + 60_000);
+  const [bars, ticks] = await Promise.all([getEngineBars(from, to), getEngineTicks(from, to)]);
   return slots.map((row) => {
-    const played = replayIdea({ ...row.pick, startedAt: fallback }, bars, spot, true);
+    const played = replayIdea({ ...row.pick, startedAt: fallback }, bars, spot, true, ticks);
     return { slot: row.slot, phase: played.phase, startedAt: fallback };
   });
 }
@@ -306,7 +314,10 @@ export async function boardPick(postId: string, slot: string, spot: number | nul
   const price = spot ?? (await spotNow());
   const stored = post.cardState.find((state) => String(state.slot) === (slot === "primary" ? "primary" : String(Number(slot))));
   const startedAt = callStartedAt(stored?.startedAt, post.createdAt.getTime());
-  const played = replayIdea({ ...pick, startedAt }, await getEngineBars(new Date(startedAt), new Date(Date.now() + 60_000)), price, true);
+  const from = new Date(startedAt);
+  const to = new Date(Date.now() + 60_000);
+  const [bars, ticks] = await Promise.all([getEngineBars(from, to), getEngineTicks(from, to)]);
+  const played = replayIdea({ ...pick, startedAt }, bars, price, true, ticks);
   const ideaRows = pick.ideaIds.length ? await db.select().from(consolidatedIdeas).where(inArray(consolidatedIdeas.id, pick.ideaIds)) : [];
   return { post, pick, slot: slot === "primary" ? ("primary" as const) : Number(slot), startedAt, phase: played.phase, outcome: played.outcome, ideas: ideaRows };
 }

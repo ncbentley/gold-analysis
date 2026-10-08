@@ -35,9 +35,9 @@ describe("entry", () => {
     expect(out.entryTime).toBe(min(0));
   });
 
-  it("fills at the open when the bar gaps through the zone", () => {
+  it("fills at the near edge when the path trades into the zone", () => {
     const out = evaluateSignal(longZone, bars([98, 99, 97, 98]));
-    expect(out.entryPrice).toBe(98);
+    expect(out.entryPrice).toBe(99);
   });
 
   it("does not fill a zone when price never touches it", () => {
@@ -175,13 +175,25 @@ describe("targets and stops", () => {
     expect(out.status).toBe("PARTIAL");
   });
 
-  it("marks the outcome ambiguous when stop and target share one candle", () => {
+  it("hits the target before the stop on a down candle, because that path rises first", () => {
     const out = evaluateSignal(longZone, bars([101, 101, 100, 100.5], [100.5, 106, 94, 100]));
-    expect(out.classification).toBe("AMBIGUOUS");
-    expect(out.status).toBe("MANUAL_REVIEW");
-    expect(out.ambiguous).toBe(true);
-    expect(out.rResult).toBeNull();
-    expect(out.targets[0].ambiguous).toBe(true);
+    expect(out.classification).toBe("BREAKEVEN");
+    expect(out.exitReason).toBe("STOP");
+    expect(out.ambiguous).toBe(false);
+    expect(out.targets[0].hitAt).toBe(min(1));
+    expect(out.targets[1].hitAt).toBeNull();
+  });
+
+  it("follows stored prints when they reach the stop before the target", () => {
+    const ticks = [
+      { t: min(1), price: 100.5 },
+      { t: min(1) + 5_000, price: 94 },
+      { t: min(1) + 10_000, price: 106 },
+    ];
+    const out = evaluateSignal(longZone, bars([101, 101, 100, 100.5], [100.5, 106, 94, 100]), [], null, OUTCOME_RULES, false, ticks);
+    expect(out.classification).toBe("LOST");
+    expect(out.exitReason).toBe("STOP");
+    expect(out.targets[0].hitAt).toBeNull();
   });
 
   it("counts a stop on the intra-bar fill candle because price must pass entry first", () => {
@@ -190,7 +202,7 @@ describe("targets and stops", () => {
     expect(out.rResult).toBe(-1);
   });
 
-  it("does not credit a target touched on an intra-bar fill candle unless it closes beyond it", () => {
+  it("credits a target on the fill path only after the fill", () => {
     const touchedOnly = evaluateSignal(longZone, bars([102, 106, 100, 101]));
     expect(touchedOnly.targets[0].hitAt).toBeNull();
     const closedBeyond = evaluateSignal(longZone, bars([102, 106, 100, 105.5]));

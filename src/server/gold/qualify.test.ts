@@ -101,6 +101,31 @@ describe("goldBookAction", () => {
     ).toBe("close");
   });
 
+  it("does not close, and puts a bad close back, when the path was never stored", () => {
+    expect(
+      goldBookAction({
+        closeCalledAt: null,
+        entered: false,
+        stopHitAt: null,
+        targets: [tp2],
+        leftBehind: true,
+        outsideSilver: false,
+        covered: false,
+      }),
+    ).toBe("keep");
+    expect(
+      goldBookAction({
+        closeCalledAt: 10,
+        entered: false,
+        stopHitAt: null,
+        targets: [tp2],
+        leftBehind: true,
+        outsideSilver: false,
+        covered: false,
+      }),
+    ).toBe("reopen");
+  });
+
   it("keeps an unfilled call that is still near price", () => {
     expect(
       goldBookAction({

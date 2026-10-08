@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/page-header";
 import { downsample, PriceChart } from "@/components/price-chart";
 import { DirectionBadge, Stat } from "@/components/signal-bits";
 import { SignalList } from "@/components/signal-list";
+import { marketDataNotice, tradeChartRange } from "@/lib/chart-window";
 import { fmtDateTime, fmtEntry, fmtPrice } from "@/lib/format";
 import { nowMs } from "@/lib/clock";
 import { tradeMarkers } from "@/lib/trade-markers";
@@ -109,8 +110,8 @@ export default async function GoldIdeaPage({ params }: PageProps<"/gold/[id]">) 
         : "Waiting for the entry to trade";
   const board = await currentBoard(null);
   const writeup = board.post ? [board.post.primary, ...board.post.alternates].find((pick) => sameZone(pick, row) || (row.ideaId !== null && pick.ideaIds.length === 1 && pick.ideaIds[0] === row.ideaId))?.writeup : null;
-  const endMs = Math.min(now, (outcome.exitTime ?? row.exitTime?.getTime() ?? now) + 90 * 60_000);
-  const bars = await getEngineBars(new Date(startedMs - 120 * 60_000), new Date(endMs + 60_000));
+  const range = tradeChartRange(startedMs, outcome.exitTime ?? row.exitTime?.getTime() ?? null, now);
+  const bars = await getEngineBars(range.from, range.to);
   const levels = [
     { price: row.entryMin, label: row.entryMin === row.entryMax ? "Entry" : "Zone", tone: "entry" as const },
     ...(row.entryMin !== row.entryMax ? [{ price: row.entryMax, label: "Zone", tone: "entry" as const }] : []),
@@ -169,7 +170,7 @@ export default async function GoldIdeaPage({ params }: PageProps<"/gold/[id]">) 
         <Stat icon={Crosshair} label="Path" value={path} hint={pathHint} />
       </div>
       <div className="mb-8 rounded-xl bg-[#050c1c]/80 p-2 ring-1 ring-glow/25 shadow-[inset_0_0_30px_-12px_rgb(47_123_255/0.4)]">
-        <PriceChart points={downsample(bars)} levels={levels} markers={markers} />
+        <PriceChart points={downsample(bars)} levels={levels} markers={markers} notice={marketDataNotice({ bars, calledAt: startedMs, filledAt: outcome.entryTime })} />
       </div>
       {items.length ? (
         <SignalList items={items} empty="None of the counting signals for this idea are still in the database." />

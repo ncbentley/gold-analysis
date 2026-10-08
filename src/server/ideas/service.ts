@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, ne, notInArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { getDb } from "@/server/db";
 import { consolidatedIdeas, signalTargets, signals, sources } from "@/server/db/schema";
 import { historyCutoff, tierForSignalTime } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
-import { getEngineBars } from "@/server/market-data";
+import { getEngineBars, getEngineTicks } from "@/server/market-data";
 import { listSignalListItemsByIds } from "@/server/signals/queries";
 import type { EngineOutcome } from "@/server/outcomes/engine";
 import { groupSignals, type GroupedIdea } from "./group";
@@ -168,11 +168,13 @@ export async function replayConsolidatedIdeas(rows: (typeof consolidatedIdeas.$i
   const times = await startTimes(rows.flatMap((row) => row.signalIds));
   const started = new Map(rows.map((row) => [row.id, ideaStart(row.signalIds, times, row.newestSignalAt)]));
   const from = started.size ? Math.min(...started.values()) : Date.now();
-  const bars = rows.length ? await getEngineBars(new Date(from), new Date(Date.now() + 60_000)) : [];
+  const windowStart = new Date(from);
+  const windowEnd = new Date(Date.now() + 60_000);
+  const [bars, ticks] = rows.length ? await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]) : [[], []];
   const played = new Map<string, ReturnType<typeof replayIdea> & { startedAt: number }>();
   for (const row of rows) {
     const startedAt = started.get(row.id) ?? row.newestSignalAt.getTime();
-    played.set(row.id, { ...replayIdea({ ...row, startedAt }, bars, spot, true), startedAt });
+    played.set(row.id, { ...replayIdea({ ...row, startedAt }, bars, spot, true, ticks), startedAt });
   }
   return played;
 }
@@ -182,10 +184,10 @@ function asPhase(value: string): IdeaPhase {
   return "available";
 }
 
-/** Writes the price label onto ideas that are not already history. History stays history. */
+/** Writes the price label from the latest replay, including a history row whose path was never stored. */
 export async function publishIdeaPhases(spot: number | null) {
   const db = await getDb();
-  const rows = await db.select().from(consolidatedIdeas).where(ne(consolidatedIdeas.phase, "history"));
+  const rows = await db.select().from(consolidatedIdeas);
   if (!rows.length) return 0;
   const played = await replayConsolidatedIdeas(rows, spot);
   let changed = 0;

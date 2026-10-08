@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/page-header";
 import { downsample, PriceChart } from "@/components/price-chart";
 import { DirectionBadge, Stat } from "@/components/signal-bits";
 import { SignalList } from "@/components/signal-list";
+import { marketDataNotice, tradeChartRange } from "@/lib/chart-window";
 import { fmtDateTime, fmtEntry, fmtPrice } from "@/lib/format";
 import { tradeMarkers } from "@/lib/trade-markers";
 import { nowMs } from "@/lib/clock";
@@ -93,8 +94,8 @@ export default async function IdeaPage({ params }: PageProps<"/ideas/[id]">) {
       ? `Filled ${fmtDateTime(new Date(outcome.entryTime))}`
       : "Waiting for the entry to trade";
   const startedMs = Date.parse(startedAt);
-  const endMs = Math.min(nowMs(), (outcome.exitTime ?? nowMs()) + 90 * 60_000);
-  const bars = await getEngineBars(new Date(startedMs - 120 * 60_000), new Date(endMs + 60_000));
+  const range = tradeChartRange(startedMs, outcome.exitTime, nowMs());
+  const bars = await getEngineBars(range.from, range.to);
   const levels = [
     { price: idea.entryMin, label: idea.entryMin === idea.entryMax ? "Entry" : "Zone", tone: "entry" as const },
     ...(idea.entryMin !== idea.entryMax ? [{ price: idea.entryMax, label: "Zone", tone: "entry" as const }] : []),
@@ -143,7 +144,7 @@ export default async function IdeaPage({ params }: PageProps<"/ideas/[id]">) {
         <Stat icon={Crosshair} label="Path" value={path} hint={pathHint} />
       </div>
       <div className="mb-8 rounded-xl bg-[#050c1c]/80 p-2 ring-1 ring-glow/25 shadow-[inset_0_0_30px_-12px_rgb(47_123_255/0.4)]">
-        <PriceChart points={downsample(bars)} levels={levels} markers={markers} />
+        <PriceChart points={downsample(bars)} levels={levels} markers={markers} notice={marketDataNotice({ bars, calledAt: startedMs, filledAt: outcome.entryTime })} />
       </div>
       <SignalList items={items} empty="None of the counting signals for this idea are still in the database." />
     </>

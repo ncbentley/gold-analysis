@@ -51,11 +51,18 @@ export function goldBookAction(input: {
   targets: { hitAt: number | null }[];
   leftBehind: boolean;
   outsideSilver: boolean;
+  /** False when bars do not start at the call. A missing path is not a close. */
+  covered?: boolean;
 }): GoldBookAction {
+  const covered = input.covered !== false;
   const working = filledTradeStillOpen(input);
-  if (input.closeCalledAt !== null) return working ? "reopen" : "keep";
+  if (input.closeCalledAt !== null) {
+    if (working) return "reopen";
+    if (!input.entered && !covered && !input.outsideSilver) return "reopen";
+    return "keep";
+  }
   if (working) return "keep";
-  if (!input.entered && (input.leftBehind || input.outsideSilver)) return "close";
+  if (!input.entered && covered && (input.leftBehind || input.outsideSilver)) return "close";
   return "keep";
 }
 

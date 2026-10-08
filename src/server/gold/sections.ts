@@ -4,7 +4,7 @@ import { consolidatedIdeas } from "@/server/db/schema";
 import type { Viewer } from "@/server/entitlements/service";
 import { replayIdea } from "@/server/ideas/replay";
 import type { ListedIdea } from "@/server/ideas/service";
-import { getEngineBars } from "@/server/market-data";
+import { getEngineBars, getEngineTicks } from "@/server/market-data";
 import { goldSection } from "./close";
 import { listGoldEntries } from "./store";
 
@@ -31,7 +31,9 @@ export async function goldBookCards(_viewer: Viewer, spot: number | null, now = 
     : [];
   const byId = new Map(ideaRows.map((idea) => [idea.id, idea]));
   const from = rows.reduce((min, row) => Math.min(min, row.createdAt.getTime()), now);
-  const bars = rows.length ? await getEngineBars(new Date(from), new Date(now + 60_000)) : [];
+  const windowStart = new Date(from);
+  const windowEnd = new Date(now + 60_000);
+  const [bars, ticks] = rows.length ? await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]) : [[], []];
   const cards: GoldBookCard[] = [];
   for (const row of rows) {
     const idea = row.ideaId ? byId.get(row.ideaId) : undefined;
@@ -47,6 +49,7 @@ export async function goldBookCards(_viewer: Viewer, spot: number | null, now = 
       bars,
       spot,
       true,
+      ticks,
     );
     const finished = played.outcome.entered && played.outcome.exitTime !== null && played.phase === "history";
     const section = goldSection(

@@ -13,6 +13,7 @@ import { DirectionBadge, RValue, Stat, StatusBadge } from "@/components/signal-b
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { marketDataNotice, tradeChartRange } from "@/lib/chart-window";
 import { fmtAge, fmtDateTime, fmtEntry, fmtMinutes, fmtPct, fmtPrice } from "@/lib/format";
 import { tradeMarkers } from "@/lib/trade-markers";
 import { cn } from "@/lib/utils";
@@ -113,8 +114,8 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
   void trackEvent("signal_viewed", viewer.user?.id ?? null, { signalId: d.id, source: d.source.slug });
 
   const signalMs = Date.parse(d.signalTime);
-  const endMs = Math.min(nowMs(), (d.closedAt ? Date.parse(d.closedAt) : nowMs()) + 90 * 60_000, signalMs + 3 * 86_400_000);
-  const bars = await getEngineBars(new Date(signalMs - 120 * 60_000), new Date(endMs));
+  const range = tradeChartRange(signalMs, d.closedAt ? Date.parse(d.closedAt) : null, nowMs());
+  const bars = await getEngineBars(range.from, range.to);
   const points = downsample(bars);
   const levels = [
     { price: d.entryMin, label: d.entryMin === d.entryMax ? "Entry" : "Zone", tone: "entry" as const },
@@ -174,7 +175,7 @@ export default async function SignalDetailPage({ params }: PageProps<"/signals/[
               <Stat label="Parser confidence" value={fmtPct(d.parserConfidence)} hint={`version ${d.version}${d.sourceConfidenceText ? ` · source says “${d.sourceConfidenceText}”` : ""}`} />
             </div>
             <div className="mt-4 rounded-xl bg-[#050c1c]/80 p-2 ring-1 ring-glow/25 shadow-[inset_0_0_30px_-12px_rgb(47_123_255/0.4)]">
-              <PriceChart points={points} levels={levels} markers={markers} />
+              <PriceChart points={points} levels={levels} markers={markers} notice={marketDataNotice({ bars, calledAt: signalMs, filledAt: d.outcome.entryTime ? Date.parse(d.outcome.entryTime) : null })} />
             </div>
             {!d.rawText.locked && d.rawText.data && (
               <div className="mt-4">

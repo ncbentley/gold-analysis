@@ -17,6 +17,25 @@ export interface EngineBar {
   c: number;
 }
 
+/** One stored price print. When a minute has prints, they replace the candle path. */
+export interface EngineTick {
+  t: number;
+  price: number;
+}
+
+/** Up candle: open, low, high, close. Down candle: open, high, low, close. */
+export function candlePath(bar: EngineBar): number[] {
+  return bar.c >= bar.o ? [bar.o, bar.l, bar.h, bar.c] : [bar.o, bar.h, bar.l, bar.c];
+}
+
+/** Stored prints in the minute, in the order they were recorded. Otherwise the candle path. */
+export function pathForBar(bar: EngineBar, ticks: EngineTick[], barMs: number): number[] {
+  const end = bar.t + barMs;
+  const prints = ticks.filter((tick) => tick.t >= bar.t && tick.t < end);
+  if (prints.length) return prints.map((tick) => tick.price);
+  return candlePath(bar);
+}
+
 export interface EngineSignal {
   direction: Direction;
   entryType: EntryType;
@@ -45,7 +64,7 @@ export interface OutcomeRules {
 }
 
 export const OUTCOME_RULES: OutcomeRules = {
-  version: "outcome-v5",
+  version: "outcome-v6",
   barMs: 60_000,
   defaultExpiryMinutes: 6 * 60,
   /** A filled trade stays open until a stop, a target, or a source close. No clock exit. */
@@ -167,7 +186,20 @@ interface ReplayState {
   dir: number;
   expiry: number;
   weight: number;
+  /** Print prices keyed by the minute they belong to. Missing minutes use the candle path. */
+  tickPaths: Map<number, number[]>;
   cp: ReplayCheckpoint;
+}
+
+function indexTicks(ticks: EngineTick[], barMs: number) {
+  const buckets = new Map<number, number[]>();
+  for (const tick of ticks) {
+    const key = Math.floor(tick.t / barMs) * barMs;
+    const list = buckets.get(key);
+    if (list) list.push(tick.price);
+    else buckets.set(key, [tick.price]);
+  }
+  return buckets;
 }
 
 function farQuoteNote(rules: OutcomeRules) {
@@ -201,21 +233,27 @@ function blankCheckpoint(signal: EngineSignal): ReplayCheckpoint {
   };
 }
 
-function createReplay(signal: EngineSignal, adjustments: EngineAdjustment[], rules: OutcomeRules): ReplayState {
+function createReplay(signal: EngineSignal, adjustments: EngineAdjustment[], rules: OutcomeRules, ticks: EngineTick[] = []): ReplayState {
   return {
     signal,
     adj: [...adjustments].sort((a, b) => a.effectiveAt - b.effectiveAt),
     dir: signal.direction === "LONG" ? 1 : -1,
     expiry: signal.expiryTime ?? signal.signalTime + rules.defaultExpiryMinutes * 60_000,
     weight: 1 / Math.max(signal.targets.length, 1),
+    tickPaths: indexTicks(ticks, rules.barMs),
     cp: blankCheckpoint(signal),
   };
 }
 
-function restoreReplay(checkpoint: ReplayCheckpoint, signal: EngineSignal, adjustments: EngineAdjustment[], rules: OutcomeRules): ReplayState {
-  const state = createReplay(signal, adjustments, rules);
+function restoreReplay(checkpoint: ReplayCheckpoint, signal: EngineSignal, adjustments: EngineAdjustment[], rules: OutcomeRules, ticks: EngineTick[] = []): ReplayState {
+  const state = createReplay(signal, adjustments, rules, ticks);
   state.cp = structuredClone(checkpoint);
   return state;
+}
+
+function crossed(from: number, to: number, level: number) {
+  if (from === to) return false;
+  return to > from ? from < level && level <= to : from > level && level >= to;
 }
 
 function favor(state: ReplayState, price: number) {
@@ -236,7 +274,7 @@ function closeRemaining(state: ReplayState, price: number, t: number, reason: Ex
   state.cp.done = true;
 }
 
-function beginFill(state: ReplayState, bar: EngineBar, fillPrice: number, rules: OutcomeRules) {
+function beginFill(state: ReplayState, bar: EngineBar, fillPrice: number) {
   const { cp, signal } = state;
   cp.fillPrice = fillPrice;
   cp.entryTime = bar.t;
@@ -249,90 +287,128 @@ function beginFill(state: ReplayState, bar: EngineBar, fillPrice: number, rules:
   cp.bestPrice = fillPrice;
   cp.worstPrice = fillPrice;
   cp.phase = "manage";
-  manageBar(state, bar, true, rules);
 }
 
-function manageBar(state: ReplayState, bar: EngineBar, isFillBar: boolean, rules: OutcomeRules) {
-  const { cp, signal } = state;
-  const entry = cp.fillPrice ?? 0;
-  const entryTime = cp.entryTime ?? bar.t;
-  const intraBarFill = isFillBar && !(entry === bar.o);
-  const targetTouched = (price: number) => (state.dir === 1 ? bar.h >= price : bar.l <= price);
-  const targetClosedBeyond = (price: number) => (state.dir === 1 ? bar.c >= price : bar.c <= price);
-  const maxHoldUntil = entryTime + rules.maxHoldMinutes * 60_000;
-
-  if (!isFillBar) {
-    while (cp.adjCursor < state.adj.length && state.adj[cp.adjCursor].effectiveAt <= bar.t) {
-      const a = state.adj[cp.adjCursor++];
-      if (a.type === "MOVE_STOP") {
-        cp.currentStop = a.stop === "ENTRY" ? entry : a.stop;
-        cp.timeline.push({ t: a.effectiveAt, type: "MOVE_STOP", price: round(cp.currentStop) });
-      } else {
-        cp.timeline.push({ t: bar.t, type: a.type === "CLOSE" ? "CLOSE" : "CANCEL", price: round(bar.o) });
-        favor(state, bar.o);
-        adverse(state, bar.o);
-        closeRemaining(state, bar.o, bar.t, a.type === "CLOSE" ? "CLOSE" : "CANCEL");
-      }
-    }
-    if (cp.remaining === 0) return;
-    if (Number.isFinite(rules.maxHoldMinutes) && bar.t >= maxHoldUntil) {
-      cp.timeline.push({ t: bar.t, type: "TIMEOUT", price: round(bar.o) });
-      closeRemaining(state, bar.o, bar.t, "TIMEOUT");
-      return;
-    }
-  }
-
-  const stopTouched = cp.currentStop !== null && (state.dir === 1 ? bar.l <= cp.currentStop : bar.h >= cp.currentStop);
-
-  const touched: number[] = [];
-  for (let k = cp.nextTarget; k < cp.targets.length; k++) {
-    const hit = intraBarFill ? targetClosedBeyond(cp.targets[k].price) : targetTouched(cp.targets[k].price);
-    if (!hit) break;
-    touched.push(k);
-  }
-
-  if (stopTouched && touched.length > 0) {
-    cp.ambiguous = true;
-    for (const k of touched) cp.targets[k].ambiguous = true;
-    cp.timeline.push({ t: bar.t, type: "AMBIGUOUS", note: "Stop and target both inside one 1-minute candle" });
-    cp.notes.push("Stop and target were both touched inside the same 1-minute candle; order cannot be determined.");
-    cp.exitTime = bar.t;
-    cp.done = true;
-    return;
-  }
-
-  if (stopTouched) {
-    const px = state.dir === 1 ? Math.min(bar.o, cp.currentStop as number) : Math.max(bar.o, cp.currentStop as number);
-    cp.stopHitAt = bar.t;
-    if (intraBarFill) favor(state, bar.c);
-    adverse(state, px);
-    cp.timeline.push({ t: bar.t, type: "STOP", price: round(px) });
-    closeRemaining(state, px, bar.t, "STOP");
-    return;
-  }
-
-  for (const k of touched) {
-    cp.targets[k].hitAt = bar.t;
-    cp.targets[k].minutesFromEntry = Math.round((bar.t - entryTime) / 60_000);
-    cp.exits.push({ price: cp.targets[k].price, weight: state.weight });
-    cp.remaining -= 1;
-    cp.nextTarget = k + 1;
-    favor(state, cp.targets[k].price);
-    cp.timeline.push({ t: bar.t, type: "TARGET", price: cp.targets[k].price, note: `TP${k + 1}` });
-  }
+function bookTarget(state: ReplayState, index: number, bar: EngineBar) {
+  const { cp } = state;
+  const target = cp.targets[index];
+  target.hitAt = bar.t;
+  target.minutesFromEntry = Math.round((bar.t - (cp.entryTime ?? bar.t)) / 60_000);
+  cp.exits.push({ price: target.price, weight: state.weight });
+  cp.remaining -= 1;
+  cp.nextTarget = index + 1;
+  favor(state, target.price);
+  cp.timeline.push({ t: bar.t, type: "TARGET", price: target.price, note: `TP${index + 1}` });
   if (cp.targets.length > 0 && cp.remaining === 0) {
     cp.exitTime = bar.t;
     cp.exitReason = "TARGETS";
     cp.done = true;
+  }
+}
+
+function bookStop(state: ReplayState, price: number, bar: EngineBar) {
+  const { cp } = state;
+  cp.stopHitAt = bar.t;
+  adverse(state, price);
+  cp.timeline.push({ t: bar.t, type: "STOP", price: round(price) });
+  closeRemaining(state, price, bar.t, "STOP");
+}
+
+/** A print already through a level is a gap. A later print crosses the level at the level. */
+function takeLevels(state: ReplayState, from: number, to: number, bar: EngineBar) {
+  let cursor = from;
+  while (!state.cp.done) {
+    const stop = state.cp.currentStop;
+    const target = state.cp.targets[state.cp.nextTarget];
+    const hits: { kind: "stop" | "target"; price: number; index: number }[] = [];
+    if (stop !== null && crossed(cursor, to, stop)) hits.push({ kind: "stop", price: stop, index: -1 });
+    if (target && crossed(cursor, to, target.price)) hits.push({ kind: "target", price: target.price, index: state.cp.nextTarget });
+    if (!hits.length) break;
+    hits.sort((a, b) => (to > cursor ? a.price - b.price : b.price - a.price));
+    const hit = hits[0];
+    if (hit.kind === "stop") {
+      bookStop(state, hit.price, bar);
+      return;
+    }
+    bookTarget(state, hit.index, bar);
+    cursor = hit.price;
+  }
+  if (!state.cp.done) {
+    favor(state, to);
+    adverse(state, to);
+  }
+}
+
+function gapAt(state: ReplayState, price: number, bar: EngineBar) {
+  const stop = state.cp.currentStop;
+  if (stop !== null && (state.dir === 1 ? price <= stop : price >= stop)) {
+    bookStop(state, price, bar);
     return;
   }
+  while (!state.cp.done) {
+    const target = state.cp.targets[state.cp.nextTarget];
+    if (!target) return;
+    const through = state.dir === 1 ? price >= target.price : price <= target.price;
+    if (!through) return;
+    bookTarget(state, state.cp.nextTarget, bar);
+  }
+}
 
-  if (intraBarFill) {
-    adverse(state, state.dir === 1 ? bar.l : bar.h);
-    favor(state, bar.c);
-  } else {
-    favor(state, state.dir === 1 ? bar.h : bar.l);
-    adverse(state, state.dir === 1 ? bar.l : bar.h);
+function managePath(state: ReplayState, prices: number[], bar: EngineBar, rules: OutcomeRules, fromFill: boolean) {
+  if (!prices.length || state.cp.done || state.cp.remaining <= 0) return;
+  const { cp } = state;
+  const entry = cp.fillPrice ?? prices[0];
+  const entryTime = cp.entryTime ?? bar.t;
+  if (!fromFill) {
+    while (cp.adjCursor < state.adj.length && state.adj[cp.adjCursor].effectiveAt <= bar.t) {
+      const adjustment = state.adj[cp.adjCursor++];
+      if (adjustment.type === "MOVE_STOP") {
+        cp.currentStop = adjustment.stop === "ENTRY" ? entry : adjustment.stop;
+        cp.timeline.push({ t: adjustment.effectiveAt, type: "MOVE_STOP", price: round(cp.currentStop) });
+      } else {
+        const price = prices[0];
+        cp.timeline.push({ t: bar.t, type: adjustment.type === "CLOSE" ? "CLOSE" : "CANCEL", price: round(price) });
+        favor(state, price);
+        adverse(state, price);
+        closeRemaining(state, price, bar.t, adjustment.type === "CLOSE" ? "CLOSE" : "CANCEL");
+      }
+    }
+    if (cp.remaining === 0) return;
+    if (Number.isFinite(rules.maxHoldMinutes) && bar.t >= entryTime + rules.maxHoldMinutes * 60_000) {
+      cp.timeline.push({ t: bar.t, type: "TIMEOUT", price: round(prices[0]) });
+      closeRemaining(state, prices[0], bar.t, "TIMEOUT");
+      return;
+    }
+  }
+  gapAt(state, prices[0], bar);
+  for (let i = 1; i < prices.length && !cp.done; i++) takeLevels(state, prices[i - 1], prices[i], bar);
+}
+
+function zoneTouch(from: number, to: number, lo: number, hi: number): number | null {
+  if (to === from) return null;
+  if (to > from) return from < lo && to >= lo ? lo : null;
+  return from > hi && to <= hi ? hi : null;
+}
+
+function seekPath(state: ReplayState, prices: number[], bar: EngineBar, rules: OutcomeRules) {
+  const { signal } = state;
+  const lo = signal.entryMin;
+  const hi = signal.entryMax;
+  for (let i = 0; i < prices.length && state.cp.phase === "seek"; i++) {
+    const price = prices[i];
+    if (price >= lo && price <= hi) {
+      beginFill(state, bar, price);
+      managePath(state, prices.slice(i), bar, rules, true);
+      return;
+    }
+    if (i + 1 < prices.length) {
+      const touch = zoneTouch(price, prices[i + 1], lo, hi);
+      if (touch !== null) {
+        beginFill(state, bar, touch);
+        managePath(state, [touch, ...prices.slice(i + 1)], bar, rules, true);
+        return;
+      }
+    }
   }
 }
 
@@ -340,8 +416,9 @@ function stepBar(state: ReplayState, bar: EngineBar, rules: OutcomeRules): Repla
   const { cp, signal } = state;
   cp.barTime = bar.t;
   if (cp.done) return state;
+  const path = state.tickPaths.get(bar.t) ?? candlePath(bar);
   if (cp.phase === "manage") {
-    if (cp.remaining > 0) manageBar(state, bar, false, rules);
+    if (cp.remaining > 0) managePath(state, path, bar, rules, false);
     return state;
   }
 
@@ -368,14 +445,12 @@ function stepBar(state: ReplayState, bar: EngineBar, rules: OutcomeRules): Repla
       cp.skippedFarQuote = true;
       return state;
     }
-    beginFill(state, bar, bar.o, rules);
+    const open = path[0] ?? bar.o;
+    beginFill(state, bar, open);
+    managePath(state, path.length ? path : [open], bar, rules, true);
     return state;
   }
-  const overlaps = bar.h >= signal.entryMin && bar.l <= signal.entryMax;
-  if (overlaps) {
-    const fillPrice = state.dir === 1 ? Math.min(bar.o, signal.entryMax) : Math.max(bar.o, signal.entryMin);
-    beginFill(state, bar, fillPrice, rules);
-  }
+  if (path.length) seekPath(state, path, bar, rules);
   return state;
 }
 
@@ -506,13 +581,14 @@ export function evaluateSignal(
   dataThrough: number | null = null,
   rules: OutcomeRules = OUTCOME_RULES,
   presorted = false,
+  ticks: EngineTick[] = [],
 ): EngineOutcome {
   const firstBarStart = Math.ceil(signal.signalTime / rules.barMs) * rules.barMs;
   const series = presorted ? bars : bars.filter((b) => b.t >= firstBarStart).sort((a, b) => a.t - b.t);
   const origin = presorted ? lowerBoundBar(bars, firstBarStart) : 0;
   const lastBar = origin < series.length ? series[series.length - 1] : undefined;
   const lastKnown = dataThrough ?? (lastBar ? lastBar.t + rules.barMs : null);
-  let state = createReplay(signal, adjustments, rules);
+  let state = createReplay(signal, adjustments, rules, ticks);
   for (let i = origin; i < series.length; i++) {
     // dataThrough is the last moment that counts. A later bar is not a fill.
     if (dataThrough !== null && series[i].t > dataThrough) continue;
@@ -529,8 +605,9 @@ export function advanceFromCheckpoint(
   adjustments: EngineAdjustment[],
   dataThrough: number | null,
   rules: OutcomeRules = OUTCOME_RULES,
+  ticks: EngineTick[] = [],
 ): EngineOutcome {
-  let state = restoreReplay(checkpoint, signal, adjustments, rules);
+  let state = restoreReplay(checkpoint, signal, adjustments, rules, ticks);
   for (const bar of bars) {
     if (dataThrough !== null && bar.t > dataThrough) continue;
     if (bar.t <= checkpoint.barTime || state.cp.done) continue;

@@ -2,9 +2,10 @@ import { gte, inArray } from "drizzle-orm";
 import { currentBoard } from "@/server/board/service";
 import { getDb } from "@/server/db";
 import { consolidatedIdeas, signals, type BoardPick } from "@/server/db/schema";
+import { callCovered } from "@/server/ideas/phase";
 import { replayIdea } from "@/server/ideas/replay";
 import { MIN_CONSOLIDATED_SOURCES, replayConsolidatedIdeas } from "@/server/ideas/service";
-import { getEngineBars, getRecentBars } from "@/server/market-data";
+import { getEngineBars, getEngineTicks, getRecentBars } from "@/server/market-data";
 import { CLOSE_HOLD_MS } from "./close";
 import type { GoldLevel } from "./geometry";
 import { applyProposal } from "./publish";
@@ -103,7 +104,9 @@ export async function reconcileGoldBook(now = new Date()) {
   const open = rows.filter((row) => row.exitTime === null || row.closeCalledAt !== null);
   if (!open.length) return { closed: [] as string[], reopened: [] as string[], silver, openUnfilled: 0 };
   const from = Math.min(...open.map((row) => row.createdAt.getTime()));
-  const bars = await getEngineBars(new Date(from), new Date(now.getTime() + 60_000));
+  const windowStart = new Date(from);
+  const windowEnd = new Date(now.getTime() + 60_000);
+  const [bars, ticks] = await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]);
   const closed: string[] = [];
   const reopened: string[] = [];
   const capRows: { id: string; ideaId: string | null; createdAt: number }[] = [];
@@ -126,15 +129,18 @@ export async function reconcileGoldBook(now = new Date()) {
       bars,
       spot,
       true,
+      ticks,
     );
     const ideaCalledAt = row.ideaId ? calledAtByIdea.get(row.ideaId) : undefined;
     const calledAt = ideaCalledAt == null ? row.createdAt.getTime() : Math.min(row.createdAt.getTime(), ideaCalledAt);
+    const covered = callCovered(bars, row.createdAt.getTime());
     const action = goldBookAction({
       closeCalledAt: row.closeCalledAt ? row.closeCalledAt.getTime() : null,
       entered: played.outcome.entered,
       stopHitAt: played.outcome.stopHitAt,
       targets: played.outcome.targets,
-      leftBehind: entryLeftBehind({
+      covered,
+      leftBehind: covered && entryLeftBehind({
         direction: row.direction,
         entryMin: row.entryMin,
         entryMax: row.entryMax,
@@ -205,7 +211,9 @@ async function closeSections(ids: string[], stored: Awaited<ReturnType<typeof li
     .filter((row) => row != null);
   if (!rows.length) return { sections, working };
   const from = Math.min(...rows.map((row) => row.createdAt.getTime()));
-  const bars = await getEngineBars(new Date(from), new Date(Date.now() + 60_000));
+  const windowStart = new Date(from);
+  const windowEnd = new Date(Date.now() + 60_000);
+  const [bars, ticks] = await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]);
   const [bar] = (await getRecentBars(1)).slice(-1);
   for (const row of rows) {
     const played = replayIdea(
@@ -220,6 +228,7 @@ async function closeSections(ids: string[], stored: Awaited<ReturnType<typeof li
       bars,
       bar?.close ?? null,
       true,
+      ticks,
     );
     const id = row.ideaId ?? row.id;
     if (filledTradeStillOpen(played.outcome)) {

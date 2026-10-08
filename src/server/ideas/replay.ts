@@ -1,5 +1,5 @@
-import { evaluateSignal, OUTCOME_RULES, type EngineBar, type EngineOutcome } from "@/server/outcomes/engine";
-import { ideaPhase, type IdeaPhase } from "./phase";
+import { evaluateSignal, OUTCOME_RULES, type EngineBar, type EngineOutcome, type EngineTick } from "@/server/outcomes/engine";
+import { callCovered, ideaPhase, type IdeaPhase } from "./phase";
 
 export interface IdeaLevels {
   direction: "LONG" | "SHORT";
@@ -13,10 +13,16 @@ export interface IdeaLevels {
 
 /**
  * The idea is its own order. Fill, stop, and targets come from its prices and the
- * bars, not from whether every source trade has closed. Minute bars today; the
- * same walk accepts a finer series when one is stored.
+ * bars, not from whether every source trade has closed. A minute that has stored
+ * prints is walked in that order. A minute without prints uses the candle path.
  */
-export function replayIdea(idea: IdeaLevels, bars: EngineBar[], spot: number | null, presorted = false): { phase: IdeaPhase; outcome: EngineOutcome } {
+export function replayIdea(
+  idea: IdeaLevels,
+  bars: EngineBar[],
+  spot: number | null,
+  presorted = false,
+  ticks: EngineTick[] = [],
+): { phase: IdeaPhase; outcome: EngineOutcome } {
   const outcome = evaluateSignal(
     {
       direction: idea.direction,
@@ -34,6 +40,7 @@ export function replayIdea(idea: IdeaLevels, bars: EngineBar[], spot: number | n
     null,
     OUTCOME_RULES,
     presorted,
+    ticks,
   );
   const closed = outcome.entered && outcome.exitTime !== null && outcome.classification !== "OPEN";
   return {
@@ -47,6 +54,7 @@ export function replayIdea(idea: IdeaLevels, bars: EngineBar[], spot: number | n
       entered: outcome.entered,
       closed,
       cancelled: false,
+      covered: callCovered(bars, idea.startedAt),
     }),
   };
 }

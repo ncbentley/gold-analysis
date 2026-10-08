@@ -7,6 +7,7 @@ import { LockedPanel } from "@/components/locked";
 import { PageHeader } from "@/components/page-header";
 import { downsample, PriceChart } from "@/components/price-chart";
 import { DirectionBadge, Stat } from "@/components/signal-bits";
+import { marketDataNotice, tradeChartRange } from "@/lib/chart-window";
 import { fmtDateTime, fmtEntry, fmtPrice } from "@/lib/format";
 import { nowMs } from "@/lib/clock";
 import { cn } from "@/lib/utils";
@@ -58,8 +59,8 @@ export default async function BoardPickPage({
   const result = await boardPick(id, slot, lastBar?.close ?? null);
   if (!result) notFound();
   const { pick, phase, outcome, ideas, startedAt } = result;
-  const endMs = Math.min(nowMs(), (outcome.exitTime ?? nowMs()) + 90 * 60_000);
-  const bars = await getEngineBars(new Date(startedAt - 120 * 60_000), new Date(endMs + 60_000));
+  const range = tradeChartRange(startedAt, outcome.exitTime, nowMs());
+  const bars = await getEngineBars(range.from, range.to);
   const levels = [
     { price: pick.entryMin, label: pick.entryMin === pick.entryMax ? "Entry" : "Zone", tone: "entry" as const },
     ...(pick.entryMin !== pick.entryMax ? [{ price: pick.entryMax, label: "Zone", tone: "entry" as const }] : []),
@@ -118,7 +119,7 @@ export default async function BoardPickPage({
         <Stat icon={Crosshair} label="Path" value={tradeLine(outcome)} hint={outcome.entryTime ? `Filled ${fmtDateTime(new Date(outcome.entryTime))}` : "Waiting for the entry to trade"} />
       </div>
       <div className="mb-8 rounded-xl bg-[#050c1c]/80 p-2 ring-1 ring-glow/25 shadow-[inset_0_0_30px_-12px_rgb(47_123_255/0.4)]">
-        <PriceChart points={downsample(bars)} levels={levels} markers={markers} />
+        <PriceChart points={downsample(bars)} levels={levels} markers={markers} notice={marketDataNotice({ bars, calledAt: startedAt, filledAt: outcome.entryTime })} />
       </div>
       <section>
         <h2 className="mb-3 font-heading text-lg font-bold">Ideas behind this pick</h2>

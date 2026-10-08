@@ -10,7 +10,7 @@ import {
   type SignalOutcome,
 } from "@/server/db/schema";
 import { enqueueJob } from "@/server/jobs/queue";
-import { getEngineBars, getSyncState } from "@/server/market-data";
+import { getEngineBars, getEngineTicks, getSyncState } from "@/server/market-data";
 import { evaluateSignal, advanceFromCheckpoint, OUTCOME_RULES, type EngineAdjustment, type EngineOutcome, type ReplayCheckpoint } from "./engine";
 import { barAffectsSignal } from "./affected";
 import { knownMarketThrough, outcomeUsesFutureBar } from "./replay-window";
@@ -166,23 +166,24 @@ export async function recalculateOutcome(signalId: string, opts: { force?: boole
   const stored = scoredAhead ? null : checkpointOf(current);
   const adjustmentBeforeCheckpoint = stored ? engineAdjustments.some((adjustment) => adjustment.effectiveAt < stored.barTime) : true;
   const shortUntil = new Date(Math.min(until.getTime(), from.getTime() + 2 * 86_400_000));
+  const ticks = await getEngineTicks(from, until, signal.instrument);
   let out: EngineOutcome;
   if (stored && !opts.force && !adjustmentBeforeCheckpoint) {
     const newer = await getEngineBars(new Date(stored.barTime + 1), until, signal.instrument);
-    out = advanceFromCheckpoint(engineSignal, stored, newer, engineAdjustments, Math.min(until.getTime(), knownThrough));
+    out = advanceFromCheckpoint(engineSignal, stored, newer, engineAdjustments, Math.min(until.getTime(), knownThrough), OUTCOME_RULES, ticks);
   } else {
     let cursor = shortUntil;
     let bars = await getEngineBars(from, cursor, signal.instrument);
-    out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(cursor.getTime(), knownThrough));
+    out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(cursor.getTime(), knownThrough), OUTCOME_RULES, false, ticks);
     while (out.classification === "OPEN" && cursor.getTime() < knownThrough) {
       const next = new Date(Math.min(cursor.getTime() + 14 * 86_400_000, knownThrough));
       bars.push(...(await getEngineBars(cursor, next, signal.instrument)));
       cursor = next;
-      out = evaluateSignal(engineSignal, bars, engineAdjustments, knownThrough);
+      out = evaluateSignal(engineSignal, bars, engineAdjustments, knownThrough, OUTCOME_RULES, false, ticks);
     }
     if (out.classification === "PENDING" && cursor.getTime() < until.getTime()) {
       bars = await getEngineBars(from, until, signal.instrument);
-      out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(until.getTime(), knownThrough));
+      out = evaluateSignal(engineSignal, bars, engineAdjustments, Math.min(until.getTime(), knownThrough), OUTCOME_RULES, false, ticks);
     }
   }
   if (out.classification === "PENDING" && !out.entered && Date.now() >= unfilledClosesAt) {

@@ -432,7 +432,28 @@ export const marketBars = pgTable(
   (t) => [primaryKey({ columns: [t.instrument, t.resolution, t.timestamp] })],
 );
 
+/**
+ * One price print from the live feed.
+ * `at` is the vendor time. `seq` is arrival order inside one write.
+ * `receivedAt` keeps a later connection from colliding with an earlier one.
+ */
+export const marketTicks = pgTable(
+  "market_ticks",
+  {
+    instrument: text("instrument").notNull(),
+    at: ts("at").notNull(),
+    seq: integer("seq").notNull(),
+    price: doublePrecision("price").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.instrument, t.receivedAt, t.seq] }),
+    index("market_ticks_instrument_at_idx").on(t.instrument, t.at),
+  ],
+);
+
 /** How far market data is known to be complete, per instrument. */
+
 export const marketDataSync = pgTable("market_data_sync", {
   instrument: text("instrument").primaryKey(),
   provider: text("provider").notNull(),
