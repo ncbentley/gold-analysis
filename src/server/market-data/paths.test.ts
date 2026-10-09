@@ -31,6 +31,7 @@ describe("minute path storage", () => {
     expect(ticks).toEqual([
       { t: 10, price: 100 },
       { t: 20, price: 101 },
+      { t: 30, price: 100 },
     ]);
     const left = await db.select().from(marketTicks);
     expect(left).toEqual([]);
@@ -43,6 +44,7 @@ describe("minute path storage", () => {
     expect(ticks).toEqual([
       { t: 10, price: 100 },
       { t: 20, price: 101 },
+      { t: 30, price: 100 },
       { t: MINUTE + 5, price: 110 },
     ]);
   });
@@ -50,7 +52,7 @@ describe("minute path storage", () => {
   it("merges a print into a sealed minute", async () => {
     await mergeSealedPrint(INSTRUMENT, 15, 100.5);
     const ticks = await getEngineTicks(new Date(0), new Date(MINUTE));
-    expect(ticks.map((tick) => tick.price)).toEqual([100, 100.5, 101]);
+    expect(ticks.map((tick) => tick.price)).toEqual([100, 100.5, 101, 100]);
   });
 
   it("compacts a closed minute and leaves the open minute buffered", async () => {

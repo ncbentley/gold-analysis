@@ -2,22 +2,9 @@ import { and, asc, eq, gte, lt } from "drizzle-orm";
 import { getDb } from "@/server/db";
 import { marketMinutePaths, marketTicks } from "@/server/db/schema";
 import type { EngineTick } from "@/server/outcomes/engine";
-import { expandPath, mergePrint, minuteStart, PATH_RETENTION_MS } from "./minute-path";
+import { collapsePrints, expandPath, mergePrint, minuteStart, PATH_RETENTION_MS } from "./minute-path";
 
 const MINUTE = 60_000;
-
-function collapseSealedPrints(minute: number, prints: { t: number; price: number }[]) {
-  const ordered = [...prints].sort((a, b) => a.t - b.t);
-  const offsets: number[] = [];
-  const prices: number[] = [];
-  for (const print of ordered) {
-    if (prices.length && prices[prices.length - 1] === print.price) continue;
-    if (prices.length > 1 && print.price === prices[0] && prices[prices.length - 1] !== print.price) continue;
-    offsets.push(print.t - minute);
-    prices.push(print.price);
-  }
-  return { minute, offsets, prices };
-}
 
 export async function sealMinute(instrument: string, minute: Date, extra: { t: number; price: number; seq: number }[] = []) {
   const db = await getDb();
@@ -34,7 +21,7 @@ export async function sealMinute(instrument: string, minute: Date, extra: { t: n
       .from(marketTicks)
       .where(and(eq(marketTicks.instrument, instrument), gte(marketTicks.at, minute), lt(marketTicks.at, end)))
       .orderBy(asc(marketTicks.at), asc(marketTicks.receivedAt), asc(marketTicks.seq));
-    const path = collapseSealedPrints(
+    const path = collapsePrints(
       minute.getTime(),
       rows.map((row) => ({ t: row.at.getTime(), price: row.price })),
     );
