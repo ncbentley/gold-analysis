@@ -109,6 +109,7 @@ async function run(openSocket: (url: string) => StreamSocket) {
     let flush: ReturnType<typeof setInterval> | null = null;
     let writing = false;
     let dirty = false;
+    let chain = Promise.resolve();
     const stopTimers = () => {
       if (heartbeat) clearInterval(heartbeat);
       if (flush) clearInterval(flush);
@@ -200,25 +201,29 @@ async function run(openSocket: (url: string) => StreamSocket) {
       }
       const print = readPricePrint(message);
       if (!print) return;
-      void (async () => {
-        const action = routePrint(openBar?.t ?? null, print.t);
-        if (action === "merge") {
-          const merged = await mergeSealedPrint(INSTRUMENT, print.t, print.price);
-          if (merged) return;
-        }
-        if (action === "seal" && openBar) {
-          const split = splitSeal(pending, openBar.t);
-          pending = split.open;
-          await sealMinute(INSTRUMENT, new Date(openBar.t), split.sealed);
-        }
-        pending.push({ t: print.t, price: print.price, seq: seq++ });
-        const next = applyPrint(openBar, print);
-        openBar = next.open;
-        if (next.sealed) {
-          void saveBar(next.sealed).catch((err) => console.error("[market] sealed bar write failed:", (err as Error).message));
-          void flushOpen();
-        }
-      })();
+      chain = chain
+        .then(async () => {
+          const action = routePrint(openBar?.t ?? null, print.t);
+          if (action === "merge") {
+            const merged = await mergeSealedPrint(INSTRUMENT, print.t, print.price);
+            if (merged) return;
+          }
+          if (action === "seal" && openBar) {
+            const split = splitSeal(pending, openBar.t);
+            pending = split.open;
+            await sealMinute(INSTRUMENT, new Date(openBar.t), split.sealed);
+          }
+          pending.push({ t: print.t, price: print.price, seq: seq++ });
+          const next = applyPrint(openBar, print);
+          openBar = next.open;
+          if (next.sealed) {
+            void saveBar(next.sealed).catch((err) => console.error("[market] sealed bar write failed:", (err as Error).message));
+            void flushOpen();
+          }
+        })
+        .catch((err) => {
+          console.error("[market] price print failed:", (err as Error).message);
+        });
     });
     const retry = () => {
       stopTimers();
