@@ -17,7 +17,7 @@ describe("syncDashboardCache", () => {
   it("writes each dashboard once and leaves the cache alone when nothing changed", async () => {
     expect(await syncDashboardCache()).toBe(true);
     const db = await getDb();
-    expect(await db.select().from(dashboardSnapshots)).toHaveLength(4);
+    expect(await db.select().from(dashboardSnapshots)).toHaveLength(5);
     const [mark] = await db.select().from(feedRevisions).where(eq(feedRevisions.id, "dashboard"));
     expect(mark.fingerprint).toBeTruthy();
     expect(await syncDashboardCache()).toBe(false);

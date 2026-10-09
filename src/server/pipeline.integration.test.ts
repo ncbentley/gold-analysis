@@ -46,7 +46,13 @@ beforeAll(async () => {
   await runMigrations();
   const db = await getDb();
   for (const tier of TIERS) {
-    await db.insert(tierEntitlements).values({ tier, features: config[tier].features, historyDays: null });
+    await db
+      .insert(tierEntitlements)
+      .values({ tier, features: config[tier].features, historyDays: null })
+      .onConflictDoUpdate({
+        target: tierEntitlements.tier,
+        set: { features: config[tier].features, historyDays: null },
+      });
   }
   const [s] = await db.insert(sources).values({ name: "Test Desk", slug: "test-desk", sourceType: "webhook", parserType: "text-generic" }).returning();
   sourceId = s.id;
