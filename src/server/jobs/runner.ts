@@ -17,7 +17,7 @@ import { syncDashboardCache } from "@/server/feed/snapshot";
 import { replaceConsolidatedIdeas } from "@/server/ideas/service";
 import { refreshSourceStats } from "@/server/statistics/service";
 import { finishImportIfIdle } from "@/server/telegram/import-status";
-import { enqueueDueTelegramSyncs } from "@/server/telegram/schedule";
+import { dropSilentTrackedChannels, enqueueDueTelegramSyncs } from "@/server/telegram/schedule";
 import { syncTelegramSource } from "@/server/telegram";
 import { JOB_CONCURRENCY } from "./limits";
 import { enqueueJob, JOB_TYPES, type JobType } from "./queue";
@@ -288,7 +288,10 @@ export async function scheduleRecurring(kind: "minute" | "telegram" | "hourly" |
     await enqueueJob("MARKET_DATA_SYNC", {}, { dedupeKey: "market-sync" });
     await enqueueJob("CONSOLIDATE_SIGNALS", {}, { dedupeKey: "consolidate-signals" });
   }
-  if (kind === "telegram") await enqueueDueTelegramSyncs();
+  if (kind === "telegram") {
+    await dropSilentTrackedChannels();
+    await enqueueDueTelegramSyncs();
+  }
   if (kind === "hourly") {
     await enqueueJob("RECONCILE_SUBSCRIPTIONS", {}, { dedupeKey: "reconcile" });
     await enqueueJob("MARKET_DIRECTION", {}, { dedupeKey: "market-direction" });
