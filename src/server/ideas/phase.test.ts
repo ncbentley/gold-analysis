@@ -28,6 +28,10 @@ describe("ideaPhase", () => {
     expect(ideaPhase(long)).toBe("available");
   });
 
+  it("is history when price has run more than one stop past an unfilled long", () => {
+    expect(ideaPhase({ ...long, spot: 2661 })).toBe("history");
+  });
+
   it("stays available while price is inside the entry", () => {
     expect(ideaPhase({ ...long, spot: 2651 })).toBe("available");
   });
@@ -49,8 +53,9 @@ describe("ideaPhase", () => {
   });
 
   it("mirrors a short", () => {
-    const short: PhaseInput = { ...long, direction: "SHORT", entryMin: 2650, entryMax: 2652, stopLoss: 2658, spot: 2640 };
+    const short: PhaseInput = { ...long, direction: "SHORT", entryMin: 2650, entryMax: 2652, stopLoss: 2658, spot: 2644 };
     expect(ideaPhase(short)).toBe("available");
+    expect(ideaPhase({ ...short, spot: 2640 })).toBe("history");
     expect(ideaPhase({ ...short, spot: 2656 })).toBe("history");
     expect(ideaPhase({ ...short, spot: 2658 })).toBe("history");
   });

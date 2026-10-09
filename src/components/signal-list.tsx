@@ -3,9 +3,12 @@ import Link from "next/link";
 import { DirectionBadge, RValue, StatusBadge } from "@/components/signal-bits";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtAge, fmtDateTime, fmtEntry, fmtPrice } from "@/lib/format";
+import type { IdeaGlance } from "@/lib/trade-glance";
 import { cn } from "@/lib/utils";
 import type { SignalListItem } from "@/server/presenters";
 import { nowMs } from "@/lib/clock";
+
+type SignalRow = SignalListItem & { glance?: IdeaGlance };
 
 function Targets({ targets }: { targets: SignalListItem["targets"] }) {
   if (!targets.length) return <span className="text-muted-foreground">—</span>;
@@ -21,10 +24,29 @@ function Targets({ targets }: { targets: SignalListItem["targets"] }) {
   );
 }
 
-function Result({ item }: { item: SignalListItem }) {
+function Result({ item }: { item: SignalRow }) {
   if (item.result.locked) return <span className="text-xs text-muted-foreground">Locked</span>;
   if (!item.result.data) return <span className="text-xs text-muted-foreground">{["PENDING", "ACTIVE", "PARTIAL"].includes(item.status) ? "Open" : "—"}</span>;
   return <RValue value={item.result.data.rResult} className="font-semibold" />;
+}
+
+function NowMark({ item }: { item: SignalRow }) {
+  const glance = item.glance;
+  if (!glance) return <Result item={item} />;
+  if (item.status === "PENDING") {
+    const distance = glance.distance;
+    if (!distance) return <span className="text-muted-foreground">—</span>;
+    if (distance.place === "inside") return <span className="text-sm font-medium text-primary">At entry</span>;
+    const edge = distance.place === "above" ? item.entryMax : item.entryMin;
+    const risk = item.stopLoss == null ? null : Math.abs(edge - item.stopLoss);
+    const near = risk != null && risk > 0 && distance.points <= risk;
+    return (
+      <span className={cn("font-mono text-sm tabular-nums", near ? "font-semibold text-primary" : "text-foreground/80")}>
+        {fmtPrice(distance.points)} {distance.place}
+      </span>
+    );
+  }
+  return <RValue value={glance.r} className="font-semibold" />;
 }
 
 function QaTag() {
@@ -43,7 +65,7 @@ export function SignalList({
   hrefBase = "/signals",
   showSource = true,
 }: {
-  items: SignalListItem[];
+  items: SignalRow[];
   empty?: React.ReactNode;
   now?: number;
   hrefBase?: string;
@@ -72,6 +94,7 @@ export function SignalList({
               <TableHead>Entry</TableHead>
               <TableHead>Stop loss</TableHead>
               <TableHead>Targets</TableHead>
+              <TableHead>Now</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Result</TableHead>
               <TableHead className="w-8 px-0">
@@ -111,6 +134,9 @@ export function SignalList({
                   <TableCell className={cn(cell, "max-w-56 text-sm")}>
                     <Targets targets={s.targets} />
                   </TableCell>
+                  <TableCell className={cn(cell, "whitespace-nowrap")}>
+                    <NowMark item={s} />
+                  </TableCell>
                   <TableCell className={cell}>
                     <StatusBadge status={s.status} />
                   </TableCell>
@@ -149,7 +175,10 @@ export function SignalList({
                     </span>
                   )}
                 </div>
-                <StatusBadge status={s.status} />
+                <span className="inline-flex items-center gap-2">
+                  <NowMark item={s} />
+                  <StatusBadge status={s.status} />
+                </span>
               </div>
               <div className="mt-2.5 grid grid-cols-3 gap-2 text-xs">
                 <div>

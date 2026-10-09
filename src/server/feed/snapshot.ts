@@ -7,12 +7,13 @@ import { getTierConfig, type Viewer } from "@/server/entitlements/service";
 import { annotateIdeaGlance } from "@/server/ideas/glance";
 import { listIdeasForViewer } from "@/server/ideas/service";
 import { getRecentBars } from "@/server/market-data";
+import { annotateSignalGlance } from "@/server/signals/glance";
 import { countOpenSignalsForViewer, listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
 import type { ListedIdea } from "@/server/ideas/service";
 import { byNewest, goldBookCards } from "@/server/gold/sections";
 import type { SignalListItem } from "@/server/presenters";
 
-const CACHE_VERSION = "v5";
+const CACHE_VERSION = "v6";
 
 export interface BookSectionsCache<T> {
   available: T[];
@@ -182,9 +183,14 @@ async function buildSnapshot(view: DashboardView, config: Awaited<ReturnType<typ
       listSignalsForViewer(viewer, { status: "CLOSED" }, { limit: 5, segment: true }),
       countOpenSignalsForViewer(viewer),
     ]);
+    const spot = lastBar?.close ?? null;
+    const [openItems, closedItems] = await Promise.all([
+      annotateSignalGlance(open.items, spot),
+      annotateSignalGlance(closed.items, spot),
+    ]);
     cache.signals = {
-      open: open.items,
-      closed: closed.items,
+      open: openItems,
+      closed: closedItems,
       active: counts.active,
       pending: counts.pending,
       total: open.total + closed.total,

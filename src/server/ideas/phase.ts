@@ -62,9 +62,22 @@ function uncoveredGraceElapsed(calledAt: number | undefined, now: number | undef
   return calledAt != null && now != null && now - calledAt >= UNCOVERED_GRACE_MS;
 }
 
+/** An unfilled order price has run past by more than one stop. It is no longer a live entry. */
+function leftTheOrder(input: PhaseInput) {
+  const { direction, entryMin, entryMax, stopLoss, spot } = input;
+  if (spot === null || stopLoss === null) return false;
+  if (direction === "LONG") {
+    const risk = entryMax - stopLoss;
+    return risk > 0 && spot - entryMax > risk;
+  }
+  const risk = stopLoss - entryMin;
+  return risk > 0 && entryMin - spot > risk;
+}
+
 export function ideaPhase(input: PhaseInput): IdeaPhase {
   if (input.cancelled || input.closed) return "history";
   if (input.entered) return "playing-out";
+  if (leftTheOrder(input)) return "history";
   const freshHole = input.covered === false && !uncoveredGraceElapsed(input.calledAt, input.now);
   if (freshHole || input.spot === null) return "available";
   const { direction, entryMin, entryMax, stopLoss, spot } = input;
