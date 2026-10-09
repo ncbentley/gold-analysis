@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collapsePrints, expandPath, mergePrint, minuteStart, PATH_RETENTION_MS, routePrint } from "./minute-path";
+import { collapsePrints, expandPath, mergePrint, minuteStart, PATH_RETENTION_MS, routePrint, splitSeal } from "./minute-path";
 
 const MINUTE = 60_000;
 
@@ -73,5 +73,16 @@ describe("minute paths", () => {
   it("retains a path for 30 days from the minute open", () => {
     expect(PATH_RETENTION_MS).toBe(30 * 24 * 60 * 60 * 1000);
     expect(minuteStart(MINUTE + 5)).toBe(MINUTE);
+  });
+
+  it("splits the buffer at the sealed minute", () => {
+    const pending = [
+      { t: 10, price: 100, seq: 0 },
+      { t: 70_000, price: 110, seq: 1 },
+    ];
+    expect(splitSeal(pending, 0)).toEqual({
+      sealed: [{ t: 10, price: 100, seq: 0 }],
+      open: [{ t: 70_000, price: 110, seq: 1 }],
+    });
   });
 });

@@ -3,6 +3,8 @@ import { getDb } from "@/server/db";
 import { marketBars, marketTicks } from "@/server/db/schema";
 import { getMarketDataConfig, INSTRUMENT } from "./index";
 import { applyPrint, type MinuteBar } from "./minute-bar";
+import { routePrint, splitSeal } from "./minute-path";
+import { maintainMinutePaths, mergeSealedPrint, sealMinute } from "./paths";
 
 const SYMBOL = "XAU/USD";
 const HEARTBEAT_MS = 10_000;
@@ -96,6 +98,7 @@ async function run(openSocket: (url: string) => StreamSocket) {
     return;
   }
   const key = cfg.twelvedataApiKey;
+  await maintainMinutePaths(INSTRUMENT);
   let attempt = 0;
   const connect = () => {
     const ws = openSocket(`wss://ws.twelvedata.com/v1/quotes/price?apikey=${encodeURIComponent(key)}`);
@@ -197,13 +200,25 @@ async function run(openSocket: (url: string) => StreamSocket) {
       }
       const print = readPricePrint(message);
       if (!print) return;
-      pending.push({ t: print.t, price: print.price, seq: seq++ });
-      const next = applyPrint(openBar, print);
-      openBar = next.open;
-      if (next.sealed) {
-        void saveBar(next.sealed).catch((err) => console.error("[market] sealed bar write failed:", (err as Error).message));
-        void flushOpen();
-      }
+      void (async () => {
+        const action = routePrint(openBar?.t ?? null, print.t);
+        if (action === "merge") {
+          const merged = await mergeSealedPrint(INSTRUMENT, print.t, print.price);
+          if (merged) return;
+        }
+        if (action === "seal" && openBar) {
+          const split = splitSeal(pending, openBar.t);
+          pending = split.open;
+          await sealMinute(INSTRUMENT, new Date(openBar.t), split.sealed);
+        }
+        pending.push({ t: print.t, price: print.price, seq: seq++ });
+        const next = applyPrint(openBar, print);
+        openBar = next.open;
+        if (next.sealed) {
+          void saveBar(next.sealed).catch((err) => console.error("[market] sealed bar write failed:", (err as Error).message));
+          void flushOpen();
+        }
+      })();
     });
     const retry = () => {
       stopTimers();

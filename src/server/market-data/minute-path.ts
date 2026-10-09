@@ -50,3 +50,11 @@ export function routePrint(openMinute: number | null, printTime: number): "buffe
   if (openMinute !== null && minute > openMinute) return "seal";
   return "buffer";
 }
+
+export function splitSeal<T extends { t: number }>(pending: T[], sealedMinute: number): { sealed: T[]; open: T[] } {
+  const end = sealedMinute + 60_000;
+  return {
+    sealed: pending.filter((row) => row.t >= sealedMinute && row.t < end),
+    open: pending.filter((row) => row.t >= end),
+  };
+}
