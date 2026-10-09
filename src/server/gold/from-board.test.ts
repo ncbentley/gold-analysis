@@ -384,16 +384,28 @@ describe("syncGoldBook", () => {
       createdAt: new Date(now - 20 * 60 * 60_000),
     });
     const oneSource: string[] = [];
-    await db.insert(marketBars).values({
-      instrument: "XAUUSD",
-      resolution: "1m",
-      timestamp: new Date(now - 20 * 60 * 60_000 + 60_000),
-      open: 4200,
-      high: 4202,
-      low: 4198,
-      close: 4200,
-      provider: "test",
-    });
+    await db.insert(marketBars).values([
+      {
+        instrument: "XAUUSD",
+        resolution: "1m",
+        timestamp: new Date(now - 20 * 60 * 60_000 + 60_000),
+        open: 4112,
+        high: 4112,
+        low: 4112,
+        close: 4112,
+        provider: "test",
+      },
+      {
+        instrument: "XAUUSD",
+        resolution: "1m",
+        timestamp: new Date(now),
+        open: 4112,
+        high: 4112,
+        low: 4112,
+        close: 4112,
+        provider: "test",
+      },
+    ]);
     for (const [entryMin, entryMax, stopLoss, age] of [
       [4144, 4152, 4132, 4 * 60 * 60_000],
       [4123, 4130, 4110, 2 * 60 * 60_000],
@@ -421,10 +433,10 @@ describe("syncGoldBook", () => {
         instrument: "XAUUSD",
         resolution: "1m",
         timestamp: new Date(now - age + 60_000),
-        open: 4200,
-        high: 4202,
-        low: 4198,
-        close: 4200,
+        open: 4112,
+        high: 4112,
+        low: 4112,
+        close: 4112,
         provider: "test",
       });
       await db.insert(goldBookEntries).values({
