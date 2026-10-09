@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, gte, lte, lt, ne, sql } from "drizzle-orm";
 import { getDb } from "@/server/db";
-import { marketBars, marketDataSync, signals } from "@/server/db/schema";
-import { readStoredTicks } from "./paths";
+import { marketBars, marketDataSync, marketMinutePaths, marketTicks, signals } from "@/server/db/schema";
+import { maintainMinutePaths, readStoredTicks } from "./paths";
 import { getSetting, SETTING_KEYS } from "@/server/settings";
 import type { EngineBar, EngineTick } from "@/server/outcomes/engine";
 import { mockMarketDataProvider } from "./mock-provider";
@@ -80,6 +80,7 @@ async function adoptStoredBars(instrument: string, providerName: string) {
 export async function syncMarketData(opts: { from?: Date; to?: Date; instrument?: string } = {}) {
   const db = await getDb();
   const instrument = opts.instrument ?? INSTRUMENT;
+  await maintainMinutePaths(instrument);
   const provider = await getMarketDataProvider();
   const state = await adoptStoredBars(instrument, provider.name);
   const now = new Date();
@@ -270,4 +271,6 @@ export async function resetMarketData(instrument = INSTRUMENT) {
   const db = await getDb();
   await db.delete(marketBars).where(eq(marketBars.instrument, instrument));
   await db.delete(marketDataSync).where(eq(marketDataSync.instrument, instrument));
+  await db.delete(marketMinutePaths).where(eq(marketMinutePaths.instrument, instrument));
+  await db.delete(marketTicks).where(eq(marketTicks.instrument, instrument));
 }

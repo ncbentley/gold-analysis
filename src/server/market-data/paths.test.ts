@@ -2,8 +2,8 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "@/server/db";
 import { runMigrations } from "@/server/db/migrate";
-import { marketMinutePaths, marketTicks } from "@/server/db/schema";
-import { getEngineTicks } from "./index";
+import { marketBars, marketDataSync, marketMinutePaths, marketTicks } from "@/server/db/schema";
+import { getEngineTicks, resetMarketData } from "./index";
 import { PATH_RETENTION_MS } from "./minute-path";
 import { compactClosedMinutes, deleteExpiredPaths, deleteSealedBuffer, mergeSealedPrint, sealMinute } from "./paths";
 
@@ -108,5 +108,28 @@ describe("minute path storage", () => {
       { t: MINUTE + 20, price: 101 },
     ]);
     expect(await db.select().from(marketTicks).where(eq(marketTicks.instrument, instrument))).toEqual([]);
+  });
+
+  it("clears paths and buffer prints when the bar series is reset", async () => {
+    const db = await getDb();
+    await db.insert(marketBars).values({
+      instrument: INSTRUMENT,
+      resolution: "1m",
+      timestamp: new Date(0),
+      open: 1,
+      high: 1,
+      low: 1,
+      close: 1,
+      volume: null,
+      provider: "mock",
+    });
+    await db.insert(marketDataSync).values({ instrument: INSTRUMENT, provider: "mock", syncedThrough: new Date(0) });
+    await resetMarketData(INSTRUMENT);
+    const paths = await db.select().from(marketMinutePaths).where(eq(marketMinutePaths.instrument, INSTRUMENT));
+    const ticks = await db.select().from(marketTicks).where(eq(marketTicks.instrument, INSTRUMENT));
+    const bars = await db.select().from(marketBars).where(eq(marketBars.instrument, INSTRUMENT));
+    expect(paths).toEqual([]);
+    expect(ticks).toEqual([]);
+    expect(bars).toEqual([]);
   });
 });
