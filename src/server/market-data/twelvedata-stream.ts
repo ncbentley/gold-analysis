@@ -174,7 +174,11 @@ async function run(openSocket: (url: string) => StreamSocket) {
         writing = false;
         if (dirty) {
           dirty = false;
-          void flushOpen();
+          chain = chain
+            .then(() => flushOpen())
+            .catch((err) => {
+              console.error("[market] price write failed:", (err as Error).message);
+            });
         }
       }
     };
@@ -184,7 +188,13 @@ async function run(openSocket: (url: string) => StreamSocket) {
       heartbeat = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: "heartbeat" }));
       }, HEARTBEAT_MS);
-      flush = setInterval(() => void flushOpen(), FLUSH_MS);
+      flush = setInterval(() => {
+        chain = chain
+          .then(() => flushOpen())
+          .catch((err) => {
+            console.error("[market] price write failed:", (err as Error).message);
+          });
+      }, FLUSH_MS);
       console.log("[market] price stream connected, subscribed to XAU/USD");
     });
     ws.addEventListener("message", (event) => {
@@ -218,7 +228,7 @@ async function run(openSocket: (url: string) => StreamSocket) {
           openBar = next.open;
           if (next.sealed) {
             void saveBar(next.sealed).catch((err) => console.error("[market] sealed bar write failed:", (err as Error).message));
-            void flushOpen();
+            await flushOpen();
           }
         })
         .catch((err) => {
