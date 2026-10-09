@@ -452,6 +452,18 @@ export const marketTicks = pgTable(
   ],
 );
 
+/** Ordered prints for one sealed minute. Offsets are milliseconds from `minute`. */
+export const marketMinutePaths = pgTable(
+  "market_minute_paths",
+  {
+    instrument: text("instrument").notNull(),
+    minute: ts("minute").notNull(),
+    offsets: integer("offsets").array().notNull(),
+    prices: doublePrecision("prices").array().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.instrument, t.minute] })],
+);
+
 /** How far market data is known to be complete, per instrument. */
 
 export const marketDataSync = pgTable("market_data_sync", {
