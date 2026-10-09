@@ -9,7 +9,7 @@ import { listIdeasForViewer } from "@/server/ideas/service";
 import { getRecentBars } from "@/server/market-data";
 import { countOpenSignalsForViewer, listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
 import type { ListedIdea } from "@/server/ideas/service";
-import { goldBookCards } from "@/server/gold/sections";
+import { byNewest, goldBookCards } from "@/server/gold/sections";
 import type { SignalListItem } from "@/server/presenters";
 
 const CACHE_VERSION = "v5";
@@ -153,7 +153,7 @@ async function buildSnapshot(view: DashboardView, config: Awaited<ReturnType<typ
   };
   if (view === "silver") {
     const ideas = await listIdeasForViewer(viewer, lastBar?.close ?? null);
-    const history = ideas.filter((idea) => idea.phase === "history");
+    const history = byNewest(ideas.filter((idea) => idea.phase === "history"));
     const spot = lastBar?.close ?? null;
     const glanced = await annotateIdeaGlance(
       [...ideas.filter((idea) => idea.phase !== "history"), ...history.slice(0, 5)],
@@ -169,7 +169,7 @@ async function buildSnapshot(view: DashboardView, config: Awaited<ReturnType<typ
     };
   } else if (view === "gold") {
     const cards = await goldBookCards(viewer, lastBar?.close ?? null);
-    const history = cards.filter((card) => card.section === "history");
+    const history = byNewest(cards.filter((card) => card.section === "history"));
     cache.gold = {
       available: cards.filter((card) => card.section === "available"),
       active: cards.filter((card) => card.section === "active"),

@@ -15,6 +15,11 @@ export interface GoldBookCard extends ListedIdea {
   href: string;
 }
 
+/** Newest call first. History previews keep this order, then take the first few. */
+export function byNewest<T extends { newestSignalAt: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => Date.parse(b.newestSignalAt) - Date.parse(a.newestSignalAt));
+}
+
 /** One card per Gold book row. Prices are the model's, including a zone it composed itself. */
 export async function goldBookCards(_viewer: Viewer, spot: number | null, now = Date.now()): Promise<GoldBookCard[]> {
   const rows = await listGoldEntries();
@@ -85,5 +90,5 @@ export async function goldBookCards(_viewer: Viewer, spot: number | null, now = 
       }),
     });
   }
-  return cards;
+  return byNewest(cards);
 }

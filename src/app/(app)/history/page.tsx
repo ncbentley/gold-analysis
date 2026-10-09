@@ -7,7 +7,7 @@ import { SignalList } from "@/components/signal-list";
 import { nowMs } from "@/lib/clock";
 import { can, lowestTierWith } from "@/server/entitlements/access";
 import { getViewer } from "@/server/entitlements/service";
-import { goldBookCards } from "@/server/gold/sections";
+import { byNewest, goldBookCards } from "@/server/gold/sections";
 import { annotateIdeaGlance } from "@/server/ideas/glance";
 import { listIdeasForViewer } from "@/server/ideas/service";
 import { getRecentBars } from "@/server/market-data";
@@ -33,7 +33,7 @@ export default async function HistoryPage() {
   const spot = lastBar?.close ?? null;
 
   if (access.tier === "gold" && !access.isAdmin) {
-    const history = (await goldBookCards(viewer, spot, now)).filter((card) => card.section === "history");
+    const history = byNewest((await goldBookCards(viewer, spot, now)).filter((card) => card.section === "history"));
     return (
       <>
         {header}
@@ -45,7 +45,10 @@ export default async function HistoryPage() {
   }
 
   if (access.tier === "silver") {
-    const history = await annotateIdeaGlance((await listIdeasForViewer(viewer, spot)).filter((idea) => idea.phase === "history"), spot);
+    const history = await annotateIdeaGlance(
+      byNewest((await listIdeasForViewer(viewer, spot)).filter((idea) => idea.phase === "history")),
+      spot,
+    );
     return (
       <>
         {header}
