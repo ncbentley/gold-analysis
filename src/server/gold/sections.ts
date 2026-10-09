@@ -4,6 +4,7 @@ import { getDb } from "@/server/db";
 import { consolidatedIdeas } from "@/server/db/schema";
 import type { Viewer } from "@/server/entitlements/service";
 import { replayIdea } from "@/server/ideas/replay";
+import { indexTicks, OUTCOME_RULES } from "@/server/outcomes/engine";
 import type { ListedIdea } from "@/server/ideas/service";
 import { getEngineBars, getEngineTicks } from "@/server/market-data";
 import { goldSection } from "./close";
@@ -40,6 +41,7 @@ export async function goldBookCards(_viewer: Viewer, spot: number | null, now = 
   const windowStart = new Date(from);
   const windowEnd = new Date(now + 60_000);
   const [bars, ticks] = rows.length ? await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]) : [[], []];
+  const paths = indexTicks(ticks, OUTCOME_RULES.barMs);
   const cards: GoldBookCard[] = [];
   for (const row of rows) {
     const idea = row.ideaId ? byId.get(row.ideaId) : undefined;
@@ -55,7 +57,9 @@ export async function goldBookCards(_viewer: Viewer, spot: number | null, now = 
       bars,
       spot,
       true,
-      ticks,
+      [],
+      now,
+      paths,
     );
     const finished = played.outcome.entered && played.outcome.exitTime !== null && played.phase === "history";
     const section = goldSection(

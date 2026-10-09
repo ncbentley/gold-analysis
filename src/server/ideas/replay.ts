@@ -23,6 +23,7 @@ export function replayIdea(
   presorted = false,
   ticks: EngineTick[] = [],
   now = Date.now(),
+  tickPaths?: Map<number, number[]>,
 ): { phase: IdeaPhase; outcome: EngineOutcome } {
   const outcome = evaluateSignal(
     {
@@ -42,6 +43,7 @@ export function replayIdea(
     OUTCOME_RULES,
     presorted,
     ticks,
+    tickPaths,
   );
   const closed = outcome.entered && outcome.exitTime !== null && outcome.classification !== "OPEN";
   return {

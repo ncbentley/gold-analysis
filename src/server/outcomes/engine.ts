@@ -191,7 +191,7 @@ interface ReplayState {
   cp: ReplayCheckpoint;
 }
 
-function indexTicks(ticks: EngineTick[], barMs: number) {
+export function indexTicks(ticks: EngineTick[], barMs: number) {
   const buckets = new Map<number, number[]>();
   for (const tick of ticks) {
     const key = Math.floor(tick.t / barMs) * barMs;
@@ -233,20 +233,33 @@ function blankCheckpoint(signal: EngineSignal): ReplayCheckpoint {
   };
 }
 
-function createReplay(signal: EngineSignal, adjustments: EngineAdjustment[], rules: OutcomeRules, ticks: EngineTick[] = []): ReplayState {
+function createReplay(
+  signal: EngineSignal,
+  adjustments: EngineAdjustment[],
+  rules: OutcomeRules,
+  ticks: EngineTick[] = [],
+  tickPaths?: Map<number, number[]>,
+): ReplayState {
   return {
     signal,
     adj: [...adjustments].sort((a, b) => a.effectiveAt - b.effectiveAt),
     dir: signal.direction === "LONG" ? 1 : -1,
     expiry: signal.expiryTime ?? signal.signalTime + rules.defaultExpiryMinutes * 60_000,
     weight: 1 / Math.max(signal.targets.length, 1),
-    tickPaths: indexTicks(ticks, rules.barMs),
+    tickPaths: tickPaths ?? indexTicks(ticks, rules.barMs),
     cp: blankCheckpoint(signal),
   };
 }
 
-function restoreReplay(checkpoint: ReplayCheckpoint, signal: EngineSignal, adjustments: EngineAdjustment[], rules: OutcomeRules, ticks: EngineTick[] = []): ReplayState {
-  const state = createReplay(signal, adjustments, rules, ticks);
+function restoreReplay(
+  checkpoint: ReplayCheckpoint,
+  signal: EngineSignal,
+  adjustments: EngineAdjustment[],
+  rules: OutcomeRules,
+  ticks: EngineTick[] = [],
+  tickPaths?: Map<number, number[]>,
+): ReplayState {
+  const state = createReplay(signal, adjustments, rules, ticks, tickPaths);
   state.cp = structuredClone(checkpoint);
   return state;
 }
@@ -582,13 +595,14 @@ export function evaluateSignal(
   rules: OutcomeRules = OUTCOME_RULES,
   presorted = false,
   ticks: EngineTick[] = [],
+  tickPaths?: Map<number, number[]>,
 ): EngineOutcome {
   const firstBarStart = Math.ceil(signal.signalTime / rules.barMs) * rules.barMs;
   const series = presorted ? bars : bars.filter((b) => b.t >= firstBarStart).sort((a, b) => a.t - b.t);
   const origin = presorted ? lowerBoundBar(bars, firstBarStart) : 0;
   const lastBar = origin < series.length ? series[series.length - 1] : undefined;
   const lastKnown = dataThrough ?? (lastBar ? lastBar.t + rules.barMs : null);
-  let state = createReplay(signal, adjustments, rules, ticks);
+  let state = createReplay(signal, adjustments, rules, ticks, tickPaths);
   for (let i = origin; i < series.length; i++) {
     // dataThrough is the last moment that counts. A later bar is not a fill.
     if (dataThrough !== null && series[i].t > dataThrough) continue;
@@ -606,8 +620,9 @@ export function advanceFromCheckpoint(
   dataThrough: number | null,
   rules: OutcomeRules = OUTCOME_RULES,
   ticks: EngineTick[] = [],
+  tickPaths?: Map<number, number[]>,
 ): EngineOutcome {
-  let state = restoreReplay(checkpoint, signal, adjustments, rules, ticks);
+  let state = restoreReplay(checkpoint, signal, adjustments, rules, ticks, tickPaths);
   for (const bar of bars) {
     if (dataThrough !== null && bar.t > dataThrough) continue;
     if (bar.t <= checkpoint.barTime || state.cp.done) continue;

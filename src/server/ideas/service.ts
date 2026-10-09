@@ -7,7 +7,7 @@ import { historyCutoff, tierForSignalTime } from "@/server/entitlements/access";
 import type { Viewer } from "@/server/entitlements/service";
 import { getEngineBars, getEngineTicks } from "@/server/market-data";
 import { listSignalListItemsByIds } from "@/server/signals/queries";
-import type { EngineOutcome } from "@/server/outcomes/engine";
+import { indexTicks, OUTCOME_RULES, type EngineOutcome } from "@/server/outcomes/engine";
 import { entrySpan, groupSignals, IDEA_ENTRY_SPAN_USD, qualifiedCallAt, type GroupedIdea } from "./group";
 import type { IdeaPhase } from "./phase";
 import { replayIdea } from "./replay";
@@ -194,10 +194,11 @@ export async function replayConsolidatedIdeas(rows: (typeof consolidatedIdeas.$i
   const windowStart = new Date(from);
   const windowEnd = new Date(Date.now() + 60_000);
   const [bars, ticks] = rows.length ? await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]) : [[], []];
+  const paths = indexTicks(ticks, OUTCOME_RULES.barMs);
   const played = new Map<string, ReturnType<typeof replayIdea> & { startedAt: number }>();
   for (const row of rows) {
     const startedAt = started.get(row.id) ?? row.newestSignalAt.getTime();
-    played.set(row.id, { ...replayIdea({ ...row, startedAt }, bars, spot, true, ticks), startedAt });
+    played.set(row.id, { ...replayIdea({ ...row, startedAt }, bars, spot, true, [], Date.now(), paths), startedAt });
   }
   return played;
 }

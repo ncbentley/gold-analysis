@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { EngineBar } from "@/server/outcomes/engine";
+import { indexTicks, type EngineBar } from "@/server/outcomes/engine";
 import { replayIdea, type IdeaLevels } from "./replay";
 
 const start = Date.UTC(2026, 0, 5, 14, 0, 0);
@@ -54,5 +54,23 @@ describe("replayIdea", () => {
   it("stays available while spot can still fill the entry", () => {
     const bars = [bar(1, 2655, 2656, 2654, 2655)];
     expect(replayIdea(idea, bars, 2655).phase).toBe("available");
+  });
+
+  it("reuses a prepared print index for every idea", () => {
+    const start = Date.parse("2026-03-02T15:00:00Z");
+    const bars = [{ t: start, o: 2650, h: 2660, l: 2640, c: 2655 }];
+    const idea: IdeaLevels = {
+      direction: "LONG",
+      entryMin: 2648,
+      entryMax: 2652,
+      stopLoss: 2640,
+      targets: [2660],
+      startedAt: start,
+    };
+    const paths = indexTicks([{ t: start, price: 2650 }, { t: start + 1_000, price: 2640 }], 60_000);
+    const first = replayIdea(idea, bars, null, true, [], start, paths);
+    const second = replayIdea(idea, bars, null, true, [{ t: start, price: 9999 }], start, paths);
+    expect(second).toEqual(first);
+    expect(first.outcome.entered).toBe(true);
   });
 });

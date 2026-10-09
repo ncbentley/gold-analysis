@@ -4,6 +4,7 @@ import { getDb } from "@/server/db";
 import { consolidatedIdeas, signals, type BoardPick } from "@/server/db/schema";
 import { callCovered } from "@/server/ideas/phase";
 import { replayIdea } from "@/server/ideas/replay";
+import { indexTicks, OUTCOME_RULES } from "@/server/outcomes/engine";
 import { MIN_CONSOLIDATED_SOURCES, replayConsolidatedIdeas } from "@/server/ideas/service";
 import { getEngineBars, getEngineTicks, getRecentBars } from "@/server/market-data";
 import { CLOSE_HOLD_MS } from "./close";
@@ -107,6 +108,7 @@ export async function reconcileGoldBook(now = new Date()) {
   const windowStart = new Date(from);
   const windowEnd = new Date(now.getTime() + 60_000);
   const [bars, ticks] = await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]);
+  const paths = indexTicks(ticks, OUTCOME_RULES.barMs);
   const closed: string[] = [];
   const reopened: string[] = [];
   const capRows: { id: string; ideaId: string | null; createdAt: number }[] = [];
@@ -129,7 +131,9 @@ export async function reconcileGoldBook(now = new Date()) {
       bars,
       spot,
       true,
-      ticks,
+      [],
+      now.getTime(),
+      paths,
     );
     const ideaCalledAt = row.ideaId ? calledAtByIdea.get(row.ideaId) : undefined;
     const calledAt = ideaCalledAt == null ? row.createdAt.getTime() : Math.min(row.createdAt.getTime(), ideaCalledAt);
@@ -214,6 +218,7 @@ async function closeSections(ids: string[], stored: Awaited<ReturnType<typeof li
   const windowStart = new Date(from);
   const windowEnd = new Date(Date.now() + 60_000);
   const [bars, ticks] = await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]);
+  const paths = indexTicks(ticks, OUTCOME_RULES.barMs);
   const [bar] = (await getRecentBars(1)).slice(-1);
   for (const row of rows) {
     const played = replayIdea(
@@ -228,7 +233,9 @@ async function closeSections(ids: string[], stored: Awaited<ReturnType<typeof li
       bars,
       bar?.close ?? null,
       true,
-      ticks,
+      [],
+      Date.now(),
+      paths,
     );
     const id = row.ideaId ?? row.id;
     if (filledTradeStillOpen(played.outcome)) {

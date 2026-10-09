@@ -4,6 +4,7 @@ import { getDb } from "@/server/db";
 import { boardPosts, consolidatedIdeas, feedRevisions, marketDirectionSnapshots, signalTargets, signals, sourceStats, sources, type BoardCardState, type BoardPick } from "@/server/db/schema";
 import { MIN_CONSOLIDATED_SOURCES, replayConsolidatedIdeas } from "@/server/ideas/service";
 import { replayIdea } from "@/server/ideas/replay";
+import { indexTicks, OUTCOME_RULES } from "@/server/outcomes/engine";
 import type { IdeaPhase } from "@/server/ideas/phase";
 import { getEngineBars, getEngineTicks, getRecentBars } from "@/server/market-data";
 import { listGoldEntries } from "@/server/gold/store";
@@ -65,6 +66,7 @@ async function loadMarket(now: number, since: Date | null) {
   const windowStart = new Date(earliest);
   const windowEnd = new Date(now + 60_000);
   const [bars, ticks] = usable.length ? await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]) : [[], []];
+  const paths = indexTicks(ticks, OUTCOME_RULES.barMs);
   const liveSignals = usable.filter((row) => {
     if (!silverSignalIds.has(row.signal.id)) return false;
     const targets = targetRows.filter((target) => target.signalId === row.signal.id).sort((a, b) => a.targetIndex - b.targetIndex).map((target) => target.price).filter((price): price is number => price !== null);
@@ -80,7 +82,9 @@ async function loadMarket(now: number, since: Date | null) {
       bars,
       spot,
       true,
-      ticks,
+      [],
+      Date.now(),
+      paths,
     ).phase;
     return phase === "available";
   });
@@ -148,10 +152,11 @@ async function pickPhase(pick: BoardPick, startedAt: number, spot: number | null
 }
 
 async function anyPickLive(picks: BoardPick[], startedAt: number, spot: number | null) {
-  for (const pick of picks) {
-    if ((await pickPhase(pick, startedAt, spot)).phase !== "history") return true;
-  }
-  return false;
+  const from = new Date(startedAt);
+  const to = new Date(Date.now() + 60_000);
+  const [bars, ticks] = await Promise.all([getEngineBars(from, to), getEngineTicks(from, to)]);
+  const paths = indexTicks(ticks, OUTCOME_RULES.barMs);
+  return picks.some((pick) => replayIdea({ ...pick, startedAt }, bars, spot, true, [], Date.now(), paths).phase !== "history");
 }
 
 export async function refreshBoard(deps: { now?: number; fullHistory?: boolean; generate?: (facts: Record<string, unknown>) => Promise<unknown> } = {}) {
@@ -255,8 +260,9 @@ export async function labelPicks(picks: BoardPick[], spot: number | null, fallba
   const from = new Date(fallback);
   const to = new Date(Date.now() + 60_000);
   const [bars, ticks] = await Promise.all([getEngineBars(from, to), getEngineTicks(from, to)]);
+  const paths = indexTicks(ticks, OUTCOME_RULES.barMs);
   return slots.map((row) => {
-    const played = replayIdea({ ...row.pick, startedAt: fallback }, bars, spot, true, ticks);
+    const played = replayIdea({ ...row.pick, startedAt: fallback }, bars, spot, true, [], Date.now(), paths);
     return { slot: row.slot, phase: played.phase, startedAt: fallback };
   });
 }
