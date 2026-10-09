@@ -16,16 +16,23 @@ import type { Tier } from "@/server/db/schema";
 
 export const dynamic = "force-dynamic";
 
-const PAID: Tier[] = ["silver", "gold"];
+const PAID: Tier[] = ["basic", "silver", "gold"];
 
-const BOOK_COPY: Record<"trial" | Tier, string> = {
-  trial: `Every valid signal, for ${FREE_HISTORY_DAYS} days, with no card. When the week ends and no plan is chosen, the book locks.`,
+const BOOK_COPY: Record<Tier, string> = {
+  basic: `Every valid signal, for ${FREE_HISTORY_DAYS} days. A new account sees this book with no card. Basic keeps it after the week.`,
   silver: "Nearby calls are averaged into one idea. The model does not add, edit, or close these.",
   gold: "A shorter list from the Silver ideas. The news read sits above the book. Each row is the idea: direction, zone, stop, targets, and how many sources agreed.",
 };
 
+const PLAN_BLURB: Record<Tier, string> = {
+  basic: "Every valid signal, one week back.",
+  silver: "Every consolidated idea.",
+  gold: "The news read, above a shorter list of ideas.",
+};
+
 function planLines(tier: Tier, historyDays: number | null): string[] {
   const history = historyDays ? `${historyDays} days of history` : "Full history";
+  if (tier === "basic") return ["Every valid signal", history];
   if (tier === "silver") return ["Nearby calls averaged into one idea", history];
   return ["The news read above the book", "A shorter list from the Silver ideas", "Direction, zone, stop, targets, and how many sources agreed", history];
 }
@@ -52,7 +59,7 @@ export default async function LandingPage() {
   const monthly = new Map(plans.filter((p) => p.period === "monthly").map((p) => [p.tier, p]));
 
   const books = [
-    { key: "trial" as const, name: "Trial", window: historyLabel(FREE_HISTORY_DAYS), body: BOOK_COPY.trial },
+    { key: "basic" as const, name: TIER_LABEL.basic, window: historyLabel(config.basic.historyDays), body: BOOK_COPY.basic },
     { key: "silver" as const, name: TIER_LABEL.silver, window: historyLabel(config.silver.historyDays), body: BOOK_COPY.silver },
     { key: "gold" as const, name: TIER_LABEL.gold, window: historyLabel(config.gold.historyDays), body: BOOK_COPY.gold },
   ];
@@ -77,7 +84,7 @@ export default async function LandingPage() {
               A smaller gold book at every step.
             </h1>
             <p className="mt-5 max-w-xl text-pretty text-lg leading-relaxed text-foreground/85">
-              A new account gets {FREE_HISTORY_DAYS} days of every gold signal. Silver turns nearby calls into one idea. Gold keeps a shorter list from that set, with the news read above the book.
+              A new account gets {FREE_HISTORY_DAYS} days of every gold signal. Basic keeps that book. Silver turns nearby calls into one idea. Gold keeps a shorter list from that set, with the news read above the book.
               Channels stay unnamed. The same rules every time.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
@@ -160,7 +167,7 @@ export default async function LandingPage() {
         <p className="mt-2 max-w-2xl text-pretty text-muted-foreground">
           Create an account for {FREE_HISTORY_DAYS} days of every signal. No card. Monthly prices are below. Weekly and annual billing are on the pricing page.
         </p>
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
           {PAID.map((tier) => {
             const featured = tier === "gold";
             const plan = monthly.get(tier);
@@ -173,7 +180,7 @@ export default async function LandingPage() {
                 )}
               >
                 <h3 className={cn("font-heading text-2xl font-extrabold tracking-tight", featured && "gold-text")}>{TIER_LABEL[tier]}</h3>
-                <p className="mt-1 text-sm text-foreground/75">{tier === "gold" ? "The news read, above a shorter list of ideas." : "Every consolidated idea."}</p>
+                <p className="mt-1 text-sm text-foreground/75">{PLAN_BLURB[tier]}</p>
                 <p className={cn("mt-5 font-heading text-4xl font-extrabold tabular-nums tracking-tight", featured && "gold-text")}>
                   {plan ? fmtMoney(plan.amountCents, plan.currency) : "—"}
                   <span className="font-sans text-sm font-normal text-muted-foreground"> / month</span>
@@ -193,7 +200,7 @@ export default async function LandingPage() {
           })}
         </div>
         <p className="mt-6 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Add a card for Silver or Gold during those {FREE_HISTORY_DAYS} days and the rest of the trial is Gold access. When the week ends, billing starts on the plan you picked. Cancel any time. Access continues until the end of the paid period.
+          Basic keeps the trial book after the week. Add a card for Silver or Gold during those {FREE_HISTORY_DAYS} days and the rest of the trial is Gold access. When the week ends, billing starts on the plan you picked. Cancel any time. Access continues until the end of the paid period.
         </p>
         <div className="mt-6">
           <Link href="/signup" className={cn(buttonVariants({ size: "lg" }), "px-6")}>

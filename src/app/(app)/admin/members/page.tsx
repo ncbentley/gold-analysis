@@ -26,7 +26,7 @@ export default async function MembersPage({ searchParams }: PageProps<"/admin/me
         icon={UsersRound}
         size="sm"
         title="Members"
-        description="Everyone who has joined. Grant complimentary Silver or Gold when it is a higher tier than the plan they pay for. It does not charge them and stays until you remove it."
+        description="Everyone who has joined. Grant complimentary Basic, Silver, or Gold when it is a higher tier than the plan they pay for. It does not charge them and stays until you remove it."
       />
       <Notice searchParams={sp} />
       <form action="/admin/members" method="get" className="mb-4 flex max-w-md gap-2">
@@ -66,6 +66,16 @@ export default async function MembersPage({ searchParams }: PageProps<"/admin/me
                   <TableCell>{member.accessLabel}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap justify-end gap-1.5">
+                      {member.canGrantBasic && (
+                        <form action={grantComplimentaryAction}>
+                          <input type="hidden" name="userId" value={member.id} />
+                          <input type="hidden" name="tier" value="basic" />
+                          <input type="hidden" name="returnTo" value={returnTo} />
+                          <Button type="submit" size="xs" variant="outline">
+                            Grant Basic
+                          </Button>
+                        </form>
+                      )}
                       {member.canGrantSilver && (
                         <form action={grantComplimentaryAction}>
                           <input type="hidden" name="userId" value={member.id} />

@@ -13,6 +13,7 @@ import { FEATURE_CATALOG, TIER_LABEL, TIER_ORDER } from "@/server/entitlements/c
 import { getViewer } from "@/server/entitlements/service";
 
 const TAGLINE: Record<Tier, string> = {
+  basic: "Every valid signal, one week back",
   silver: "Nearby calls averaged into one idea",
   gold: "The news read, above a shorter list of ideas",
 };
@@ -55,7 +56,7 @@ export async function PlanPicker({ period, highlight, basePath, anchor }: { peri
         </div>
       </div>
 
-      <div className="mt-7 grid gap-5 lg:grid-cols-2">
+      <div className="mt-7 grid gap-5 lg:grid-cols-3">
         {offeredTiers.map((tier, i) => {
           const plan = byKey.get(`${tier}:${period}`);
           const prev = i > 0 ? new Set(config[offeredTiers[i - 1]].features) : new Set<string>();

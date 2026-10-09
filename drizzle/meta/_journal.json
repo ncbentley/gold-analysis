@@ -139,7 +139,14 @@
       "idx": 19,
       "version": "7",
       "when": 1792281600000,
-      "tag": "0019_market_minute_paths",
+      "tag": "0019_basic_tier",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792368000000,
+      "tag": "0020_market_minute_paths",
       "breakpoints": true
     }
   ]

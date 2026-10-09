@@ -64,10 +64,10 @@ Computed when a signal is read. It is not stored, and it does not use a hand-pic
 
 ## Entitlements
 
-- **Features are string keys in a per-tier config** (`tier_entitlements`), editable at `/admin/entitlements`, plus a history window in days (`null` means unlimited). The defaults follow PRD section 5: Silver 30 days, Gold 180 days, Platinum unlimited.
+- **Features are string keys in a per-tier config** (`tier_entitlements`), editable at `/admin/entitlements`, plus a history window in days (`null` means unlimited). Basic is the former free-trial book: core signal fields, the final result, and 7 days of history, at $10 a month. Silver is 180 days. Gold is unlimited.
 - **Enforcement lives in presenters** (`src/server/presenters.ts`). Locked sections are replaced with `{ locked: true, requiredTier }` before serialization, so pages and the API share one code path and nothing hidden is sent to the client.
 - **Advanced filters and search** are ignored server-side for tiers without them. The API reports them in `ignoredFilters`.
-- **Admins get every feature.** Visitors with no plan can browse the app shell and see upgrade prompts, but no signal data. An admin can preview Silver, Gold, Platinum, or no plan from the member shell. That choice is a cookie honored only for an admin, and admin pages keep using the real account.
+- **Admins get every feature.** A new account sees the Basic book for 7 days. After that, visitors with no plan can browse the app shell and see upgrade prompts, but no signal data. Paying for Basic keeps that book and does not jump the account to Gold. Silver or Gold chosen during the week still receives Gold until the week ends. An admin can preview Basic, Silver, Gold, or no plan from the member shell. That choice is a cookie honored only for an admin, and admin pages keep using the real account.
 - **CSV export** exists as a feature key but is assigned to no tier, per PRD non-goals.
 
 ## Source identity
@@ -81,7 +81,7 @@ Computed when a signal is read. It is not stored, and it does not use a hand-pic
 
 - **Cancelled subscriptions keep access until the end of the paid period.** Plan changes in mock mode take effect immediately.
 - **Stripe is optional.** Without `STRIPE_SECRET_KEY`, checkout goes to a local mock page that activates the plan. With Stripe configured, access is granted only by verified webhooks. An hourly reconciliation job refreshes Stripe subscriptions whose period has ended (in case a webhook was missed), and renews or expires mock ones.
-- **Prices live in the `plans` table.** The seeded amounts are placeholders.
+- **Prices live in the `plans` table.** The seeded amounts are placeholders. Basic is $5 a week, $10 a month, and $100 a year.
 - **Email verification is required before checkout.** This reduces throwaway accounts on paid plans.
 
 ## AI

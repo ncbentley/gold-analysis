@@ -6,6 +6,7 @@ import { ANONYMOUS, buildAccess, can, freeAccess, gate, historyCutoff, lowestTie
 import { DEFAULT_TIER_CONFIG, type TierConfig } from "./config";
 
 const config = DEFAULT_TIER_CONFIG;
+const basic = buildAccess("basic", config);
 const silver = buildAccess("silver", config);
 const gold = buildAccess("gold", config);
 
@@ -125,7 +126,12 @@ describe("access", () => {
   });
 
   it("tiers are cumulative by default", () => {
+    for (const f of config.basic.features) {
+      expect(can(silver, f)).toBe(true);
+      expect(can(gold, f)).toBe(true);
+    }
     for (const f of config.silver.features) expect(can(gold, f)).toBe(true);
+    expect(can(basic, "sources.stats.summary")).toBe(false);
     expect(can(silver, "sources.stats.summary")).toBe(true);
     expect(can(silver, "sources.stats.recent")).toBe(false);
     expect(can(gold, "ai.summary")).toBe(false);
@@ -141,7 +147,7 @@ describe("access", () => {
   });
 
   it("reports the lowest tier that unlocks a feature", () => {
-    expect(lowestTierWith("signals.core", config)).toBe("silver");
+    expect(lowestTierWith("signals.core", config)).toBe("basic");
     expect(lowestTierWith("similar.summary", config)).toBe("gold");
     expect(lowestTierWith("ai.patterns", config)).toBeNull();
     expect(lowestTierWith("consensus.grade", config)).toBeNull();
@@ -151,7 +157,7 @@ describe("access", () => {
   });
 
   it("follows configuration rather than hard-coded tiers", () => {
-    const custom: Record<"silver" | "gold", TierConfig> = {
+    const custom: Record<keyof typeof config, TierConfig> = {
       ...config,
       silver: { features: [...config.silver.features, "ai.summary"], historyDays: 7 },
     };
@@ -166,8 +172,10 @@ describe("access", () => {
   });
 
   it("names the cheapest plan whose history window covers the signal", () => {
+    const threeDaysAgo = new Date(now.getTime() - 3 * 86_400_000);
     const eightDaysAgo = new Date(now.getTime() - 8 * 86_400_000);
     const twoHundredDaysAgo = new Date(now.getTime() - 200 * 86_400_000);
+    expect(tierForSignalTime(threeDaysAgo, config, now)).toBe("basic");
     expect(tierForSignalTime(eightDaysAgo, config, now)).toBe("silver");
     expect(tierForSignalTime(twoHundredDaysAgo, config, now)).toBe("gold");
   });

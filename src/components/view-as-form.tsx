@@ -8,6 +8,7 @@ const LEVELS = [
   { value: "admin", label: "Admin" },
   { value: "gold", label: "Gold" },
   { value: "silver", label: "Silver" },
+  { value: "basic", label: "Basic" },
   { value: "none", label: "No plan" },
 ] as const;
 
