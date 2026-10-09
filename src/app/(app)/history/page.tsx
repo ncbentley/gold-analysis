@@ -8,6 +8,7 @@ import { nowMs } from "@/lib/clock";
 import { can, lowestTierWith } from "@/server/entitlements/access";
 import { getViewer } from "@/server/entitlements/service";
 import { goldBookCards } from "@/server/gold/sections";
+import { annotateIdeaGlance } from "@/server/ideas/glance";
 import { listIdeasForViewer } from "@/server/ideas/service";
 import { getRecentBars } from "@/server/market-data";
 import { listSignalsForViewer } from "@/server/signals/queries";
@@ -44,7 +45,7 @@ export default async function HistoryPage() {
   }
 
   if (access.tier === "silver") {
-    const history = (await listIdeasForViewer(viewer, spot)).filter((idea) => idea.phase === "history");
+    const history = await annotateIdeaGlance((await listIdeasForViewer(viewer, spot)).filter((idea) => idea.phase === "history"), spot);
     return (
       <>
         {header}

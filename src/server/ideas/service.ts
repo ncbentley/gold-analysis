@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
+import type { IdeaGlance } from "@/lib/trade-glance";
 import { getDb } from "@/server/db";
 import { consolidatedIdeas, signalTargets, signals, sources } from "@/server/db/schema";
 import { historyCutoff, tierForSignalTime } from "@/server/entitlements/access";
@@ -127,6 +128,7 @@ export interface ListedIdea {
   sourceCount: number;
   newestSignalAt: string;
   phase: IdeaPhase;
+  glance?: IdeaGlance;
 }
 
 const PHASE_RANK: Record<IdeaPhase, number> = { available: 0, "playing-out": 1, history: 2 };

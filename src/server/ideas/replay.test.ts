@@ -43,7 +43,12 @@ describe("replayIdea", () => {
 
   it("stays available when the only bar is long after the call", () => {
     const bars = [bar(60, 2640, 2642, 2638, 2640)];
-    expect(replayIdea(idea, bars, 2640).phase).toBe("available");
+    expect(replayIdea(idea, bars, 2640, false, [], start + 60 * 60_000).phase).toBe("available");
+  });
+
+  it("retires a stale call once price has left, even when the path starts late", () => {
+    const bars = [bar(60, 2640, 2642, 2638, 2640)];
+    expect(replayIdea(idea, bars, 2640, false, [], start + 4 * 24 * 60 * 60_000).phase).toBe("history");
   });
 
   it("stays available while spot can still fill the entry", () => {

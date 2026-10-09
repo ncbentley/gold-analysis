@@ -4,6 +4,7 @@ import { boardPosts, consolidatedIdeas, dashboardSnapshots, feedRevisions, goldB
 import { latestMarketDirection } from "@/server/direction/service";
 import { buildAccess, freeAccess } from "@/server/entitlements/access";
 import { getTierConfig, type Viewer } from "@/server/entitlements/service";
+import { annotateIdeaGlance } from "@/server/ideas/glance";
 import { listIdeasForViewer } from "@/server/ideas/service";
 import { getRecentBars } from "@/server/market-data";
 import { countOpenSignalsForViewer, listSignalsForViewer, listTopSourcesForViewer } from "@/server/signals/queries";
@@ -11,7 +12,7 @@ import type { ListedIdea } from "@/server/ideas/service";
 import { goldBookCards } from "@/server/gold/sections";
 import type { SignalListItem } from "@/server/presenters";
 
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 
 export interface BookSectionsCache<T> {
   available: T[];
@@ -104,6 +105,7 @@ async function fingerprint() {
     .from(marketDirectionSnapshots)
     .orderBy(sql`${marketDirectionSnapshots.createdAt} desc`)
     .limit(1);
+  const [lastBar] = (await getRecentBars(1)).slice(-1);
   const [goldBook] = await db
     .select({
       n: sql<number>`count(*)::int`,
@@ -130,6 +132,7 @@ async function fingerprint() {
     direction?.id ?? "",
     goldBook?.n ?? 0,
     goldBook?.digest ?? "",
+    lastBar ? `${lastBar.close.toFixed(2)}@${lastBar.timestamp.toISOString()}` : "",
   ].join("|");
 }
 
@@ -151,10 +154,17 @@ async function buildSnapshot(view: DashboardView, config: Awaited<ReturnType<typ
   if (view === "silver") {
     const ideas = await listIdeasForViewer(viewer, lastBar?.close ?? null);
     const history = ideas.filter((idea) => idea.phase === "history");
+    const spot = lastBar?.close ?? null;
+    const glanced = await annotateIdeaGlance(
+      [...ideas.filter((idea) => idea.phase !== "history"), ...history.slice(0, 5)],
+      spot,
+    );
+    const byId = new Map(glanced.map((idea) => [idea.id, idea]));
+    const withGlance = (idea: (typeof ideas)[number]) => byId.get(idea.id) ?? idea;
     cache.ideas = {
-      available: ideas.filter((idea) => idea.phase === "available"),
-      active: ideas.filter((idea) => idea.phase === "playing-out"),
-      history: history.slice(0, 5),
+      available: ideas.filter((idea) => idea.phase === "available").map(withGlance),
+      active: ideas.filter((idea) => idea.phase === "playing-out").map(withGlance),
+      history: history.slice(0, 5).map(withGlance),
       historyCount: history.length,
     };
   } else if (view === "gold") {

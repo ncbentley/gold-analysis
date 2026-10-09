@@ -1,4 +1,5 @@
 import { inArray } from "drizzle-orm";
+import { tradeGlance } from "@/lib/trade-glance";
 import { getDb } from "@/server/db";
 import { consolidatedIdeas } from "@/server/db/schema";
 import type { Viewer } from "@/server/entitlements/service";
@@ -74,6 +75,14 @@ export async function goldBookCards(_viewer: Viewer, spot: number | null, now = 
       close: row.closeCalledAt !== null && section !== "history",
       section,
       href: `/gold/${row.id}`,
+      glance: tradeGlance({
+        phase: section === "active" ? "playing-out" : section,
+        direction: row.direction,
+        entryMin: row.entryMin,
+        entryMax: row.entryMax,
+        spot,
+        outcome: played.outcome,
+      }),
     });
   }
   return cards;

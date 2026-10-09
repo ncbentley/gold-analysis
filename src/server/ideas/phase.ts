@@ -3,6 +3,9 @@ export type IdeaPhase = "available" | "playing-out" | "history";
 /** A bar this long after the call is a later print, not a path from the call. */
 export const CALL_COVER_MS = 20 * 60 * 1000;
 
+/** After this, a missing path no longer keeps a call that price has already left. */
+export const UNCOVERED_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+
 /** True when a stored bar begins at the call. A print that shows up later leaves a hole. */
 export function callCovered(bars: { t: number }[], startedAt: number): boolean {
   let first = Infinity;
@@ -21,8 +24,11 @@ export interface PhaseInput {
   entered: boolean;
   closed: boolean;
   cancelled: boolean;
-  /** False when the stored series does not start at the call. Spot is then not a reason to retire it. */
+  /** False when the stored series does not start at the call. Spot is then not a reason to retire a fresh call. */
   covered?: boolean;
+  /** Call time. With `now`, a hole older than `UNCOVERED_GRACE_MS` uses spot again. */
+  calledAt?: number;
+  now?: number;
 }
 
 export interface PhaseMember {
@@ -52,10 +58,15 @@ export function phaseFromMembers(members: Array<PhaseMember | null | undefined>)
   return { entered, closed, cancelled: !entered && present.every(retired) };
 }
 
+function uncoveredGraceElapsed(calledAt: number | undefined, now: number | undefined) {
+  return calledAt != null && now != null && now - calledAt >= UNCOVERED_GRACE_MS;
+}
+
 export function ideaPhase(input: PhaseInput): IdeaPhase {
   if (input.cancelled || input.closed) return "history";
   if (input.entered) return "playing-out";
-  if (input.covered === false || input.spot === null) return "available";
+  const freshHole = input.covered === false && !uncoveredGraceElapsed(input.calledAt, input.now);
+  if (freshHole || input.spot === null) return "available";
   const { direction, entryMin, entryMax, stopLoss, spot } = input;
   if (direction === "LONG") {
     if (stopLoss !== null && spot <= stopLoss) return "history";

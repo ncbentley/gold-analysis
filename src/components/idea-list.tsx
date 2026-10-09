@@ -1,10 +1,11 @@
-import { ChevronRight, Layers } from "lucide-react";
+import { Check, ChevronRight, Layers } from "lucide-react";
 import Link from "next/link";
-import { DirectionBadge } from "@/components/signal-bits";
+import { DirectionBadge, RValue } from "@/components/signal-bits";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fmtAge, fmtDateTime, fmtEntry, fmtPrice } from "@/lib/format";
 import { nowMs } from "@/lib/clock";
+import type { IdeaGlance } from "@/lib/trade-glance";
 import { cn } from "@/lib/utils";
 import type { IdeaPhase } from "@/server/ideas/phase";
 
@@ -20,6 +21,7 @@ export interface IdeaListItem {
   phase: IdeaPhase;
   close?: boolean;
   href?: string;
+  glance?: IdeaGlance;
 }
 
 const PHASE_LABEL: Record<IdeaPhase, string> = {
@@ -58,17 +60,39 @@ function StatusBadges({ idea }: { idea: IdeaListItem }) {
   );
 }
 
-function Targets({ targets }: { targets: number[] }) {
+function Targets({ targets, hits }: { targets: number[]; hits?: boolean[] }) {
   if (!targets.length) return <span className="text-muted-foreground">—</span>;
   return (
     <span className="flex flex-wrap gap-x-2.5 gap-y-0.5">
-      {targets.map((price, index) => (
-        <span key={index} className="font-mono tabular-nums text-foreground/90">
-          {fmtPrice(price)}
-        </span>
-      ))}
+      {targets.map((price, index) => {
+        const hit = hits?.[index] === true;
+        return (
+          <span key={index} className={cn("inline-flex items-center gap-0.5 font-mono tabular-nums", hit ? "font-semibold text-win" : "text-foreground/90")}>
+            {hit && <Check className="size-3" strokeWidth={3} aria-hidden />}
+            {fmtPrice(price)}
+          </span>
+        );
+      })}
     </span>
   );
+}
+
+function Mark({ idea }: { idea: IdeaListItem }) {
+  const glance = idea.glance;
+  if (idea.phase === "available") {
+    const distance = glance?.distance;
+    if (!distance) return <span className="text-muted-foreground">—</span>;
+    if (distance.place === "inside") return <span className="text-sm font-medium text-primary">At entry</span>;
+    const edge = distance.place === "above" ? idea.entryMax : idea.entryMin;
+    const risk = idea.stopLoss == null ? null : Math.abs(edge - idea.stopLoss);
+    const near = risk != null && risk > 0 && distance.points <= risk;
+    return (
+      <span className={cn("font-mono text-sm tabular-nums", near ? "font-semibold text-primary" : "text-foreground/80")}>
+        {fmtPrice(distance.points)} {distance.place}
+      </span>
+    );
+  }
+  return <RValue value={glance?.r} className="font-semibold" />;
 }
 
 function sourceLabel(count: number) {
@@ -103,6 +127,7 @@ export function IdeaList({ items, empty, now = nowMs() }: { items: IdeaListItem[
               <TableHead>Entry</TableHead>
               <TableHead>Stop loss</TableHead>
               <TableHead>Targets</TableHead>
+              <TableHead>Now</TableHead>
               <TableHead>Sources</TableHead>
               <TableHead>Phase</TableHead>
               <TableHead className="w-8 px-0">
@@ -133,7 +158,10 @@ export function IdeaList({ items, empty, now = nowMs() }: { items: IdeaListItem[
                   <TableCell className={cn(cell, "font-mono font-semibold tabular-nums")}>{fmtEntry(idea.entryMin, idea.entryMax)}</TableCell>
                   <TableCell className={cn(cell, "font-mono tabular-nums", idea.stopLoss !== null && "text-loss")}>{fmtPrice(idea.stopLoss)}</TableCell>
                   <TableCell className={cn(cell, "max-w-56 text-sm")}>
-                    <Targets targets={idea.targets} />
+                    <Targets targets={idea.targets} hits={idea.glance?.hits} />
+                  </TableCell>
+                  <TableCell className={cn(cell, "whitespace-nowrap")}>
+                    <Mark idea={idea} />
                   </TableCell>
                   <TableCell className={cn(cell, "tabular-nums")}>{sourceLabel(idea.sourceCount)}</TableCell>
                   <TableCell className={cell}>
@@ -163,7 +191,10 @@ export function IdeaList({ items, empty, now = nowMs() }: { items: IdeaListItem[
               <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", long ? "bg-glow shadow-[0_0_10px_var(--glow)]" : "bg-loss shadow-[0_0_10px_var(--loss)]")} />
               <div className="flex items-center justify-between gap-2">
                 <DirectionBadge direction={idea.direction} />
-                <StatusBadges idea={idea} />
+                <span className="inline-flex items-center gap-2">
+                  <Mark idea={idea} />
+                  <StatusBadges idea={idea} />
+                </span>
               </div>
               <div className="mt-2.5 grid grid-cols-3 gap-2 text-xs">
                 <div>
@@ -180,7 +211,7 @@ export function IdeaList({ items, empty, now = nowMs() }: { items: IdeaListItem[
                 </div>
               </div>
               <div className="mt-2.5 flex items-center justify-between gap-3 border-t border-glow/15 pt-2 text-[11px] text-muted-foreground">
-                <Targets targets={idea.targets} />
+                <Targets targets={idea.targets} hits={idea.glance?.hits} />
                 <span className="shrink-0">{fmtAge(idea.newestSignalAt, now)} ago</span>
               </div>
             </Link>

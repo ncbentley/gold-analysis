@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callCovered, ideaPhase, phaseFromMembers, type PhaseInput, type PhaseMember } from "./phase";
+import { callCovered, ideaPhase, phaseFromMembers, UNCOVERED_GRACE_MS, type PhaseInput, type PhaseMember } from "./phase";
 
 const long: PhaseInput = {
   direction: "LONG",
@@ -62,6 +62,13 @@ describe("ideaPhase", () => {
   it("stays available when the series does not start at the call", () => {
     expect(ideaPhase({ ...long, spot: 2644, covered: false })).toBe("available");
     expect(ideaPhase({ ...long, spot: 2648, covered: false })).toBe("available");
+  });
+
+  it("keeps a fresh hole available and retires a stale one once price has left", () => {
+    const now = Date.UTC(2026, 9, 9);
+    expect(ideaPhase({ ...long, spot: 2644, covered: false, calledAt: now - 60_000, now })).toBe("available");
+    expect(ideaPhase({ ...long, spot: 2644, covered: false, calledAt: now - UNCOVERED_GRACE_MS, now })).toBe("history");
+    expect(ideaPhase({ ...long, spot: 2660, covered: false, calledAt: now - UNCOVERED_GRACE_MS, now })).toBe("available");
   });
 });
 

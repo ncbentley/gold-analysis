@@ -22,6 +22,7 @@ export function replayIdea(
   spot: number | null,
   presorted = false,
   ticks: EngineTick[] = [],
+  now = Date.now(),
 ): { phase: IdeaPhase; outcome: EngineOutcome } {
   const outcome = evaluateSignal(
     {
@@ -55,6 +56,8 @@ export function replayIdea(
       closed,
       cancelled: false,
       covered: callCovered(bars, idea.startedAt),
+      calledAt: idea.startedAt,
+      now,
     }),
   };
 }
