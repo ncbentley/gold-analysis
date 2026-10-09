@@ -26,6 +26,14 @@ describe("minute paths", () => {
     expect(path).toEqual({ minute: 0, offsets: [10, 20, 30], prices: [100, 101, 100] });
   });
 
+  it("keeps both prices when two prints share a vendor time", () => {
+    const path = collapsePrints(0, [
+      { t: 10, price: 100 },
+      { t: 10, price: 101 },
+    ]);
+    expect(path).toEqual({ minute: 0, offsets: [10, 10], prices: [100, 101] });
+  });
+
   it("merges a late print by vendor time", () => {
     const sealed = collapsePrints(MINUTE, [
       { t: MINUTE + 10, price: 100 },
@@ -44,6 +52,15 @@ describe("minute paths", () => {
       { t: 40, price: 102 },
     ]);
     expect(mergePrint(sealed, { t: 20, price: 100 }).prices).toEqual([100, 102]);
+  });
+
+  it("places an equal vendor time behind prints already stored", () => {
+    const sealed = collapsePrints(0, [{ t: 10, price: 100 }]);
+    expect(mergePrint(sealed, { t: 10, price: 101 })).toEqual({
+      minute: 0,
+      offsets: [10, 10],
+      prices: [100, 101],
+    });
   });
 
   it("routes a print to the buffer, a seal, or a merge", () => {
