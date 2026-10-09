@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupSignals, type GroupSignal } from "./group";
+import { groupSignals, qualifiedCallAt, type GroupSignal } from "./group";
 
 const t0 = Date.parse("2026-10-02T14:00:00Z");
 
@@ -33,6 +33,30 @@ describe("groupSignals", () => {
     expect(idea.targets).toEqual([2661, 2670]);
     expect(idea.exitSpreadStops).toBe(2);
     expect(idea.frozenAt).toBeNull();
+  });
+
+  it("keeps a few dollars of disagreement as one order and splits a price ladder", () => {
+    const step = (id: string, minutes: number, price: number) =>
+      sig({ id, sourceId: id, signalTime: t0 + minutes * 60_000, entryMin: price, entryMax: price });
+    const ideas = groupSignals(
+      [step("a", 0, 4140), step("b", 10, 4142), step("c", 20, 4144), step("d", 30, 4146), step("e", 40, 4148), step("f", 50, 4150)],
+      t0 + 60 * 60_000,
+    );
+    expect(ideas.map((idea) => idea.signalIds)).toEqual([
+      ["a", "b", "c", "d"],
+      ["e", "f"],
+    ]);
+    const close = groupSignals(
+      [step("a", 0, 4174), step("b", 5, 4176), step("c", 10, 4178)],
+      t0 + 20 * 60_000,
+    );
+    expect(close).toHaveLength(1);
+    expect(close[0].signalIds).toEqual(["a", "b", "c"]);
+  });
+
+  it("starts the silver call when the third source agrees", () => {
+    expect(qualifiedCallAt([t0, t0 + 60_000, t0 + 120_000, t0 + 180_000])).toBe(t0 + 120_000);
+    expect(qualifiedCallAt([t0 + 180_000, t0, t0 + 60_000, t0 + 120_000])).toBe(t0 + 120_000);
   });
 
   it("does not merge opposite directions or entries more than $2 apart", () => {

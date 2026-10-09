@@ -2,6 +2,25 @@ import { sameZone } from "@/server/consensus/rules";
 
 const QUIET_MS = 30 * 60_000;
 
+/**
+ * One idea is one order. Members still have to sit within $2 of each other, and
+ * the whole entry has to fit in this window. A chain of $2 steps can no longer
+ * walk up with price into a different trade.
+ */
+export const IDEA_ENTRY_SPAN_USD = 6;
+
+export function entrySpan(rows: { entryMin: number; entryMax: number }[]) {
+  if (!rows.length) return 0;
+  return Math.max(...rows.map((row) => row.entryMax)) - Math.min(...rows.map((row) => row.entryMin));
+}
+
+/** The silver call starts when a third source agrees, not at the first post. */
+export function qualifiedCallAt(times: number[]) {
+  const ordered = times.filter((time) => Number.isFinite(time)).sort((a, b) => a - b);
+  if (ordered.length >= 3) return ordered[2];
+  return ordered[0] ?? null;
+}
+
 export interface GroupSignal {
   id: string;
   sourceId: string;
@@ -33,6 +52,18 @@ export interface GroupedIdea {
 const mean = (xs: number[]) => xs.reduce((s, n) => s + n, 0) / xs.length;
 const range = (xs: number[]) => (xs.length < 2 ? 0 : Math.max(...xs) - Math.min(...xs));
 
+function clusterMid(rows: GroupSignal[]) {
+  return mean(rows.map((row) => (row.entryMin + row.entryMax) / 2));
+}
+
+function canJoin(rows: GroupSignal[], signal: GroupSignal) {
+  const newest = rows.reduce((latest, row) => Math.max(latest, row.signalTime), 0);
+  if (signal.signalTime - newest > QUIET_MS) return false;
+  if (rows[0].direction !== signal.direction) return false;
+  if (!rows.some((row) => sameZone(row, signal))) return false;
+  return entrySpan([...rows, signal]) <= IDEA_ENTRY_SPAN_USD;
+}
+
 export function groupSignals(signals: GroupSignal[], now: number): GroupedIdea[] {
   const usable = signals
     .filter((s) => !s.qa && s.status !== "INVALID" && s.status !== "CANCELLED" && s.status !== "MANUAL_REVIEW")
@@ -40,12 +71,10 @@ export function groupSignals(signals: GroupSignal[], now: number): GroupedIdea[]
     .sort((a, b) => a.signalTime - b.signalTime);
   const open: { rows: GroupSignal[]; replacedSignalIds: string[] }[] = [];
   for (const signal of usable) {
-    const cluster = open.find(({ rows }) => {
-      const newest = rows.reduce((m, r) => Math.max(m, r.signalTime), 0);
-      if (signal.signalTime - newest > QUIET_MS) return false;
-      if (rows[0].direction !== signal.direction) return false;
-      return rows.some((row) => sameZone(row, signal));
-    });
+    const matches = open.filter(({ rows }) => canJoin(rows, signal));
+    const mid = (signal.entryMin + signal.entryMax) / 2;
+    matches.sort((a, b) => Math.abs(clusterMid(a.rows) - mid) - Math.abs(clusterMid(b.rows) - mid));
+    const cluster = matches[0];
     if (!cluster) open.push({ rows: [signal], replacedSignalIds: [] });
     else {
       const prior = cluster.rows.findIndex((row) => row.sourceId === signal.sourceId);

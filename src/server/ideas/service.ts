@@ -8,7 +8,7 @@ import type { Viewer } from "@/server/entitlements/service";
 import { getEngineBars, getEngineTicks } from "@/server/market-data";
 import { listSignalListItemsByIds } from "@/server/signals/queries";
 import type { EngineOutcome } from "@/server/outcomes/engine";
-import { groupSignals, type GroupedIdea } from "./group";
+import { entrySpan, groupSignals, IDEA_ENTRY_SPAN_USD, qualifiedCallAt, type GroupedIdea } from "./group";
 import type { IdeaPhase } from "./phase";
 import { replayIdea } from "./replay";
 
@@ -104,8 +104,33 @@ async function persistIdeas(grouped: GroupedIdea[], replaceFrozen: boolean) {
   return grouped.length;
 }
 
+/**
+ * A frozen idea whose entries no longer fit in one order is opened again.
+ * The live regroup then splits the ladder. Ideas inside the span stay frozen.
+ */
+async function releaseOverwideFrozenIdeas(now: number) {
+  const db = await getDb();
+  const since = new Date(now - WINDOW_MS);
+  const frozen = await db
+    .select({ id: consolidatedIdeas.id, signalIds: consolidatedIdeas.signalIds })
+    .from(consolidatedIdeas)
+    .where(and(isNotNull(consolidatedIdeas.frozenAt), gte(consolidatedIdeas.newestSignalAt, since)));
+  if (!frozen.length) return;
+  const ids = [...new Set(frozen.flatMap((row) => row.signalIds))];
+  const prices = ids.length
+    ? await db.select({ id: signals.id, entryMin: signals.entryMin, entryMax: signals.entryMax }).from(signals).where(inArray(signals.id, ids))
+    : [];
+  const byId = new Map(prices.map((row) => [row.id, row]));
+  const release = frozen.filter((row) => {
+    const entries = row.signalIds.map((id) => byId.get(id)).filter((entry) => entry != null);
+    return entrySpan(entries) > IDEA_ENTRY_SPAN_USD;
+  });
+  if (release.length) await db.delete(consolidatedIdeas).where(inArray(consolidatedIdeas.id, release.map((row) => row.id)));
+}
+
 /** Regroups the last 48 hours. Frozen ideas, including the historical replay, stay put. */
 export async function replaceConsolidatedIdeas(now = Date.now()) {
+  await releaseOverwideFrozenIdeas(now);
   return persistIdeas(await groupStoredSignals(now, new Date(now - WINDOW_MS), true), false);
 }
 
@@ -144,12 +169,8 @@ async function startTimes(ids: string[]) {
 }
 
 function ideaStart(signalIds: string[], times: Map<string, number>, newest: Date) {
-  let start = newest.getTime();
-  for (const id of signalIds) {
-    const time = times.get(id);
-    if (time != null && time < start) start = time;
-  }
-  return start;
+  const called = qualifiedCallAt(signalIds.map((id) => times.get(id)).filter((time): time is number => time != null));
+  return called ?? newest.getTime();
 }
 
 function listedIdea(row: typeof consolidatedIdeas.$inferSelect, phase: IdeaPhase): ListedIdea {
