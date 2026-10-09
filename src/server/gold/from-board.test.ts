@@ -445,4 +445,72 @@ describe("syncGoldBook", () => {
     expect(rows.find((row) => row.ideaId === silverIdea.id)?.closeCalledAt).toBeNull();
     for (const id of oneSource) expect(rows.find((row) => row.ideaId === id)?.closeCalledAt).not.toBeNull();
   });
+
+  it("rewrites unfilled targets on the open call when the model also asks to close it", async () => {
+    const db = await getDb();
+    const now = Date.now();
+    await db.insert(marketBars).values({
+      instrument: "XAUUSD",
+      resolution: "1m",
+      timestamp: new Date(now),
+      open: 4296,
+      high: 4297,
+      low: 4295,
+      close: 4296,
+      provider: "test",
+    });
+    await db.delete(goldBookEntries);
+    await db.insert(consolidatedIdeas).values({
+      direction: "SHORT",
+      entryMin: 4300,
+      entryMax: 4304,
+      stopLoss: 4312,
+      targets: [4288, 4270],
+      exitSpreadStops: null,
+      exitSpreadTargets: [0, 0],
+      sourceCount: 3,
+      signalIds: [],
+      replacedSignalIds: [],
+      newestSignalAt: new Date(now - 60_000),
+      phase: "available",
+    });
+    const [gold] = await db
+      .insert(goldBookEntries)
+      .values({
+        direction: "SHORT",
+        entryMin: 4300,
+        entryMax: 4304,
+        stopLoss: 4312,
+        targets: [4288, 4270],
+        createdAt: new Date(now - 60_000),
+      })
+      .returning();
+    await db.update(boardPosts).set({ active: false }).where(eq(boardPosts.active, true));
+    await db.insert(boardPosts).values({
+      active: true,
+      promptVersion: "board-v7",
+      signalIds: [],
+      ideaIds: [],
+      primary: {
+        direction: "SHORT",
+        entryMin: 4300,
+        entryMax: 4304,
+        stopLoss: 4316,
+        targets: [4280, 4260],
+        writeup: "The same short, with the later targets stepped down.",
+        ideaIds: [],
+      },
+      alternates: [],
+      cardState: [],
+    });
+
+    await syncGoldBook([gold.id]);
+
+    const rows = (await listGoldEntries()).filter((row) => row.entryMin === 4300 && row.entryMax === 4304);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe(gold.id);
+    expect(rows[0].closeCalledAt).toBeNull();
+    expect(rows[0].stopLoss).toBe(4316);
+    expect(rows[0].targets).toEqual([4280, 4260]);
+  });
 });

@@ -11,8 +11,9 @@ import type { GoldLevel } from "./geometry";
 import { applyProposal } from "./publish";
 import { entryLeftBehind, filledTradeStillOpen, goldBookAction, goldCallOutsideSilver, goldIdsOverSilverCount } from "./qualify";
 import { sourcesRetired } from "./retire";
+import { reviseOpenCall, sameGoldEntry } from "./revise";
 import { settleStoredGoldCloses } from "./settle-stored";
-import { clearGoldClose, deleteGoldEntry, insertGoldEntry, linkGoldEntry, listGoldEntries, liveGoldLevels, markGoldClose } from "./store";
+import { clearGoldClose, deleteGoldEntry, insertGoldEntry, linkGoldEntry, listGoldEntries, liveGoldLevels, markGoldClose, updateGoldLevels } from "./store";
 
 function cents(price: number) {
   return Math.round(price * 100);
@@ -240,6 +241,43 @@ async function closeSections(ids: string[], stored: Awaited<ReturnType<typeof li
   return { sections, working };
 }
 
+/** Levels the model rewrote on a call that is already live. Hit targets stay. */
+async function levelEdits(pending: { row: Awaited<ReturnType<typeof listGoldEntries>>[number]; nextTargets: number[]; nextStop: number | null }[]) {
+  if (!pending.length) return [];
+  const from = Math.min(...pending.map((item) => item.row.createdAt.getTime()));
+  const windowStart = new Date(from);
+  const windowEnd = new Date(Date.now() + 60_000);
+  const [bars, ticks] = await Promise.all([getEngineBars(windowStart, windowEnd), getEngineTicks(windowStart, windowEnd)]);
+  const edits: { id: string; bookId: string; stopLoss: number | null; targets: number[] }[] = [];
+  for (const item of pending) {
+    const played = replayIdea(
+      {
+        direction: item.row.direction,
+        entryMin: item.row.entryMin,
+        entryMax: item.row.entryMax,
+        stopLoss: item.row.stopLoss,
+        targets: item.row.targets,
+        startedAt: item.row.createdAt.getTime(),
+      },
+      bars,
+      null,
+      true,
+      ticks,
+    );
+    const revised = reviseOpenCall({
+      entered: played.outcome.entered,
+      stopLoss: item.row.stopLoss,
+      nextStop: item.nextStop,
+      currentTargets: item.row.targets,
+      nextTargets: item.nextTargets,
+      hit: played.outcome.targets.map((target) => target.hitAt !== null),
+    });
+    if (!revised.edited) continue;
+    edits.push({ id: item.row.id, bookId: item.row.ideaId ?? item.row.id, stopLoss: revised.stopLoss, targets: revised.targets });
+  }
+  return edits;
+}
+
 /** Puts the model's own prices on the Gold book. A pick with no silver idea is a new idea. */
 export async function syncGoldBook(closeIds: string[] = []) {
   const justClosed = new Set(await closeRetiredGold());
@@ -258,6 +296,7 @@ export async function syncGoldBook(closeIds: string[] = []) {
   const picks = board.post?.active ? [board.post.primary, ...board.post.alternates] : [];
   const sourceRetired = await retiredSourceIdeas([...new Set(picks.flatMap((pick) => pick.ideaIds))]);
   const liveRows = stored.filter((row) => row.exitTime === null && !row.retired && row.closeCalledAt === null);
+  const pendingEdits = new Map<string, { row: (typeof liveRows)[number]; nextTargets: number[]; nextStop: number | null }>();
   const postAt = board.post?.createdAt ?? null;
   const candidates: (GoldLevel & { targets: number[]; ideaId: string | null })[] = [];
   let room = Math.max(0, silver.size - reconciled.openUnfilled);
@@ -298,8 +337,12 @@ export async function syncGoldBook(closeIds: string[] = []) {
       continue;
     }
     if (blocked(pick, ideaId)) continue;
-    const existing = liveRows.find((row) => zoneSignature(row) === zoneSignature(pick) || (ideaId !== null && row.ideaId === ideaId));
+    const entryMatch = liveRows.find((row) => sameGoldEntry(row, pick));
+    const existing = liveRows.find((row) => zoneSignature(row) === zoneSignature(pick) || (ideaId !== null && row.ideaId === ideaId)) ?? entryMatch;
     if (existing) {
+      if (entryMatch && zoneSignature(entryMatch) !== zoneSignature(pick)) {
+        pendingEdits.set(entryMatch.id, { row: entryMatch, nextTargets: pick.targets, nextStop: pick.stopLoss });
+      }
       if (!existing.ideaId && ideaId) await linkGoldEntry(existing.id, ideaId);
       continue;
     }
@@ -321,9 +364,13 @@ export async function syncGoldBook(closeIds: string[] = []) {
     room -= 1;
   }
 
+  const edits = await levelEdits([...pendingEdits.values()]);
+  for (const edit of edits) await updateGoldLevels(edit.id, { stopLoss: edit.stopLoss, targets: edit.targets });
+  const edited = new Set(edits.map((edit) => edit.bookId));
   const live = liveGoldLevels(stored).filter((level) => !justClosed.has(level.id) && !sourceRetired.has(level.id));
-  const judged = await closeSections(closeIds, stored);
-  const closable = closeIds.filter((id) => !judged.working.has(id) && judged.sections.has(id));
+  const requestedCloses = closeIds.filter((id) => !edited.has(id));
+  const judged = await closeSections(requestedCloses, stored);
+  const closable = requestedCloses.filter((id) => !judged.working.has(id) && judged.sections.has(id));
   return applyProposal({
     ideas: candidates,
     live,

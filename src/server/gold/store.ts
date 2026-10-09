@@ -36,6 +36,11 @@ export async function insertGoldEntry(level: GoldLevel & { targets: number[]; id
   return row;
 }
 
+export async function updateGoldLevels(id: string, levels: { stopLoss: number | null; targets: number[] }) {
+  const db = await getDb();
+  await db.update(goldBookEntries).set(levels).where(eq(goldBookEntries.id, id));
+}
+
 export async function markGoldClose(ideaId: string, calledAt: Date, sectionAtCall: "available" | "active") {
   const db = await getDb();
   await db
