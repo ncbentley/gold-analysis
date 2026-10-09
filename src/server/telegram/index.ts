@@ -803,6 +803,64 @@ export async function enableTelegramSignalTracking(chat: JoinedChat, actor: Acto
   return { sourceId: existing.id, already: false };
 }
 
+let channelLeaver: ((source: Source) => Promise<void>) | null = null;
+
+/** Tests leave a channel here so silence cleanup does not open a Telegram socket. */
+export function useTelegramChannelLeaver(leaver: typeof channelLeaver) {
+  channelLeaver = leaver;
+}
+
+/** True when this process may call Telegram. The web app must leave that to the queue process. */
+export function canActOnTelegramHere() {
+  return process.env.JOBS_WORKER !== "off" || channelLeaver != null;
+}
+
+function leaveRequest(source: Source) {
+  if (!source.telegramChannelId) return null;
+  if (source.telegramAccessHash) {
+    return new Api.channels.LeaveChannel({
+      channel: new Api.InputChannel({
+        channelId: returnBigInt(source.telegramChannelId),
+        accessHash: returnBigInt(source.telegramAccessHash),
+      }),
+    });
+  }
+  if (source.description?.startsWith("Telegram group")) {
+    return new Api.messages.DeleteChatUser({
+      chatId: returnBigInt(source.telegramChannelId),
+      userId: new Api.InputUserSelf(),
+    });
+  }
+  return null;
+}
+
+export type TelegramLeaveResult = "left" | "impossible" | "retry";
+
+/**
+ * Leaves a chat with the access already stored on the source.
+ * A channel needs its access hash. A basic group needs only its chat id.
+ * Already being gone counts as left. A disconnect or flood waits for the next pass.
+ */
+export async function leaveTelegramSource(source: Source): Promise<TelegramLeaveResult> {
+  const request = leaveRequest(source);
+  if (!request) return "impossible";
+  try {
+    if (channelLeaver) {
+      await channelLeaver(source);
+      return "left";
+    }
+    const client = await connectTelegram();
+    if (!client) return "retry";
+    await withTelegramSlot(() => withTimeout(client.invoke(request)));
+    return "left";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/USER_NOT_PARTICIPANT|CHANNEL_PRIVATE|CHAT_ID_INVALID/i.test(message)) return "left";
+    console.error(`[telegram] could not leave ${source.telegramUsername ?? source.telegramChannelId}:`, message);
+    return "retry";
+  }
+}
+
 /** Stops signal parsing. A starred source stays on the list as headlines. Anything else leaves the list. */
 export async function stopTelegramSignalTracking(sourceId: string, actor: Actor) {
   const db = await getDb();

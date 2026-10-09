@@ -107,6 +107,13 @@ export const TELEGRAM_CATCHUP_STALE_MS = 10 * 60_000;
 export const TELEGRAM_SYNC_BATCH = 80;
 
 /**
+ * A tracked channel with no signal in this window is taken off the tracked list.
+ * The account leaves the chat when the stored access can still do that.
+ * The clock starts at the source's creation when it has never produced a signal.
+ */
+export const SIGNAL_SILENCE_MS = 15 * 24 * 60 * 60_000;
+
+/**
  * In-flight Telegram API calls shared by history pages.
  *
  * Telegram does not publish a concurrency number for messages.getHistory.
