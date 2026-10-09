@@ -48,6 +48,10 @@ The PRD asks for deterministic, documented rules. The choices:
 - **No stop.** R is null and classification uses price PnL. These trades count in win rate but not in R statistics, and the rated sample size shows the difference.
 - **MFE and MAE** are measured from entry to exit. On the exit bar, only prices up to the exit price are included.
 
+## Market tape
+
+- **A sealed minute is one path, kept for 30 days.** Live prints sit in `market_ticks` until the minute closes, then move to `market_minute_paths` as ordered prices. Consecutive equal prices are stored once. A print that arrives after the seal is merged by vendor time. The market sync deletes paths older than 30 days. A replay of a missing path uses the candle path. Minute bars stay, and a provider reset deletes paths and buffer prints with the bars.
+
 ## Cross-trader consensus (`consensus-v1`)
 
 Computed when a signal is read. It is not stored, and it does not use a hand-picked channel list.
