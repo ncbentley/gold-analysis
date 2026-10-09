@@ -21,6 +21,18 @@ describe("trial access", () => {
     expect(can(access, "signals.core")).toBe(false);
   });
 
+  it("keeps basic access when basic is chosen during the trial", () => {
+    const access = accessForMember({
+      createdAt,
+      now: during,
+      subscription: { tier: "basic" },
+      config,
+    });
+    expect(access.tier).toBe("basic");
+    expect(access.historyDays).toBe(7);
+    expect(can(access, "sources.stats.summary")).toBe(false);
+  });
+
   it("grants gold for the rest of the trial when the chosen plan is silver", () => {
     const access = accessForMember({
       createdAt,

@@ -1,10 +1,10 @@
-import { ArrowDownRight, ArrowUpRight, Gem, Medal } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Gem, Medal, Shield } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { fmtR } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Tier } from "@/server/db/schema";
 
-export const TIER_ICON: Record<Tier, React.ComponentType<{ className?: string }>> = { silver: Medal, gold: Gem };
+export const TIER_ICON: Record<Tier, React.ComponentType<{ className?: string }>> = { basic: Shield, silver: Medal, gold: Gem };
 
 const STATUS_STYLE: Record<string, string> = {
   PENDING: "border-glow/50 bg-glow/10 text-[#8db6ff]",

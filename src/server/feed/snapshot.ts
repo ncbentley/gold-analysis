@@ -22,13 +22,14 @@ export interface BookSectionsCache<T> {
   historyCount: number;
 }
 
-export const DASHBOARD_VIEWS = ["admin", "gold", "silver", "free"] as const;
+export const DASHBOARD_VIEWS = ["admin", "gold", "silver", "basic", "free"] as const;
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number];
 
 export function dashboardViewFor(access: { isAdmin: boolean; tier: string | null }): DashboardView {
   if (access.isAdmin) return "admin";
   if (access.tier === "gold") return "gold";
   if (access.tier === "silver") return "silver";
+  if (access.tier === "basic") return "basic";
   return "free";
 }
 
@@ -200,7 +201,7 @@ async function buildSnapshot(view: DashboardView, config: Awaited<ReturnType<typ
   return cache;
 }
 
-/** Rebuilds the four dashboard snapshots when the stored inputs changed. Returns whether a page should refresh. */
+/** Rebuilds one dashboard snapshot per membership when the stored inputs changed. Returns whether a page should refresh. */
 export async function syncDashboardCache() {
   const db = await getDb();
   const next = await fingerprint();

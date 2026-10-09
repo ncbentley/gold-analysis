@@ -2,6 +2,7 @@ import type { BillingPeriod, Tier } from "@/server/db/schema";
 
 /** Seed placeholders only. Live prices are read from the plans table. */
 export const PLACEHOLDER_PRICES_CENTS: Record<Tier, Record<BillingPeriod, number>> = {
+  basic: { weekly: 500, monthly: 1000, annual: 10000 },
   silver: { weekly: 1400, monthly: 2900, annual: 29000 },
   gold: { weekly: 5000, monthly: 9900, annual: 99000 },
 };

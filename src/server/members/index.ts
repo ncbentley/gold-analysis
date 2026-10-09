@@ -19,6 +19,7 @@ export interface MemberListItem {
   paid: { tier: Tier; period: BillingPeriod; status: string } | null;
   complimentary: Tier | null;
   accessLabel: string;
+  canGrantBasic: boolean;
   canGrantSilver: boolean;
   canGrantGold: boolean;
   canRemove: boolean;
@@ -81,6 +82,7 @@ export async function listMembers(query: string): Promise<MemberListItem[]> {
       paid,
       complimentary,
       accessLabel,
+      canGrantBasic: canGrant(state, "basic"),
       canGrantSilver: canGrant(state, "silver"),
       canGrantGold: canGrant(state, "gold"),
       canRemove: person.role === "member" && complimentary != null,

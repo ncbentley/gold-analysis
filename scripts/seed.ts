@@ -9,7 +9,7 @@
  * SEED_DEMO_USERS=1 additionally creates one member per tier for testing access levels.
  */
 import "dotenv/config";
-import { sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { hashPassword } from "@/server/auth";
 import { PERIOD_DAYS, PLACEHOLDER_PRICES_CENTS, stripePriceEnv } from "@/server/billing/config";
 import { closeDb, getDb } from "@/server/db";
@@ -25,10 +25,17 @@ async function seedConfig() {
     const c = DEFAULT_TIER_CONFIG[tier];
     await db.insert(tierEntitlements).values({ tier, features: c.features, historyDays: c.historyDays }).onConflictDoNothing();
     for (const period of PERIODS) {
+      const providerPriceId = process.env[stripePriceEnv(tier, period)] ?? null;
       await db
         .insert(plans)
-        .values({ tier, period, amountCents: PLACEHOLDER_PRICES_CENTS[tier][period], providerPriceId: process.env[stripePriceEnv(tier, period)] ?? null })
+        .values({ tier, period, amountCents: PLACEHOLDER_PRICES_CENTS[tier][period], providerPriceId })
         .onConflictDoNothing();
+      if (providerPriceId) {
+        await db
+          .update(plans)
+          .set({ providerPriceId })
+          .where(and(eq(plans.tier, tier), eq(plans.period, period), isNull(plans.providerPriceId)));
+      }
     }
   }
 }

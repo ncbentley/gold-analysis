@@ -3,6 +3,9 @@ import { appliedComplimentary, canGrant } from "./complimentary";
 
 describe("appliedComplimentary", () => {
   it("uses a grant only when it is a higher tier than the paid plan", () => {
+    expect(appliedComplimentary(null, "basic")).toBe("basic");
+    expect(appliedComplimentary("basic", "silver")).toBe("silver");
+    expect(appliedComplimentary("basic", "basic")).toBeNull();
     expect(appliedComplimentary(null, "silver")).toBe("silver");
     expect(appliedComplimentary(null, "gold")).toBe("gold");
     expect(appliedComplimentary("silver", "gold")).toBe("gold");
@@ -21,6 +24,18 @@ describe("canGrant", () => {
     expect(canGrant({ ...member, paid: "silver" }, "silver")).toBe(false);
     expect(canGrant({ ...member, grant: "silver" }, "silver")).toBe(false);
     expect(canGrant({ ...member, role: "admin" }, "silver")).toBe(false);
+  });
+
+  it("offers Basic only when they pay for nothing and have no grant", () => {
+    expect(canGrant(member, "basic")).toBe(true);
+    expect(canGrant({ ...member, paid: "basic" }, "basic")).toBe(false);
+    expect(canGrant({ ...member, grant: "basic" }, "basic")).toBe(false);
+  });
+
+  it("offers Silver above Basic", () => {
+    expect(canGrant({ ...member, paid: "basic" }, "silver")).toBe(true);
+    expect(canGrant({ ...member, grant: "basic" }, "silver")).toBe(true);
+    expect(canGrant({ ...member, paid: "silver" }, "silver")).toBe(false);
   });
 
   it("offers Gold until they are already on Gold", () => {

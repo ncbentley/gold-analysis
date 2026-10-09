@@ -22,12 +22,12 @@ export default async function PricingPage({ searchParams }: PageProps<"/pricing"
       <PageHeader
         icon={Package}
         title="Choose your package"
-        description="A 7-day trial of every signal. Silver is every consolidated idea. Gold is a shorter list of those ideas, with the news read above the book."
+        description="A 7-day trial of every signal. Basic keeps that book. Silver is every consolidated idea. Gold is a shorter list of those ideas, with the news read above the book."
         features={FEATURES}
       />
 
       <p className="mt-7 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-        Add a card for Silver or Gold during the trial and the rest of that week is Gold access. When the week ends, billing starts on the plan you picked.
+        Basic keeps the trial book after the week. Add a card for Silver or Gold during the trial and the rest of that week is Gold access. When the week ends, billing starts on the plan you picked.
       </p>
 
       <div className="mt-6">

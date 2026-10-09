@@ -58,9 +58,10 @@ export interface TierConfig {
 
 /** Seed defaults. The live configuration is stored in the tier_entitlements table. */
 export const DEFAULT_TIER_CONFIG: Record<Tier, TierConfig> = {
+  basic: { features: FREE_FEATURES, historyDays: FREE_HISTORY_DAYS },
   silver: { features: SILVER, historyDays: 180 },
   gold: { features: GOLD, historyDays: null },
 };
 
-export const TIER_ORDER: Tier[] = ["silver", "gold"];
-export const TIER_LABEL: Record<Tier, string> = { silver: "Silver", gold: "Gold" };
+export const TIER_ORDER: Tier[] = ["basic", "silver", "gold"];
+export const TIER_LABEL: Record<Tier, string> = { basic: "Basic", silver: "Silver", gold: "Gold" };

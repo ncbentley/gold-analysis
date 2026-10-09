@@ -27,7 +27,7 @@ export function accessForMember(input: {
   const { createdAt, now, subscription, config } = input;
   const grant = appliedComplimentary(subscription?.tier ?? null, input.complimentary ?? null);
   if (subscription) {
-    if (inTrial(createdAt, now)) return buildAccess("gold", config);
+    if (inTrial(createdAt, now) && subscription.tier !== "basic") return buildAccess("gold", config);
     if (grant) return buildAccess(grant, config);
     return buildAccess(subscription.tier, config);
   }
