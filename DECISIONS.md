@@ -51,6 +51,7 @@ The PRD asks for deterministic, documented rules. The choices:
 ## Market tape
 
 - **A sealed minute is one path, kept for 30 days.** Live prints sit in `market_ticks` until the minute closes, then move to `market_minute_paths` as ordered prices. Consecutive equal prices are stored once. A print that arrives after the seal is merged by vendor time. The market sync deletes paths older than 30 days. A replay of a missing path uses the candle path. Minute bars stay, and a provider reset deletes paths and buffer prints with the bars.
+- **The price socket is the live tape.** A routine sync does not call Twelve Data while the newest bar and the sync cursor are both within two minutes of the clock. That pass still compacts paths and queues an outcome recalc. REST remains for history behind the first stored bar, for a stale tip or a cursor that has fallen behind the newest bar, and for a provider reset. A closed market with bars stored does not poll.
 
 ## Cross-trader consensus (`consensus-v1`)
 

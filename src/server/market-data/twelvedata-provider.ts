@@ -2,7 +2,8 @@ import { clipToClock, type MarketDataProvider, type ProviderBar } from "./provid
 
 /**
  * Twelve Data adapter (https://twelvedata.com). The free plan allows 8 requests per minute
- * and 800 per day, so routine syncs run every 2 minutes and backfill requests are spaced out.
+ * and 800 per day. Routine sync skips this call while the price socket is current.
+ * Backfill requests are spaced out.
  */
 export function createTwelveDataProvider(apiKey: string): MarketDataProvider {
   return {

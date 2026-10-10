@@ -82,7 +82,7 @@ async function saveBar(bar: MinuteBar) {
 
 /**
  * Keeps one Twelve Data price socket open and writes each XAU/USD print plus the minute bar built from it.
- * The REST sync still fills history. This socket only covers the minutes it is connected.
+ * Routine REST sync stays idle while this socket's latest bar is current. REST still fills history and a gap after a disconnect.
  */
 export function startTwelveDataStream(openSocket: (url: string) => StreamSocket = (url) => new WebSocket(url) as unknown as StreamSocket) {
   if (g.__gsiTwelveStream) return;

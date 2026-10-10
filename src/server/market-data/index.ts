@@ -6,7 +6,7 @@ import { getSetting, SETTING_KEYS } from "@/server/settings";
 import type { EngineBar, EngineTick } from "@/server/outcomes/engine";
 import { mockMarketDataProvider } from "./mock-provider";
 import { isGoldMarketOpen, type MarketDataProvider } from "./provider";
-import { routineSyncStart, seriesRepair, syncedRecently } from "./sync-window";
+import { routineRest, routineSyncStart, seriesRepair, syncedRecently } from "./sync-window";
 import { createTwelveDataProvider } from "./twelvedata-provider";
 
 export const INSTRUMENT = "XAUUSD";
@@ -76,7 +76,7 @@ async function adoptStoredBars(instrument: string, providerName: string) {
   return getSyncState(instrument);
 }
 
-/** Fetches bars from the provider and stores them. Idempotent: existing bars are kept. */
+/** Fetches bars from the provider and stores them. Idempotent: existing bars are kept. A routine sync skips the provider when the price socket is already current. */
 export async function syncMarketData(opts: { from?: Date; to?: Date; instrument?: string } = {}) {
   const db = await getDb();
   const instrument = opts.instrument ?? INSTRUMENT;
@@ -85,11 +85,41 @@ export async function syncMarketData(opts: { from?: Date; to?: Date; instrument?
   const state = await adoptStoredBars(instrument, provider.name);
   const now = new Date();
   const cursorAhead = Boolean(state && state.syncedThrough.getTime() > now.getTime());
-  if (!opts.from && state && !cursorAhead && provider.minSyncIntervalMs) {
-    const interval = isGoldMarketOpen(now) ? provider.minSyncIntervalMs : 60 * MINUTE;
-    if (syncedRecently(state.updatedAt.getTime(), now.getTime(), interval)) return { inserted: 0, syncedThrough: state.syncedThrough, skipped: true };
-  }
   const to = new Date(Math.floor(Math.min((opts.to ?? now).getTime(), now.getTime()) / MINUTE) * MINUTE);
+  if (!opts.from) {
+    const [newest] = await db
+      .select({ timestamp: marketBars.timestamp })
+      .from(marketBars)
+      .where(and(eq(marketBars.instrument, instrument), eq(marketBars.resolution, "1m")))
+      .orderBy(desc(marketBars.timestamp))
+      .limit(1);
+    const decision = routineRest({
+      newestBarMs: newest ? new Date(newest.timestamp).getTime() : null,
+      syncedThroughMs: state?.syncedThrough.getTime() ?? null,
+      nowMs: now.getTime(),
+      marketOpen: isGoldMarketOpen(now),
+    });
+    if (decision === "closed") return { inserted: 0, syncedThrough: state?.syncedThrough ?? to, skipped: true as const };
+    if (decision === "skip" && state) {
+      const advanced = state.syncedThrough.getTime() < to.getTime();
+      await db
+        .insert(marketDataSync)
+        .values({ instrument, provider: provider.name, syncedThrough: to, firstBarAt: state.firstBarAt })
+        .onConflictDoUpdate({
+          target: marketDataSync.instrument,
+          set: {
+            provider: provider.name,
+            syncedThrough: sql`least(greatest(${marketDataSync.syncedThrough}, ${to.toISOString()}::timestamptz), ${now.toISOString()}::timestamptz)`,
+            updatedAt: new Date(),
+          },
+        });
+      return { inserted: 0, syncedThrough: to, live: advanced };
+    }
+    if (state && !cursorAhead && provider.minSyncIntervalMs) {
+      const interval = isGoldMarketOpen(now) ? provider.minSyncIntervalMs : 60 * MINUTE;
+      if (syncedRecently(state.updatedAt.getTime(), now.getTime(), interval)) return { inserted: 0, syncedThrough: state.syncedThrough, skipped: true as const };
+    }
+  }
   const from = opts.from ?? new Date(routineSyncStart(state?.syncedThrough.getTime() ?? null, to.getTime(), now.getTime()));
   if (from >= to) return { inserted: 0, syncedThrough: to };
 

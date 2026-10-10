@@ -32,7 +32,7 @@ const handlers: Record<JobType, Handler> = {
     if (repair === "reset") await enqueueJob("MARKET_DATA_BACKFILL", { recalcAll: true }, { dedupeKey: "market-refetch-real" });
     const ahead = await signalIdsScoredAfter(new Date());
     for (const id of ahead) await enqueueJob("RECALC_OUTCOME", { signalId: id }, { dedupeKey: `recalc:${id}` });
-    if (res.inserted > 0 || ahead.length > 0 || repair !== "clean") {
+    if (res.inserted > 0 || res.live || ahead.length > 0 || repair !== "clean") {
       await enqueueJob("RECALC_OPEN_SIGNALS", {}, { dedupeKey: "recalc-open" });
       await enqueueJob("RELABEL_FEED", {}, { dedupeKey: "relabel-feed" });
     }
